@@ -49,9 +49,12 @@ const IMPORT_RE = /(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]|import\s+['"]([^'"
 const CORE_ALLOWED_PACKAGES: readonly string[] = [];
 
 /** core 区禁 node:* 与第三方 import（相对 import 允许；类型 import 同规）。
- *  相对 import 命中 forbiddenRel 子串 = 反向依赖下方层（adapters），拒绝；
- *  node: 内置仅 coreAllowedNode 白名单放行（如 async_hooks 镜像 contextvars）；
- *  裸包名一律拒绝（数据面契约已随引擎内置生成物，core 内相对引用）。 */
+ *  两条款口径（P1 裁决 1）：0-IO 条款（node: 白名单外拒绝 + 裸包拒绝）作用
+ *  coreDirs ∪ layerDirs（调用方按需传入）；forbiddenRel 反向依赖条款仅作用
+ *  coreDirs——相对 import 命中 forbiddenRel 子串 = 反向依赖下方层（adapters），
+ *  拒绝；dock 对 adapters 的公共面承载由 layer-dag 矩阵执法。
+ *  node: 内置仅 coreAllowedNode 白名单放行（如 async_hooks 镜像 contextvars)；
+ *  裸包名一律拒绝（数据面契约已随引擎内置生成物，core/dock 内相对引用）。 */
 export function checkCoreImports(
   content: string,
   path: string,

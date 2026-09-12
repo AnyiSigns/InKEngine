@@ -26,7 +26,7 @@ import {
   topo_order,
   validate_mechanism_registry,
   type MechanismContract,
-} from '../src/kernel/registry/index.js';
+} from '../src/dock/registry.js';
 import { MECHANISM_PORT_IDS } from '../src/dock/ports.js';
 import { runtime_contract } from '../src/kernel/runtime/contract.js';
 

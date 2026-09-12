@@ -1,7 +1,9 @@
 /**
- * gate 扫描器：遍历源码目录并应用规则。core 0-IO 纪律（core-import/core-token）
- * 作用于 coreDirs ∪ layerDirs（新搬迁层随 P2-P5 逐层纳入）；私有 seam 检查仍只
- * 作用 coreDirs；adapters 反向私有 import 规则作用于 adapterDirs；行数/生成文件
+ * gate 扫描器：遍历源码目录并应用规则。core 0-IO 纪律（node 内置/裸包 + core-token）
+ * 作用于 coreDirs ∪ layerDirs（新搬迁层随 P2-P5 逐层纳入）；禁反向依赖条款
+ * （coreForbiddenRelSubstrings）仅作用 coreDirs（P1 裁决 1：dock 公共面可承载
+ * adapters re-export，层向纪律归 layer-dag 矩阵）；私有 seam 检查仍只作用
+ * coreDirs；adapters 反向私有 import 规则作用于 adapterDirs；行数/生成文件
  * 规则作用于全部扫描目录；JSON 纪律作用于 jsonScanDirs。
  */
 
@@ -157,9 +159,14 @@ export async function scan({ root, config }: ScanOptions): Promise<Violation[]> 
       }
       const violation = checkLineLimit(content, rel, cfg.maxLines);
       if (violation) violations.push(violation);
-      const inCoreZone = [...cfg.coreDirs, ...cfg.layerDirs].some((zone) => isUnder(join(rootNorm, zone), file));
-      if (inCoreZone) {
-        violations.push(...checkCoreImports(content, rel, cfg.coreForbiddenRelSubstrings, cfg.coreAllowedNodeModules));
+      const inCoreZone = cfg.coreDirs.some((zone) => isUnder(join(rootNorm, zone), file));
+      const inLayerZone = cfg.layerDirs.some((zone) => isUnder(join(rootNorm, zone), file));
+      if (inCoreZone || inLayerZone) {
+        // core-import 两条款（计划 §5.1.2 + P1 裁决 1）：0-IO 条款（node:*/裸包）
+        // 作用 coreDirs ∪ layerDirs；禁反向依赖条款（forbiddenRel）仅作用 coreDirs
+        // （机制层禁依赖下方 IO 实现；dock 公共面承载 adapters re-export 属 S2 消亡物，
+        //  其层向纪律由 layer-dag 矩阵执法）。
+        violations.push(...checkCoreImports(content, rel, inCoreZone ? cfg.coreForbiddenRelSubstrings : [], cfg.coreAllowedNodeModules));
         violations.push(...checkCoreTokens(content, rel, cfg.coreForbiddenTokens, cfg.coreOpaqueTokens));
       }
       violations.push(...(await collectSeamViolations(file, content, rootNorm, cfg.coreDirs, cfg.adapterDirs, cfg.coreSeamMarker, headCache)));

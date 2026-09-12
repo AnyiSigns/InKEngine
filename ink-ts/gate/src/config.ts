@@ -9,9 +9,9 @@ export interface GateConfig {
   lineScanDirs: readonly string[];
   /** core 区相对路径（import/词汇/私有 seam 规则扫这里；含 kernel 机制件区）。 */
   coreDirs: readonly string[];
-  /** core 0-IO 纪律扩面层（core-import/core-token 判定集合 = coreDirs ∪ layerDirs；
-   *  私有 seam 检查仍只作用 coreDirs）。P0 值 = ['engine/src/dock']：
-   *  随 P2-P5 搬迁逐层加入，禁逆向移除。 */
+  /** core 0-IO 纪律扩面层（node 内置/裸包 + core-token 判定集合 = coreDirs ∪ layerDirs；
+   *  禁反向依赖条款与私有 seam 检查仍只作用 coreDirs，P1 裁决 1）。P0 值 =
+   *  ['engine/src/dock']：随 P2-P5 搬迁逐层加入，禁逆向移除。 */
   layerDirs: readonly string[];
   /** adapters 区相对路径（反向依赖 core 私有模块检查）。 */
   adapterDirs: readonly string[];
@@ -25,7 +25,9 @@ export interface GateConfig {
   coreOpaqueTokens: readonly string[];
   /** core 允许的 node: 内置白名单（如 async_hooks = Python contextvars 等价物）。 */
   coreAllowedNodeModules: readonly string[];
-  /** core 相对 import 中禁出现的子串（反向依赖下方层，如 adapters）。 */
+  /** core 相对 import 中禁出现的子串（反向依赖下方层，如 adapters）：仅作用
+   *  coreDirs（机制层禁依赖下方 IO 实现；dock 公共面承载 adapters re-export 由
+   *  layer-dag 矩阵执法，P1 裁决 1）。 */
   coreForbiddenRelSubstrings: readonly string[];
   /** layer-dag 层向门禁是否强制（false = 报告模式：违规打印 WARN 但 exit 0；P7 转强制）。 */
   layerDagEnforce: boolean;

@@ -138,6 +138,27 @@ describe('gate 规则', () => {
     expect(on.map((v) => v.message).join('\n')).toContain('node:fs');
   });
 
+  it('core-import 两条款（P1 裁决 1）：dock re-export adapters 放行（反向依赖条款仅 coreDirs）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
+    await write(root, 'engine/src/dock/api.ts', `export * from '../adapters/zzz.js';\n`);
+    const violations = await scan({ root, config: { ...cfg, layerDirs: ['engine/src/dock'] } });
+    expect(violations.map((v) => v.rule)).not.toContain('core-import');
+  });
+
+  it('core-import 两条款（P1 裁决 1）：dock 0-IO 仍拒裸包；coreDirs 反向依赖 adapters 仍拒', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
+    await write(root, 'engine/src/dock/bare.ts', `import { debounce } from 'lodash';\nexport const d = debounce;\n`);
+    await write(root, 'engine/src/core/rev.ts', `import { z } from '../adapters/zzz.js';\nexport const r = z;\n`);
+    const violations = await scan({ root, config: { ...cfg, layerDirs: ['engine/src/dock'] } });
+    const msgs = violations
+      .filter((v) => v.rule === 'core-import')
+      .map((v) => `${v.path.split(/[\\/]/).join('/')}:${v.message}`);
+    expect(msgs.some((s) => s.startsWith('engine/src/dock/bare.ts'))).toBe(true);
+    expect(msgs.some((s) => s.startsWith('engine/src/core/rev.ts') && s.includes('adapters'))).toBe(true);
+  });
+
   it('src 内夹测试文件被拒（测试须置于 test/）', async () => {
     const root = await makeRoot();
     await write(root, 'cli/src/server.test.ts', `import { describe, it } from 'vitest';\n`);
@@ -284,13 +305,14 @@ describe('layer-dag 层向门禁', () => {
     expect(paths).toContain('engine/src/dock/bad.ts');
   });
 
-  it('dock→model 放行（model 被所有层引）；dock→adapters 仍违规', async () => {
+  it('dock→model 放行（model 被所有层引）；dock→adapters 由 layer-dag 矩阵执法（P1 裁决 1 后不再入 core-import）', async () => {
     const root = await makeRoot();
     await write(root, 'engine/src/model/yyy.ts', `export const y = 1;\n`);
     await write(root, 'engine/src/dock/xxx.ts', `import { y } from '../model/yyy.js';\nexport const x = y;\n`);
     await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
     await write(root, 'engine/src/dock/leak.ts', `import { z } from '../adapters/zzz.js';\nexport const l = z;\n`);
-    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true, layerDirs: [] }) });
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true, layerDirs: ['engine/src/dock'] }) });
+    expect(violations.map((v) => v.rule)).not.toContain('core-import');
     const paths = violations.filter((v) => v.rule === 'layer-dag').map((v) => v.path);
     expect(paths).not.toContain('engine/src/dock/xxx.ts');
     expect(paths).toContain('engine/src/dock/leak.ts');

@@ -154,7 +154,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 文件行数 ≤350（例外须标注） | engine、hosts(lib·cli·web)、renderer 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；hosts/web 阶段 2 起入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**`（plugins 例外：真面插件 `faces/`、`impl/` 内 `.test.ts(x)` 与源码同住并列 = 阶段 7a 目标形态，放行；生成器/脚本目录不进 src） | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
-| core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（P0 = `engine/src/dock/**`；core-import/core-token/禁反向依赖检查作用集合 = coreDirs ∪ layerDirs，私有 seam 检查仍只 core/kernel（见后两行）；layerDirs 随 P2-P5 搬迁逐层加入、禁逆向移除） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
+| core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（P0 = `engine/src/dock/**`；两条款口径：0-IO 条款 `node:*`/裸包 + core-token 检查作用集合 = coreDirs ∪ layerDirs，禁反向依赖条款与私有 seam 检查仍只 core/kernel（见后两行）——dock 公共面承载 adapters re-export 属 S2 消亡物，其层向纪律由 layer-dag 矩阵执法；layerDirs 随 P2-P5 搬迁逐层加入、禁逆向移除） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core/kernel 禁反向依赖 adapters | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
 | adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |

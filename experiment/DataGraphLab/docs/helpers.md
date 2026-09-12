@@ -111,7 +111,7 @@
 | `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
-| `plan_bfs` | `planBfs(task, graph, nodeBudget?): string[] | null` | `teacher/search.ts` | 待 Phase 0 | BFS 最短解（去重键复用 data/conflict_bfs.ts 的 stateDigest，C.4 同源）；不进训练集 |
+| `plan_bfs` | `planBfs(task, graph, opts?): string[] | null` | `teacher/search.ts` | 已落地 | BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集 |
 | `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=724; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
 | `Policy.forward/backward/act/save/load` | `Policy` | `controller/policy.ts` | 待 Phase 0 | pointer 打分；数值梯度校验 |
 | `val_ce / batches / snapshot` | `valCe(policy, D): number; batches(D, n); snapshot(policy)` | `controller/train.py` | 待 Phase 0 | 训练器内层；仅 numpy |

@@ -3,10 +3,11 @@
  * 给定 runId 时即在 `runs/<run_id>/manifest.json` 落全员版本化快照 + inputs_hash，
  * 六字段全为非空 string、world_version 与 world/version 对齐、generator/acceptor
  * 取源码指纹而非缺省 'unknown'，且两次构造逐字节同一（确定性）。测试使用唯一 run
- * 目录并在收尾整体删除，不污染真实门禁 run；无 runId 不落盘由 gates.test 语义覆盖。
+ * 目录并在收尾整体删除，不污染真实门禁 run；无 runId 不落盘在本文件直接断言
+ * （调用前后 `runs/` 下 manifest.json 清单不变）。
  */
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -17,8 +18,18 @@ import { worldVersion } from '../world/version.js';
 
 const RUN_ID = 'manifest-selfcheck';
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const RUN_DIR = join(PKG_ROOT, 'runs', RUN_ID);
+const RUNS_ROOT = join(PKG_ROOT, 'runs');
+const RUN_DIR = join(RUNS_ROOT, RUN_ID);
 const MANIFEST_PATH = join(RUN_DIR, 'manifest.json');
+
+/** runs/ 下全部 manifest.json 的相对路径清单（码点序），用于前后快照比对。 */
+function manifestInventory(): string[] {
+  if (!existsSync(RUNS_ROOT)) return [];
+  return readdirSync(RUNS_ROOT, { recursive: true })
+    .map((n) => String(n))
+    .filter((n) => n.endsWith('manifest.json'))
+    .sort((a, b) => (a === b ? 0 : a < b ? -1 : 1));
+}
 
 function readManifest(): Record<string, unknown> {
   return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as Record<string, unknown>;
@@ -59,6 +70,13 @@ describe('门禁 run manifest（runs/<run_id>/manifest.json，全员版本化快
     const first = readFileSync(MANIFEST_PATH, 'utf8');
     createGateContext({ runId: RUN_ID });
     expect(readFileSync(MANIFEST_PATH, 'utf8')).toBe(first);
+  });
+
+  it('无 runId：不落盘——调用前后 runs/ 下 manifest 清单不变', () => {
+    const before = manifestInventory();
+    const ctx = createGateContext();
+    expect(ctx.outDir).toBeUndefined();
+    expect(manifestInventory()).toEqual(before);
   });
 
   it('源码指纹口径：hashObj 16 位十六进制；自调用逐字相同', () => {

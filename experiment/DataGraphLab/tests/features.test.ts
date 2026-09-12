@@ -19,6 +19,8 @@ import {
   STATE_DIM,
   STEP_DIM,
   T_OFF,
+  type ObsFields,
+  type ObsView,
   featurizeAction,
   featurizeGoalStruct,
   featurizeInstr,
@@ -236,6 +238,32 @@ describe('白名单审计（唯一特征源不看见 spec/expected）', () => {
     st2 = applyOp(G, 'add3', st2)!;
     const v2 = featurizeObs('把值翻倍', { x: st2.x, answer: st2.answer, verdict: st2.verdict, hist: st2.hist });
     expect(v1).toEqual(v2);
+  });
+
+  it('注入黑名单键（spec/expected/plan_hidden）：输出与干净入参逐字节一致', () => {
+    const clean: ObsView = { x: -2, answer: 'ab', verdict: false, hist: ['add3', 'neg'] };
+    // 类型断言绕过硬类型：模拟运行时属性遍历/any 转投等旁路注入，审计输出面。
+    const dirty = {
+      ...clean,
+      spec: { goal: { kind: 'gt', target: 999 } },
+      expected: '脏值',
+      plan_hidden: ['add3'],
+    } as unknown as ObsView;
+    for (const fs of ['lang', 'struct', 'hash_only'] as const) {
+      const a = featurizeObs('先加三', clean, fs);
+      const b = featurizeObs('先加三', dirty, fs);
+      expect(b.length).toBe(a.length);
+      for (let i = 0; i < a.length; i++) expect(b[i]).toBe(a[i]); // Object.is 口径，逐元素
+    }
+    const sDirty = {
+      ...clean,
+      spec: { goal: { kind: 'gt', target: 999 } },
+      expected: '脏值',
+    } as unknown as ObsFields;
+    const sa = featurizeState(clean);
+    const sb = featurizeState(sDirty);
+    expect(sb.length).toBe(sa.length);
+    for (let i = 0; i < sa.length; i++) expect(sb[i]).toBe(sa[i]);
   });
 
   it('三套特征集输出长度与 OBS_DIM 一致且全 float32 无 NaN', () => {

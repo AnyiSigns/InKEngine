@@ -51,8 +51,20 @@ function sourceParts(files: readonly string[]): Array<{ path: string; content: s
   });
 }
 
-/** 控制器代码指纹：逐文件内容进规范序列化（TS 单侧自检口径，F.2.5）。 */
-export function controllerCodeHash(files: readonly string[] = ['controller/slots.ts']): string {
+/**
+ * 控制器代码指纹：逐文件内容进规范序列化（TS 单侧自检口径，F.2.5）。缺省覆盖
+ * controller 五件源文件：任何一份改动都必须翻转 manifest 的 controller_code_hash，
+ * 只 pin slots.ts 会让特征/策略/权重读写的漂移逃过版本锚点。
+ */
+export function controllerCodeHash(
+  files: readonly string[] = [
+    'controller/slots.ts',
+    'controller/features.ts',
+    'controller/features_struct.ts',
+    'controller/policy.ts',
+    'controller/checkpoint.ts',
+  ],
+): string {
   return hashObj(sourceParts(files));
 }
 
@@ -74,7 +86,7 @@ export interface ManifestOptions {
   readonly generatorVersion?: string;
   readonly acceptorVersion?: string;
   readonly teacherPin?: string;
-  /** 控制器代码 hash 的取料文件（相对包根）；缺省钉现有 controller 源。 */
+  /** 控制器代码 hash 的取料文件（相对包根）；缺省覆盖 controller 五件源文件。 */
   readonly codeHashFiles?: readonly string[];
   readonly probes?: { readonly int: readonly (number | string)[]; readonly str: readonly (number | string)[] };
 }

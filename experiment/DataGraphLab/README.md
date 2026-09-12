@@ -8,9 +8,11 @@
 
 世界层与合成数据生成器、可执行验收器、oracle 教师轨迹、内容寻址存储加六个门禁脚本
 已齐备：`npm run gate` 全绿（六项），每次跑批把机器可读证据落进 `runs/gates-<stamp>/`
-（六份 `G0.*.json`、两份 csv 明细、一份 run 级 `manifest.json`），全套 253 项测试可重跑复现。
-「完成」的定义还剩两件收口——run 级版本快照（`manifest.json`）落盘与本节实测数字回填，
-随本节一并闭环。
+（六份 `G0.*.json`、两份 csv 明细、一份 run 级 `manifest.json`）。teacher/search
+（`planBfs`）与 controller 三件套（features/policy/checkpoint）已落地。全套 **351 项
+测试（29 个文件）可重跑复现**（`npx vitest run --reporter=basic`，实测 2026-09-12）。
+「完成」的定义里，run 级版本快照与实测数字回填均已闭环——快照随 `createGateContext`
+给定 runId 时落盘，数字见「验证结果」节。
 
 | 件 | 内容 | 落点 |
 |---|---|---|
@@ -18,7 +20,8 @@
 | 词表与渲染 | `LEXICON`/`GOAL_LEX`/`GOAL_TEMPLATES`、`tokens`/`mentionStats`、`renderRecipe`/`renderGoal`/`parseRecipe`，含**往返硬测试**、义项不变量审计 | `world/lexicon.ts`、`world/tokenize.ts`、`world/render.ts`、`world/lexicon_audit.ts` |
 | 生成层 | 骨架全枚举 + 签名去冗余 + 恒等丢弃、分层切分、follow/goal 双风格、课程难度、可产性判定（goal 适格池 + 极小性守卫） | `gen/` |
 | 验收与运行 | 通道收口的可执行验收器、对抗套件（静态错件 + fuzz）、沙箱、图与候选动作 | `verify/`、`runner/` |
-| 教师与数据 | on-path oracle 逐步标签、内容寻址 JSONL 分片 + 索引 + 两级去重、泄漏审计、多解冲突率诊断、全员版本化 manifest | `teacher/oracle.ts`、`data/` |
+| 教师与数据 | on-path oracle 逐步标签、teacher 规划臂 `planBfs`（BFS 最短解，不进训练集）、内容寻址 JSONL 分片 + 索引 + 两级去重、泄漏审计、多解冲突率诊断、全员版本化 manifest | `teacher/oracle.ts`、`teacher/search.ts`、`data/` |
+| 控制器三件套 | 白名单特征 `featurizeObs`/`featurizeAction`、指针式 `Policy` 前向与 f32 精确随机初始化、`weights.json` 读写 + arch fail-fast + float32 执法 | `controller/features.ts`、`controller/policy.ts`、`controller/checkpoint.ts` |
 | 门禁 | G0.1–G0.6 判据脚本 + 共享 harness（`inputs_hash` 绑定 world/manifest/fixture，失败也落盘；同时刻出 run 级 `manifest.json` 版本快照） | `conformance/gates/`、`docs/gates.md` |
 | 金标 | 所有示例由参考实现生成并冻结，文档同源自动生成 | `conformance/`、`docs/helpers.md` |
 
@@ -44,12 +47,14 @@ npm run golden:check       # 断言二者与参考实现逐字一致（文档漂
 
 ## 验证结果（收尾实测，全部读自产物）
 
-证据 run：`runs/gates-20260912T180323/`（六门禁 `inputs_hash` 同为 `21f891ed3ad03d78`，
+证据 run：`runs/gates-20260912T190245/`（六门禁 `inputs_hash` 同为 `23cefb3e33f1cb8a`，
 world_version `6a596090bff1b45a`；run 级 `manifest.json` 全员版本化快照：
 generator `a3dd8c5b649254a0`、acceptor `88cd318470348af5`、teacher pin
-`oracle@plan_hidden`、控制器代码 `fd4e60b73cd73297`、签名探针集 `ff8b77568af3b6af`）。
+`oracle@plan_hidden`、控制器代码 `918c830d335244eb`（覆盖 controller 五件源文件
+slots/features/features_struct/policy/checkpoint）、签名探针集 `ff8b77568af3b6af`）。
 
-- `npm run gate`：6/6 PASS；`npm run typecheck` 与 `npm run golden:check` 通过。
+- `npm run gate`：6/6 PASS；`npm run typecheck` 通过；全量 `npx vitest run`
+  29 文件 351 项全绿（实测 2026-09-12）。
 - G0.1 确定性：跨进程 + 进程内复算逐字节一致，一致率 1.000（12 例 makeTask，
   fixture 复算 15/15 命中）。
 - G0.2 可解性：728 任务 solvable 比例 1.000，hidden plan 回放穿验收失败 0。

@@ -107,7 +107,7 @@ const PENDING: readonly HelperRow[] = [
   { name: 'runAll', signature: 'runAll(): {rejectRatio; acceptCorrectRatio; caseCount}', file: 'verify/adversarial.ts', status: '已落地', note: '错误产物全拒 + 正确通道全收 + 固定 seed fuzz' },
   { name: 'FUZZ_COUNT', signature: 'number', file: 'verify/adversarial.ts', status: '已落地', note: 'runAll 固定 seed 补刀错误产物条数 = 24' },
   { name: 'runSandboxed', signature: 'runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>', file: 'verify/sandbox.ts', status: '已落地', note: '接口占位；代码族验证未启用，调用即抛错' },
-  { name: 'plan_bfs', signature: 'planBfs(task, graph, nodeBudget?): string[] | null', file: 'teacher/search.ts', status: '待 Phase 0', note: 'BFS 最短解（去重键复用 data/conflict_bfs.ts 的 stateDigest，C.4 同源）；不进训练集' },
+  { name: 'plan_bfs', signature: 'planBfs(task, graph, opts?): string[] | null', file: 'teacher/search.ts', status: '已落地', note: 'BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集' },
   { name: 'featurize_* / OBS_DIM / ACT_DIM', signature: 'featurizeInstr/State/Action; OBS_DIM=724; ACT_DIM=83', file: 'controller/features.ts', status: '待 Phase 0', note: '白名单只读 instruction/state' },
   { name: 'Policy.forward/backward/act/save/load', signature: 'Policy', file: 'controller/policy.ts', status: '待 Phase 0', note: 'pointer 打分；数值梯度校验' },
   { name: 'val_ce / batches / snapshot', signature: 'valCe(policy, D): number; batches(D, n); snapshot(policy)', file: 'controller/train.py', status: '待 Phase 0', note: '训练器内层；仅 numpy' },

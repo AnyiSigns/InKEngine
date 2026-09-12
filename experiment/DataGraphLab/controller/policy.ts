@@ -7,9 +7,9 @@
  * 等变——分数只依赖 (obs, 该候选契约)，不存在“先见到谁”的顺序偏置；拼接 MLP 会
  * 把 obs 段重复 m 份乘进第一层参数，规模随候选数平方涨。
  *
- * 并列取最小下标：TS 与 Python 的 float32 求和顺序不同，1e-7 级差可能翻转 argmax。
- * 跨语言约定“|top1 − top2| 在并列窗口内视为并列、取索引小者”，两侧同一条规则，
- * 往返一致率才有 100% 的可达定义；只在此文件实现这一次元规则。
+ * 并列取最小下标：本实现为精确并列取最小下标；「并列窗口判等」（|top1 − top2|
+ * 小于阈值即视为并列）尚未实现，属 F2 conformance 比对侧职责，届时实现——
+ * 推理侧只保证两侧对精确并列可用同一条确定规则复现同一 argmax。
  *
  * 反向（grad/Adam）不在这里——训练器是 Python 唯一实现，本文件只做推理。
  * 前向一律 float64 累加、末尾 cast float32：判“数学等价”用高精度路径（F1 口径），
@@ -89,16 +89,17 @@ export class Policy {
 
   /**
    * 确定性初始化：wo ~ U(±1/√obsDim)，wa ~ U(±1/√ACT_DIM)，ws/wp ~ U(±1/√H)，
-   * bo/ba/bp 全零；逐值 Math.fround 贴合 float32 契约（同 seed 同特征集下两个
-   * 实例参数逐位相同，作 REINFORCE 同 seed 随机 init 对照时用）。
+   * bo/ba/bp 全零；逐值经 Float32Array 落数（舍入到最近 float32），满足
+   * checkpoint 的 f32 执法（同 seed 同特征集下两个实例参数逐位相同，作
+   * REINFORCE 同 seed 随机 init 对照时用）。
    */
   static random(seed: number, featureSet: FeatureSet = 'lang', head: HeadTag = 'progress'): Policy {
     const obsDim = OBS_DIM[featureSet];
     const rng = makeRng(seed);
     const uniformFill = (n: number, scale: number): number[] => {
-      const out = new Array<number>(n);
-      for (let i = 0; i < n; i++) out[i] = Math.fround(rng.uniform(-scale, scale));
-      return out;
+      const f = new Float32Array(n);
+      for (let i = 0; i < n; i++) f[i] = rng.uniform(-scale, scale);
+      return Array.from(f);
     };
     const zeros = (n: number): number[] => new Array<number>(n).fill(0);
     return new Policy(

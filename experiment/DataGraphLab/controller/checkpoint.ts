@@ -64,7 +64,11 @@ function product(shape: readonly number[], ctx: string, key: ParamKey): number {
   return n;
 }
 
-/** 单个参数张量：shape 非负整数列表、data 全有限数、长度严格等于 shape 乘积。 */
+/**
+ * 单个参数张量：shape 非负整数列表、data 全有限数、每值是 float32 精确表示、
+ * 长度严格等于 shape 乘积。f32 执法写在这里（而非只写头注），因为跨语言侧以
+ * np.float32 重建，任何 f64-only 值静默落盘都会在 Python 侧重建时改变。
+ */
 function assertTensor(t: unknown, expect: readonly number[], ctx: string, key: ParamKey): ParamTensor {
   if (t === null || typeof t !== 'object') fail(ctx, `params.${key}`, '缺失或不是对象');
   const rec = t as { shape?: unknown; data?: unknown };
@@ -83,6 +87,9 @@ function assertTensor(t: unknown, expect: readonly number[], ctx: string, key: P
     const v = data[i];
     if (typeof v !== 'number' || !Number.isFinite(v)) {
       fail(ctx, `params.${key}.data[${i}]`, `值 ${String(v)} 非有限数`);
+    }
+    if (!Object.is(v, Math.fround(v))) {
+      fail(ctx, `params.${key}.data[${i}]`, `值 ${String(v)} 超出 float32 精确表示（f32 执法）`);
     }
   }
   return { shape, data: data as number[] };

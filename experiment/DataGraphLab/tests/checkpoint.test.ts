@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import {
@@ -20,8 +20,13 @@ afterAll(() => {
   rmSync(work, { recursive: true, force: true });
 });
 
+// 确定性临时名：mkdtemp 目录名即进程内唯一串，自增计数器保证同进程不碰撞——
+// 替代 Math.random()（G0.1 口径：测试也不许引未播种随机源）。
+const WORK_BASE = basename(work);
+let tmpSeq = 0;
 function tmpName(tag: string): string {
-  return join(work, `${tag}-${Math.random().toString(36).slice(2)}.json`);
+  tmpSeq += 1;
+  return join(work, `${tag}-${WORK_BASE}-${String(tmpSeq).padStart(3, '0')}.json`);
 }
 
 function toPlain<T>(v: T): T {
@@ -111,6 +116,16 @@ describe('fail-fast 审计（禁跨版本静默加载）', () => {
     obj.params.ws.data[0] = Number.POSITIVE_INFINITY;
     writeFileSync(onDisk, JSON.stringify(obj), 'utf8');
     expect(() => readWeightsJson(onDisk)).toThrow(/params\.ws\.data/);
+  });
+
+  it('float32 执法：非 f32 精确值 write 前拒绝；原样落盘后 read 也拒绝', () => {
+    const { file } = validFile();
+    const dirty = toPlain(file) as WeightsFile;
+    (dirty.params.wo as unknown as { data: number[] }).data[0] = 1 / 3;
+    expect(() => writeWeightsJson(tmpName('f32-w'), dirty)).toThrow(/params\.wo\.data\[0]/);
+    const onDisk = tmpName('f32-r');
+    writeFileSync(onDisk, JSON.stringify(dirty), 'utf8');
+    expect(() => readWeightsJson(onDisk)).toThrow(/params\.wo\.data\[0]/);
   });
 
   it('expect 指定 featureSet/head 不符 → throw；缺字段与坏文件 → throw 含路径', () => {

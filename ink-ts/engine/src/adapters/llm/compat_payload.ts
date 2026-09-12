@@ -10,6 +10,7 @@ import { LLMConfig, LLMParams, REASONING_EFFORTS } from '../../kernel/llm/base.j
 import type { Message } from '../../kernel/llm/messages.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
 import { to_openai_tools } from '../../kernel/llm/tools.js';
+import { assert_images_supported } from './image_gate.js';
 
 /** 适配器统一装配的核心请求字段：extra_body 不得覆盖（防替换对话/强制关流）。 */
 export const _CORE_PAYLOAD_KEYS = new Set([
@@ -41,6 +42,9 @@ export function build_payload(
   params: LLMParams | null,
   stream: boolean,
 ): Record<string, unknown> {
+  // 多模态图像门禁（fail-closed）：档案未声明图像输入的模型携图即显式拒绝；
+  // 图像段展开由 Message.to_openai_dict 承接（user 消息 parts 数组）。
+  assert_images_supported(config, messages);
   const payload: Record<string, unknown> = {
     model: config.model_id,
     messages: messages.map((m) => m.to_openai_dict()),

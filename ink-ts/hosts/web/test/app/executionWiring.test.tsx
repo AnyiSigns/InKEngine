@@ -7,6 +7,8 @@
  * - dispatchExecutionRun：假后端回执落位当前窗口（state.executionRuns 与
  *   会话桶双写）、回执形态非法拒绝落位、下发失败错误上屏（消息流 error 行）、
  *   宿主不可用直拒；
+ * - W8A 实时事件接线：执行树事件带判定（run_id+parent_run_id+scope 三元）、
+ *   增量落位（同轮替换、后台线程落桶、非执行事件不误判）；
  * - 主壳装配链路：注入后的 ui.generated.json → UIRenderer → 假数据执行树卡
  *   渲染进会话视图；默认折叠态（后台执行）、点击展开树、失败子执行点入复盘
  *   展开该卡；无回执不占位（消息流照常渲染）。
@@ -16,6 +18,7 @@ import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { ChannelHub } from '@/shared/session/channelHub';
+import type { HubEvent } from '@/shared/session/channelHub';
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
 import type { ExecutionReceipt } from '@/shared/session/executionTypes';
 import { registerBuiltinComponents } from '@/components';
@@ -26,7 +29,7 @@ import {
   EXECUTION_TREE_COMPONENT,
   injectExecutionViewSlot,
 } from '@app/shell/executionViewSlot';
-import { dispatchExecutionRun } from '@app/state/executionWiring';
+import { dispatchExecutionRun, ingestExecutionRunEvent, isExecutionRunEvent } from '@app/state/executionWiring';
 
 import uiLayout from '../../../../plugins/ui.generated.json';
 
@@ -156,6 +159,62 @@ describe('dispatchExecutionRun（execution.run 回执 → 会话视图数据面�
     const result = await dispatchExecutionRun(hub, backend, 't1', { task: 'x' });
     expect(result.ok).toBe(false);
     expect(hub.getSnapshot().executionRuns).toEqual([]);
+  });
+});
+
+describe('W8A 实时事件接线（执行树事件带判定 + 增量落位）', () => {
+  function runEvent(
+    runId: string,
+    parentRunId: string | null,
+    scope: string,
+    action: string,
+    threadId = 't1',
+    roundId = 'round-1',
+  ): HubEvent {
+    // 对齐生产 execEventAsEngineEvent：type = 事件带 action 原词（未注册类型走
+    // 宽松通道，payload 带坐标断言），此处同款断言表达。
+    return {
+      type: action,
+      payload: {
+        run_id: runId,
+        parent_run_id: parentRunId,
+        scope,
+        detail: null,
+        thread_id: threadId,
+        round_id: roundId,
+      },
+      at: Date.now(),
+    } as unknown as HubEvent;
+  }
+
+  it('判定：run_id + parent_run_id + scope 三元齐备 = 执行树事件；其余事件不误判', () => {
+    expect(isExecutionRunEvent(runEvent('r:main', null, 'main', 'run_start'))).toBe(true);
+    expect(isExecutionRunEvent(runEvent('r:main.c0', 'r:main', 'subagent', 'scope_turn'))).toBe(true);
+    // 非执行事件（无三元）：普通引擎事件不进入执行树增量面
+    expect(isExecutionRunEvent({ type: 'reply_token', payload: { token: 'x' }, at: 0 })).toBe(false);
+    // scope_turn 动作词经宽松通道转发（同生产断言形态）；缺 run 三元仍不误判
+    expect(
+      isExecutionRunEvent({ type: 'scope_turn', payload: { scope: 'main' }, at: 0 } as unknown as HubEvent),
+    ).toBe(false);
+  });
+
+  it('增量落位：同轮事件按 round_id 就地替换（事件逐步累积、卡不重复）', () => {
+    const hub = hubActive('t1');
+    ingestExecutionRunEvent(hub, runEvent('r:main', null, 'main', 'run_start'));
+    ingestExecutionRunEvent(hub, runEvent('r:main', null, 'main', 'scope_turn'));
+    ingestExecutionRunEvent(hub, runEvent('r:main', null, 'main', 'run_end'));
+    const snap = hub.getSnapshot();
+    expect(snap.executionRuns).toHaveLength(1);
+    expect(snap.executionRuns[0]!.round_id).toBe('round-1');
+    expect(snap.executionRuns[0]!.events).toHaveLength(3);
+    expect(snap.perThread['t1'].executionRuns).toHaveLength(1);
+  });
+
+  it('后台线程事件：只落桶不污染当前窗口镜像', () => {
+    const hub = hubActive('t1');
+    ingestExecutionRunEvent(hub, runEvent('r:bg', null, 'main', 'run_start', 't2', 'round-b'));
+    expect(hub.getSnapshot().executionRuns).toEqual([]);
+    expect(hub.getSnapshot().perThread['t2'].executionRuns).toHaveLength(1);
   });
 });
 

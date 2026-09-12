@@ -27,7 +27,7 @@ import {
 import { PulseLine } from './PulseLine';
 import { PhaseCapsule } from './PhaseCapsule';
 import { SpawnPanel, type SpawnInstance } from './SpawnPanel';
-import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage, OutboundAttachment, RoundStep, SimulationBranch } from '@/shared/session/types';
 import { assetOf, MediaRejected } from './parts/media_entries';
 import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
 import { ChartEntry } from './parts/chart_entry';
@@ -159,7 +159,7 @@ const MessageItem = memo(function MessageItem({
   const { t } = useT();
   switch (entry.kind) {
     case 'text':
-      if (entry.role === 'user') return <UserBubble content={entry.content} />;
+      if (entry.role === 'user') return <UserBubble content={entry.content} attachments={entry.attachments} />;
       if (entry.role === 'system') return <SystemLine content={entry.content} />;
       return <AssistantText content={entry.content} name={entry.name} />;
     case 'streaming':
@@ -341,9 +341,10 @@ function EmptyHero() {
   );
 }
 
-function UserBubble({ content }: { content: string }) {
+function UserBubble({ content, attachments }: { content: string; attachments?: OutboundAttachment[] }) {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const images = (attachments ?? []).filter((a) => a.kind === 'image' && a.url);
 
   useEffect(() => () => {
     if (copyTimer.current) clearTimeout(copyTimer.current);
@@ -363,6 +364,19 @@ function UserBubble({ content }: { content: string }) {
   return (
     <div className="group flex flex-col items-end">
       <div className="ink-bubble-user max-w-[80%] px-4 py-2.5 text-[14.5px] leading-[1.3]">
+        {images.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap justify-end gap-1.5" data-ui="user_bubble_images">
+            {images.map((img, i) => (
+              <img
+                key={i}
+                src={img.url}
+                alt={img.alt ?? img.name ?? 'image'}
+                className="max-h-32 max-w-[220px] rounded-lg object-cover"
+                loading="lazy"
+              />
+            ))}
+          </div>
+        )}
         <p className="whitespace-pre-wrap">{content}</p>
       </div>
       <button

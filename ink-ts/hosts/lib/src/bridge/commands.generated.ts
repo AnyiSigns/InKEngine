@@ -212,6 +212,7 @@ export const EXECUTION_COMMANDS = [
   'execution.run',
   'execution.resume',
   'execution.inject',
+  'execution.branch',
 ] as const;
 
 export type ExecutionCommand = (typeof EXECUTION_COMMANDS)[number];
@@ -219,6 +220,7 @@ export type ExecutionCommand = (typeof EXECUTION_COMMANDS)[number];
 /** evolution 命令声明（真源 plugins/commands/<id>/spec.json；域内序 = data.order）。 */
 export const EVOLUTION_COMMANDS = [
   'evolution.crystallize',
+  'evolution.evaluate',
 ] as const;
 
 export type EvolutionCommand = (typeof EVOLUTION_COMMANDS)[number];

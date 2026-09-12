@@ -16,6 +16,7 @@
 import { REASONING_EFFORTS, type LLMConfig, type LLMParams } from '../../kernel/llm/base.js';
 import type { Message } from '../../kernel/llm/messages.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { anthropic_image_source, assert_images_supported } from './image_gate.js';
 
 /** Anthropic 最低 max_tokens 兜底（API 要求显式 max_tokens）。 */
 export const ANTHROPIC_DEFAULT_MAX_TOKENS = 1024;
@@ -67,6 +68,12 @@ export function to_anthropic_messages(messages: readonly Message[]): Record<stri
     }
     const blocks: Record<string, unknown>[] = [];
     if (m.content) blocks.push({ type: 'text', text: m.content });
+    if (m.role === 'user') {
+      for (const a of m.attachments) {
+        if (a.kind !== 'image') continue;
+        blocks.push({ type: 'image', source: anthropic_image_source(a) });
+      }
+    }
     if (m.tool_calls) {
       for (const tc of m.tool_calls) {
         blocks.push({
@@ -120,6 +127,8 @@ export function build_anthropic_payload(
   params: LLMParams | null,
   stream: boolean,
 ): Record<string, unknown> {
+  // 多模态图像门禁（fail-closed）：档案未声明图像输入的模型携图即显式拒绝
+  assert_images_supported(config, messages);
   const maxTokensRaw =
     params !== null && params.max_tokens !== null
       ? params.max_tokens

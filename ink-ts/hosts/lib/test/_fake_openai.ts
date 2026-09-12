@@ -22,6 +22,9 @@ export interface FakeOpenAIOptions {
   usage?: Record<string, number> | null;
   /** 响应前固定延迟（毫秒；测「运行中中止/注入」时序的在途窗口放大）。 */
   delayMs?: number;
+  /** 工具调用剧本：单个 = 所有响应都带该工具调用；数组 = 按请求序取用
+   *  （null 项 = 该轮无工具调用；越界回落末条）。 */
+  toolCall?: { name: string; arguments?: string } | null | Array<{ name: string; arguments?: string } | null>;
 }
 
 /** OpenAI 兼容假服务（真实 TCP 监听本地回环；每测试独立实例）。 */
@@ -34,6 +37,7 @@ export class FakeOpenAIServer {
   private readonly _finish_reason: string;
   private readonly _usage: Record<string, number>;
   private readonly _delayMs: number;
+  private readonly _toolCalls: Array<{ name: string; arguments?: string } | null>;
 
   constructor(options: FakeOpenAIOptions = {}) {
     const raw = options.content ?? 'host-reply';
@@ -41,6 +45,16 @@ export class FakeOpenAIServer {
     this._finish_reason = options.finish_reason ?? 'stop';
     this._usage = options.usage ?? { prompt_tokens: 8, completion_tokens: 6, total_tokens: 14 };
     this._delayMs = options.delayMs ?? 0;
+    this._toolCalls = options.toolCall === undefined
+      ? [null]
+      : Array.isArray(options.toolCall)
+        ? options.toolCall
+        : [options.toolCall];
+  }
+
+  /** 当前请求序的工具调用（越界回落末条；null = 无工具调用）。 */
+  private toolCallFor(index: number): { name: string; arguments?: string } | null {
+    return this._toolCalls[Math.min(index, this._toolCalls.length - 1)] ?? null;
   }
 
   /** 当前请求序的回复内容（越界回落末条，保证多轮剧本不空答）。 */
@@ -137,6 +151,32 @@ export class FakeOpenAIServer {
       connection: 'keep-alive',
     });
     const content = this.contentFor(this.requests.length - 1);
+    const toolCall = this.toolCallFor(this.requests.length - 1);
+    if (toolCall !== null) {
+      // 工具调用帧（compat 协议 delta.tool_calls；arguments 整段单帧交付）
+      this._sse(res, {
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: '',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: `call_${this.requests.length}`,
+                  type: 'function',
+                  function: {
+                    name: toolCall.name,
+                    arguments: toolCall.arguments ?? '{}',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      });
+    }
     for (const token of [...content]) {
       this._sse(res, { choices: [{ index: 0, delta: { content: token }, finish_reason: null }] });
     }

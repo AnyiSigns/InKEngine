@@ -1,15 +1,18 @@
 import type { ExecutionCommand } from './commands.generated.js';
 export { EXECUTION_COMMANDS, type ExecutionCommand } from './commands.generated.js';
 /**
- * execution 命令面（execution.run / execution.resume / execution.inject）——
- * 执行运行时（作用域/通道）会话入口 + 挂起续跑 + 运行中注入。
+ * execution 命令面（execution.run / execution.resume / execution.inject /
+ * execution.branch）——执行运行时（作用域/通道）会话入口 + 挂起续跑 +
+ * 运行中注入 + checkpoint 分叉。
  *
- * 与 rounds 域并行的执行主线：rounds.send = run 级组装回合（既有语义零改动的
- * 常驻产品路），execution.run = 设计稿执行模型（作用域转场循环 + 汇聚点唯一
- * 产物）的宿主入口——薄驱动不复制机制：参数校验 + 审批姿态透传 + 结果投影
+ * 与 rounds 域同一条执行主线：rounds.send/resume 已切执行运行时（W7-A 切换、
+ * W7-B 组装回合退役），execution.run = 设计稿执行模型（作用域转场循环 + 汇聚点唯一
+ * 产物）的宿主直连入口——薄驱动不复制机制：参数校验 + 审批姿态透传 + 结果投影
  * （run 树/事件带/汇聚点产物 + pending 挂起态），装载与转场在 engine
  * execution_runtime。execution.resume = 审批挂起续跑（决议注入 → checkpoint
- * 恢复）；execution.inject = §7.3 运行中用户发话注入（排队至下一 main 轮）。
+ * 恢复）；execution.inject = §7.3 运行中用户发话注入（排队至下一 main 轮）；
+ * execution.branch = 从既有执行 checkpoint 状态分叉新 run_id（决策留痕：
+ * 用户已拍板产品化）——原 run 不受影响，回执新 run 树。
  * 中止改用走既有 abort（本域 run 登记为在途可取消任务，rounds.abort 投递后
  * 桥调用立即拒绝 + 引擎后台自然收尾）。无组织装配（execution service 未接线）
  * = 显式拒绝 fail-closed。
@@ -125,6 +128,48 @@ function asResumeParams(raw: unknown): { run_id: string; checkpoint_id: number; 
     throw new BridgeError('execution.resume 需 params.decision（accept/reject/terminate 或含 decision 对象）', 'invalid_params');
   }
   return { run_id: params.run_id, checkpoint_id: params.checkpoint_id, decision: params.decision };
+}
+
+/** 分支分叉参数校验（source_run_id + checkpoint_id + 可选 run_id/pose）。 */
+function asBranchParams(raw: unknown): {
+  source_run_id: string;
+  checkpoint_id: number;
+  run_id?: string | null;
+  pose?: string | null;
+} {
+  const params = raw as {
+    source_run_id?: unknown;
+    checkpoint_id?: unknown;
+    run_id?: unknown;
+    pose?: unknown;
+  } | null;
+  if (
+    typeof params !== 'object'
+    || params === null
+    || typeof params.source_run_id !== 'string'
+    || params.source_run_id === ''
+  ) {
+    throw new BridgeError('execution.branch 需 params.source_run_id（源 run 字符串）', 'invalid_params');
+  }
+  if (
+    typeof params.checkpoint_id !== 'number'
+    || !Number.isInteger(params.checkpoint_id)
+    || params.checkpoint_id < 1
+  ) {
+    throw new BridgeError('execution.branch 需 params.checkpoint_id（正整数）', 'invalid_params');
+  }
+  if (params.run_id !== undefined && params.run_id !== null && typeof params.run_id !== 'string') {
+    throw new BridgeError('execution.branch run_id 须为字符串', 'invalid_params');
+  }
+  if (params.pose !== undefined && params.pose !== null && !isApprovalPose(params.pose)) {
+    throw new BridgeError('execution.branch pose 须为 auto/review/deny', 'invalid_params');
+  }
+  return {
+    source_run_id: params.source_run_id,
+    checkpoint_id: params.checkpoint_id,
+    run_id: params.run_id as string | null,
+    pose: params.pose as string | null,
+  };
 }
 
 export function buildExecutionCommands(
@@ -268,5 +313,31 @@ export function buildExecutionCommands(
     return { run_id: params.run_id, queued: true };
   };
 
-  return { 'execution.run': run, 'execution.resume': resume, 'execution.inject': inject };
+  const branch: BridgeHandler = async (raw): Promise<unknown> => {
+    const params = asBranchParams(raw);
+    const service = requireService();
+    if (deps.runtime.storage === null) {
+      throw new BridgeError('运行时存储未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
+    }
+    let result: ExecutionResult;
+    try {
+      result = await service.branchExecution(params.source_run_id, params.checkpoint_id, {
+        run_id: params.run_id ?? `run:${service.nextSequence()}`,
+        pose: params.pose ?? null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // 引擎侧锚点缺失/跨 run 锚点 = blocked 回执（与 execution.resume 同口径）；
+      // 此处仅包装装配/执行面异常
+      throw new BridgeError(`分支失败: ${message}`, 'execution_error');
+    }
+    return project_result(result);
+  };
+
+  return {
+    'execution.run': run,
+    'execution.resume': resume,
+    'execution.inject': inject,
+    'execution.branch': branch,
+  };
 }

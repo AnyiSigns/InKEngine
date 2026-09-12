@@ -23,8 +23,9 @@ import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
 import { register_engine_node_types, bind_engine_node_seams, default_engine_pool_seed } from '../nodes/index.js';
 import { _build_agent_scope_graph } from '../nodes/agent.js';
+import { STATE_ROUND_MODEL, STATE_ROUND_POSE } from '../nodes/constants.js';
 import { failed_turn, ok_turn, type ScopeTurnResult, type ScopeTurnRunner } from './scope_turn.js';
-import type { ScopeTurnContext } from './runtime_types.js';
+import type { RoundModelOverride, ScopeTurnContext } from './runtime_types.js';
 
 /** 引擎装载执行器的装配选项。 */
 export interface EngineTurnRunnerInit {
@@ -40,7 +41,7 @@ export interface EngineTurnRunnerInit {
   tool_specs?: readonly ToolSpec[];
   /** boot 基线系统提示词（只读；缺省 ''）。 */
   boot_system_prompt?: string;
-  /** 工具回合上限（缺省 = 引擎常量）。 */
+  /** 工具回合上限（缺省 = 引擎常量；run 级覆写经 ScopeTurnContext 透传）。 */
   max_tool_rounds?: number;
 }
 
@@ -48,11 +49,42 @@ function model_label(model: Record<string, string>): string {
   return `${model['provider'] ?? '?'}/${model['model_id'] ?? '?'}`;
 }
 
-/** 从作用域实体记录解析本回合模型（model:null = 会话默认；引用须可解析）。 */
+/** 覆写是否携带模型选择（provider/model_id 至少其一；纯推理档位 = 非选择）。 */
+function override_selects_model(override: RoundModelOverride | null | undefined): boolean {
+  if (override === null || override === undefined) return false;
+  const provider = typeof override.provider === 'string' ? override.provider : '';
+  const modelId = typeof override.model_id === 'string' ? override.model_id : '';
+  return provider !== '' || modelId !== '';
+}
+
+/**
+ * 从作用域实体记录 + 回合级覆写解析本回合模型（解析序：request 级覆写 >
+ * 作用域资产 model > 会话缺省——与 resolve_scope_model 既有件同链：模型引用
+ * 一律经 init.resolve_scope_llm 决议，覆写/资产引用解析失败 = 显式失败，绝不
+ * 静默回落下一档）。
+ */
 async function resolve_turn_llm(
+  override: RoundModelOverride | null | undefined,
   scope: EntitySpec,
   init: EngineTurnRunnerInit,
 ): Promise<AsyncLLM | null> {
+  if (override_selects_model(override)) {
+    const ref: Record<string, string> = {};
+    if (typeof override!.provider === 'string' && override!.provider !== '') ref['provider'] = override!.provider;
+    if (typeof override!.model_id === 'string' && override!.model_id !== '') ref['model_id'] = override!.model_id;
+    if (init.resolve_scope_llm == null) {
+      throw new Error(
+        `回合模型覆写（${model_label(ref)}）需 resolve_scope_llm（未注入）`,
+      );
+    }
+    const resolved = await init.resolve_scope_llm(ref);
+    if (resolved === null) {
+      throw new Error(
+        `回合模型覆写无法解析（${model_label(ref)}）`,
+      );
+    }
+    return resolved;
+  }
   if (scope.model === null) return init.llm;
   if (init.resolve_scope_llm == null) {
     throw new Error(
@@ -69,13 +101,26 @@ async function resolve_turn_llm(
   return resolved;
 }
 
+/** 覆写中的推理档位子集（随 STATE_ROUND_MODEL 键进 llm_decider；模型选择
+ *  字段不回传状态——选择已发生在 resolve_turn_llm）。 */
+function override_reasoning_params(
+  override: RoundModelOverride | null | undefined,
+): Record<string, unknown> | null {
+  if (override === null || override === undefined) return null;
+  const out: Record<string, unknown> = {};
+  if (typeof override.reasoning_effort === 'string' && override.reasoning_effort !== '') {
+    out['reasoning_effort'] = override.reasoning_effort;
+  }
+  if (typeof override.enable_thinking === 'boolean') out['enable_thinking'] = override.enable_thinking;
+  if (typeof override.thinking_budget === 'number' && override.thinking_budget > 0) {
+    out['thinking_budget'] = override.thinking_budget;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** 引擎装载执行器工厂（装配 seam → ScopeTurnRunner 真实实现）。 */
 export function make_engine_turn_runner(init: EngineTurnRunnerInit): ScopeTurnRunner {
   const toolSpecs = init.tool_specs ?? [];
-  const config: Record<string, unknown> = {};
-  if (init.max_tool_rounds !== undefined && init.max_tool_rounds !== null) {
-    config['max_tool_rounds'] = init.max_tool_rounds;
-  }
   return {
     async run_scope_turn(ctx: ScopeTurnContext): Promise<ScopeTurnResult> {
       if (init.tool_pipeline === null) {
@@ -83,13 +128,20 @@ export function make_engine_turn_runner(init: EngineTurnRunnerInit): ScopeTurnRu
       }
       let llm: AsyncLLM | null;
       try {
-        llm = await resolve_turn_llm(ctx.scope, init);
+        llm = await resolve_turn_llm(ctx.round_model, ctx.scope, init);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return failed_turn(message, `作用域模型决议失败: ${ctx.scope.id}`);
       }
       if (llm === null) {
         return failed_turn('llm seam 未装配', '作用域加工缺会话默认模型（fail-closed）');
+      }
+      // 工具回合上限：run 级覆写（ctx）优先，缺省回落装配值；图 config 每次
+      // 加工现构（llm_decider 每轮读 config['max_tool_rounds']）
+      const config: Record<string, unknown> = {};
+      const maxRounds = ctx.max_tool_rounds ?? init.max_tool_rounds ?? null;
+      if (maxRounds !== null && maxRounds !== undefined) {
+        config['max_tool_rounds'] = maxRounds;
       }
       // 与 agent 结点同一展开形态：单节点 llm_decider 回路（persona 层 +
       // boot 基线合成在 llm_decider 内部）
@@ -108,9 +160,19 @@ export function make_engine_turn_runner(init: EngineTurnRunnerInit): ScopeTurnRu
       });
       const engine = new Engine(graph, new RunOptions({ registries }));
       const round_id = `${ctx.run_id}:scope:${ctx.step}`;
+      // 回合级配置种子：推理档位（round_model）随 STATE_ROUND_MODEL 键、
+      // 审批姿态（auto/deny）随 STATE_ROUND_POSE 键进子引擎状态——llm_decider
+      // 构造 LLMParams、tool_pipeline 读 round_pose 裁定审批/准入（review/缺省
+      // 不落键 = 引擎缺省语义零漂移）
+      const seedState: Record<string, unknown> = { input: ctx.input };
+      const reasoning = override_reasoning_params(ctx.round_model);
+      if (reasoning !== null) seedState[STATE_ROUND_MODEL] = reasoning;
+      if (ctx.round_pose === 'auto' || ctx.round_pose === 'deny') {
+        seedState[STATE_ROUND_POSE] = ctx.round_pose;
+      }
       try {
         const result = await engine.ainvoke(
-          { input: ctx.input },
+          seedState,
           {
             thread_id: ctx.thread_id,
             round_id,

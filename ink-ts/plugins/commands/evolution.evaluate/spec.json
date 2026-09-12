@@ -1,0 +1,11 @@
+{
+  "id": "evolution.evaluate",
+  "kind": "command",
+  "capability": "host_tool",
+  "actions": [],
+  "depends": [],
+  "data": {
+    "group": "evolution",
+    "order": 2
+  }
+}

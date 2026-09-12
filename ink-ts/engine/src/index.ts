@@ -1,4 +1,4 @@
-// gate: 超限(697 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
+// gate: 超限(709 行) - 引擎面向宿主的公共面 re-export 注册表（单一不可拆收敛面）
 /**
  * @ink-ts/engine 面向宿主的精选公共面（只 re-export，不实现）。
  *
@@ -594,10 +594,21 @@ export type {
   CrystallizePatternStat,
   CrystallizeEvaluation,
 } from './core/controlled_evolution/crystallize.js';
+export {
+  ORG_THRESHOLD_CONFIG_KEYS,
+  normalize_org_evaluate_thresholds,
+  effective_org_evaluate_thresholds,
+} from './core/controlled_evolution/evaluate_options.js';
+export type {
+  OrgThresholdDomain,
+  OrgThresholdNormalization,
+} from './core/controlled_evolution/evaluate_options.js';
 
 // ── 执行运行时（P5-δ：作用域装载 / 通道执行 / 汇聚点合成 / 护栏；含 __next
 //     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──
 export * from './core/execution_runtime/index.js';
+export type { RoundModelOverride } from './core/execution_runtime/runtime_types.js';
+export type { BoardWriteOutcome } from './core/execution_runtime/board_runtime.js';
 
 // ── 受控白板（会话内共享上下文数据面：块模型 / 授权 / 纯数据面状态机，
 //    纯 JSON 进 JSON 出、零 IO；可见性唯一裁决源，未授权默认拒绝 fail-closed，

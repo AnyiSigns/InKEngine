@@ -1,6 +1,6 @@
 import type { RoundsCommand } from './commands.generated.js';
 export { ROUNDS_COMMANDS, type RoundsCommand } from './commands.generated.js';
-// gate: 超限(806 行) - 回合主线（execution 驱动）的命令面、簿记、展示、挂卡/注入/中止收尾成对同文件防漂移
+// gate: 超限(822 行) - 回合主线（execution 驱动）的命令面、簿记、展示、挂卡/注入/中止收尾成对同文件防漂移
 /**
  * rounds 命令面（send/abort/resume）——宿主薄驱动，不复制引擎机制。
  *
@@ -193,7 +193,8 @@ function mainlineTailItems(result: ExecutionResult, reply: string, round_id: str
 }
 
 /** 执行事件 → 引擎事件协议形态（转发 FileEventsTransport：事件落文件 JSONL
- *  观测渠道与组装路一致；type = 事件带 action 原词，payload = 执行树坐标）。 */
+ *  观测渠道与组装路一致；type = 事件带 action 原词，payload = 执行树坐标）。
+ *  W8A 起事件**实时**转发（run 期间逐条到达文件与观察链，不再回合收尾统一落）。 */
 function execEventAsEngineEvent(
   event: RunEvent,
   meta: { thread_id: string; round_id: string; trace_id: string },
@@ -211,6 +212,46 @@ function execEventAsEngineEvent(
     trace_id: meta.trace_id,
     thread_id: meta.thread_id,
   });
+}
+
+/** 实时转发一条执行事件：落本轮事件文件（行级持久化）+ 推观察链
+ *  （runtime.round_transports：serve 事件订阅 ws / TUI 进度等复用组装路
+ *  观察面）。观测不阻断执行：转发失败只忽略，不抛给引擎。 */
+function forwardRunEvent(
+  transport: FileEventsTransport,
+  runtime: HostBridgeDeps['runtime'],
+  event: RunEvent,
+  meta: { thread_id: string; round_id: string; trace_id: string },
+): void {
+  const engineEvent = execEventAsEngineEvent(event, meta);
+  try {
+    void transport.send(engineEvent).catch(() => undefined);
+  } catch {
+    // 文件传输同步段异常（已关停等）：忽略，执行不受影响
+  }
+  for (const observer of runtime.round_transports) {
+    try {
+      void observer.send(engineEvent).catch(() => undefined);
+    } catch {
+      // 观察者异常（已摘除/坏连接）：忽略，单观察者故障不中断执行
+    }
+  }
+}
+
+/** 回合级模型覆写（request 级：模型选择 + 推理档位；只带显式字段，空对象
+ *  = 无覆写回落作用域资产/会话缺省）。 */
+function roundModelOverride(model: NonNullable<RoundParams['model']>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  if (model.provider !== undefined && model.provider !== '') out['provider'] = model.provider;
+  if (model.model_id !== undefined && model.model_id !== '') out['model_id'] = model.model_id;
+  if (model.reasoning_effort !== undefined && model.reasoning_effort !== '') {
+    out['reasoning_effort'] = model.reasoning_effort;
+  }
+  if (model.enable_thinking !== undefined) out['enable_thinking'] = model.enable_thinking;
+  if (model.thinking_budget !== undefined && model.thinking_budget > 0) {
+    out['thinking_budget'] = model.thinking_budget;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /** 主线回合归档 checkpoint：把回合结果薄留痕到**会话线程链**（node/graph_path/
@@ -264,9 +305,10 @@ async function writeRoundCheckpoint(
   }
 }
 
-/** 主线输入连续性桥：既有展示消息链（用户/助手正文）末段投影为本轮 seed
- *  载荷 history 文本（执行回合没有组装式消息链续航——白板/记忆通道接通前的
- *  宿主薄接线，非引擎机制复制）。 */
+/** 主线输入连续性桥：既有展示消息链（用户/助手正文）末段投影为会话记忆摘要
+ *  切片（W8D 收口：经 request.session_context 受控注入 main turn 输入——作用域
+ *  私有上下文通道、白板语义之外；不再进 seed_payload 载荷投影，子执行不可见；
+ *  引擎不持久化记忆）。宿主裁剪预算：末 16 条、每条 ≤400 字、总量 ≤4000。 */
 function historyTextFromDisplay(display: unknown): string {
   if (!Array.isArray(display)) return '';
   const lines: string[] = [];
@@ -464,18 +506,21 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
 
   /** 主线执行回合驱动（send 新 run / resume 挂起续跑共用）：串行队列 + 在途
    *  登记由调用方持有（send 在首个 await 前登记；abort = markAborted + 簿记
-   *  aborted + round_aborted 显式拒绝）。 */
+   *  aborted + round_aborted 显式拒绝）。run 回调收（onEvent, transport）——
+   *  transport 为 serialized 建好的本轮事件文件传输（实时转发面）。 */
   async function runMainlineRound<T>(
     service: NonNullable<HostBridgeDeps['execution']>,
     thread_id: string,
     round_id: string,
     run_id: string,
-    run: (onEvent: (event: RunEvent) => void) => Promise<T>,
+    run: (onEvent: (event: RunEvent) => void, transport: FileEventsTransport) => Promise<T>,
   ): Promise<{ value: T; events: RunEvent[]; transport: FileEventsTransport }> {
     const runtime = deps.runtime;
     const runEvents: RunEvent[] = [];
     try {
-      const ran = await serialized(() => driveMainline(runtime, thread_id, runEvents, run));
+      const ran = await serialized((transport) =>
+        driveMainline(runtime, thread_id, runEvents, (onEvent) => run(onEvent, transport)),
+      );
       return { value: ran.value.value, events: runEvents, transport: ran.transport };
     } catch (error) {
       if (error instanceof RoundAbortedError) {
@@ -490,9 +535,9 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
     }
   }
 
-  /** 主线回合收尾：事件文件确定性落盘 → 回合归档 checkpoint → 簿记 settle →
-   *  展示态追加（user 原始输入 + 运行中注入行按序）→ 组装同形态回执 +
-   *  主线扩展字段（只增不改）。 */
+  /** 主线回合收尾：回合归档 checkpoint → 簿记 settle → 展示态追加（user 原始
+   *  输入 + 运行中注入行按序）→ 组装同形态回执 + 主线扩展字段（只增不改）。
+   *  事件文件落盘 = 运行中实时转发（onEvent 钩子），此处不再重复落。 */
   async function finishMainlineRound(
     runtime: HostBridgeDeps['runtime'],
     thread_id: string,
@@ -509,9 +554,6 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
     const storage = deps.runtime.storage as unknown as Storage | null;
     if (storage === null) {
       throw new BridgeError('运行时存储未装配（runtime 未 boot/已关停）', 'runtime_unavailable');
-    }
-    for (const event of events) {
-      await transport.send(execEventAsEngineEvent(event, { thread_id, round_id, trace_id }));
     }
     const reason = mainlineReason(result);
     const reply = mainlineReply(result);
@@ -636,25 +678,54 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
     prepared: PreparedRound,
   ): Promise<unknown> {
     const run_id = entry.run_id;
-    const history = historyTextFromDisplay(
+    // 会话记忆摘要切片（宿主 history 裁剪预算）经 session_context 受控注入
+    // main 作用域根 run turn（W8D 收口；不进 seed_payload 载荷——子执行不可见）
+    const sessionContext = historyTextFromDisplay(
       (await sessions.get(thread_id).catch(() => null))?.display_messages,
     );
     const seedPayload: Record<string, unknown> = {};
-    if (history !== '') seedPayload['history'] = history;
     if (prepared.attachments.length > 0) seedPayload['attachments'] = prepared.attachments;
+    // 工具回合上限活读面（与 capability/approval 同模式：每次 send 现取能力
+    // 记录，put 后下轮即生效；无记录 = 引擎缺省）。绑定边界 = 宿主会话级单点
+    // 配置（capability.json 当前为全局单档——per-thread/model 维度待演进）。
+    const capability = deps.capability?.get() ?? null;
+    const maxToolRounds =
+      capability !== null && typeof capability.max_tool_rounds === 'number'
+        ? capability.max_tool_rounds
+        : null;
+    const roundModel = params.model !== undefined ? roundModelOverride(params.model) : null;
+    const meta = { thread_id, round_id, trace_id };
     const ran = await runMainlineRound(
       service,
       thread_id,
       round_id,
       run_id,
-      (onEvent) =>
+      (onEvent, transport) =>
         service.runExecution(
           {
             task: prepared.input,
             run_id,
+            // W8D 会话记忆收口：宿主 history 摘要切片经 session_context 受控
+            // 注入（仅 main 根 run turn 消费；不进 payload/messages 通道）
+            ...(sessionContext !== '' ? { session_context: sessionContext } : {}),
             ...(Object.keys(seedPayload).length > 0 ? { seed_payload: seedPayload } : {}),
+            // W8A 附件透传：request 专属字段（最简 dict 列表；W8B 引擎侧图像
+            // 分量消费面；seed_payload.attachments 文本投影延续双通道并存）
+            ...(prepared.attachments.length > 0 ? { attachments: prepared.attachments } : {}),
+            // W8A 回合级配置（模型覆写 + 审批姿态；工具回合上限走 options）
+            ...(roundModel !== null ? { round_model: roundModel } : {}),
+            ...(params.pose !== null && params.pose !== undefined ? { round_pose: params.pose } : {}),
           },
-          { pose: params.pose ?? null, hang: true, onEvent },
+          {
+            pose: params.pose ?? null,
+            hang: true,
+            maxToolRounds,
+            onEvent: (event) => {
+              // 实时转发：事件带收集（展示投影）+ 文件/观察链（web ws 增量）
+              onEvent(event);
+              forwardRunEvent(transport, deps.runtime, event, meta);
+            },
+          },
         ),
     );
     const finished = await finishMainlineRound(
@@ -735,6 +806,12 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
     const existing = activeMainlineRuns.get(thread_id);
     const entry = existing ?? { run_id, injects: [] as string[] };
     if (existing === undefined) activeMainlineRuns.set(thread_id, entry);
+    const capability = deps.capability?.get() ?? null;
+    const maxToolRounds =
+      capability !== null && typeof capability.max_tool_rounds === 'number'
+        ? capability.max_tool_rounds
+        : null;
+    const meta = { thread_id, round_id, trace_id };
     let ran: { value: ExecutionResult; events: RunEvent[]; transport: FileEventsTransport };
     try {
       ran = await runMainlineRound(
@@ -742,7 +819,15 @@ export function buildRoundsCommands(deps: HostBridgeDeps): Readonly<Record<Round
         thread_id,
         round_id,
         run_id,
-        (onEvent) => service.resumeExecution(run_id, checkpointId, decision, { hang: true, onEvent }),
+        (onEvent, transport) =>
+          service.resumeExecution(run_id, checkpointId, decision, {
+            hang: true,
+            maxToolRounds,
+            onEvent: (event) => {
+              onEvent(event);
+              forwardRunEvent(transport, deps.runtime, event, meta);
+            },
+          }),
       );
     } catch (error) {
       if (existing === undefined) activeMainlineRuns.delete(thread_id);

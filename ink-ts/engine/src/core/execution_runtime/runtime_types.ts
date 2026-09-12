@@ -25,6 +25,18 @@ import type { RunPhase } from './run_checkpoint.js';
 import type { RoutingDecision } from './routing_next.js';
 import type { Whiteboard } from '../whiteboard/board.js';
 
+/** 回合级模型覆写（request 级覆写 > 作用域资产 model > 会话缺省；provider/
+ *  model_id = 模型选择（经 resolve_scope_llm 同链解析），reasoning_* = 推理
+ *  档位（随 STATE_ROUND_MODEL 键进 llm_decider 构造 LLMParams）。全部可选，
+ *  空对象 = 无覆写。 */
+export interface RoundModelOverride {
+  provider?: string;
+  model_id?: string;
+  reasoning_effort?: string;
+  enable_thinking?: boolean;
+  thinking_budget?: number;
+}
+
 /** run 循环内部状态（一次 run 的记账面；phase = 挂起相位，随 checkpoint 落盘）。 */
 export interface RunState {
   run_id: string;
@@ -69,6 +81,14 @@ export interface ScopeTurnContext {
   /** 挂起恢复注入值（approval 决议等；turn runner 透传给内部模型回路，
    *  缺省 = 无注入）。 */
   inject?: Record<string, unknown> | null;
+  /** 回合级模型覆写（request 级；解析序 = 本覆写 > scope.model > 会话缺省，
+   *  经 resolve_scope_llm 同链决议——缺省 = 无覆写）。 */
+  round_model?: RoundModelOverride | null;
+  /** 回合审批姿态（随 STATE_ROUND_POSE 键进子引擎工具审批 seam；auto/deny
+   *  才落键，review/缺省 = 引擎缺省语义零漂移）。 */
+  round_pose?: string | null;
+  /** 工具回合上限（本 run 覆写；缺省 = 执行器装配值）。 */
+  max_tool_rounds?: number | null;
 }
 
 /** 单轮作用域加工的产物（turn runner 输出；ok=false = 本轮加工失败需降级）。 */
@@ -161,6 +181,10 @@ export interface WhiteboardSession {
 export interface ExecutionRequest {
   /** 会话/根 run 任务文本（resume 续跑 = 可省略，任务随 checkpoint 状态恢复）。 */
   task?: string;
+  /** 会话记忆摘要切片（宿主 history 摘要，宿主裁剪预算；W7A 缺口④ 收口面）。
+   *  run_loop 仅对 main 作用域根 run 的 turn 注入（进输入装配源，不进子执行；
+   *  不进 RunState/checkpoint——引擎不持久化记忆）。 */
+  session_context?: string | null;
   /** 会话目标分类标签（先验匹配的 trigger；可 null）。 */
   trigger?: string | null;
   /** 入口目录作用域 id（缺省 = main 主持人）。 */
@@ -169,6 +193,16 @@ export interface ExecutionRequest {
   entry_temp_scope?: Record<string, unknown> | null;
   /** 初始载荷字段（随入口作用域第一轮加工注入）。 */
   seed_payload?: Record<string, unknown>;
+  /** 附件载荷（最简 dict 列表：{kind, url?, path?, mime_type?, name?}，宿主
+   *  round_attachments 归一产物；引擎侧图像/视频分量消费由 scope_turn 面
+   *  承担，本字段 = 透传面，不经文本投影）。 */
+  attachments?: unknown;
+  /** 回合级模型覆写（request 级：provider/model_id 模型选择 + 推理档位；
+   *  解析序 = 本覆写 > 作用域资产 model > 会话缺省，经 resolve_scope_llm
+   *  同链决议）。 */
+  round_model?: RoundModelOverride | null;
+  /** 回合审批姿态（auto/review/deny；通道 seam 与子引擎工具审批 seam 共用）。 */
+  round_pose?: string | null;
   /** 根 run_id（缺省运行时派生；提供 = 宿主控制命名）。 */
   run_id?: string;
   /** 可选白板会话（grants + 初始 blocks；缺省 = 无白板，零漂移）。 */
@@ -180,6 +214,10 @@ export interface ExecutionRequest {
   resume_from?: number | null;
   /** 挂起恢复注入值（key → approval 决议；挂起卡消费后重入继续）。 */
   resume_inject?: Record<string, unknown> | null;
+  /** 分支分叉锚点（非空 = 从既有执行 checkpoint 状态分叉新 run_id：复用
+   *  resolve_resume 重建 RunState + 相位，白板/档案注入按新 run 开，原 run
+   *  的链/结果不受影响；与 resume_from 互斥）。 */
+  branch_from?: { source_run_id: string; checkpoint_id: number } | null;
 }
 
 /** 执行运行时装配依赖（全部注入式；host 装配真实实现，测试注入 fake）。 */

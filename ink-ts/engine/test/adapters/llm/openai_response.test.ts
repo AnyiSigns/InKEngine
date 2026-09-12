@@ -49,7 +49,10 @@ function stream_response(status: number, lines: readonly string[]): LlmResponse 
   };
 }
 
-function make_adapter(handler: () => LlmResponse): { llm: OpenAIResponsesLLM; seen: Seen } {
+function make_adapter(
+  handler: () => LlmResponse,
+  overrides: { extra?: Record<string, unknown> | null } = {},
+): { llm: OpenAIResponsesLLM; seen: Seen } {
   const seen: Seen = { calls: 0, url: '', headers: {}, body: null };
   const transport: LlmTransport = {
     async post(url, request) {
@@ -60,11 +63,13 @@ function make_adapter(handler: () => LlmResponse): { llm: OpenAIResponsesLLM; se
       return handler();
     },
   };
+  // W8B 多模态门禁：extra.modalities 档案透传形态（null = 未声明）
   const config = new LLMConfig({
     adapter: 'openai_responses',
     model_id: 'gpt-5',
     base_url: 'https://api.openai.com/v1/',
     api_key: 'sk-test',
+    extra: overrides.extra ?? null,
   });
   const llm = new OpenAIResponsesLLM(config, { transport });
   return { llm, seen };
@@ -148,14 +153,17 @@ describe('OpenAIResponsesLLM 协议标识与请求负载', () => {
     expect((params['properties'] as Body)['q']).toEqual({ type: 'string' });
   });
 
-  it('user 附件展开为 input_text + 多模态内容段', async () => {
-    const { llm, seen } = make_adapter(ok_response);
+  // W8B：图像段 = Responses 协议 input_image 形态；档案未声明图像输入 = fail-closed 显式拒绝
+  it('user 附件展开为 input_text + input_image 段；档案未声明图像输入携图显式拒绝', async () => {
     const msg = user('看图', { attachments: [new Attachment({ kind: 'image', url: 'https://x/i.png' })] });
+    const { llm, seen } = make_adapter(ok_response, { extra: { modalities: ['text', 'image'] } });
     await llm.ainvoke([msg]);
     const item = ((seen.body as Body)['input'] as unknown[])[0] as Body;
     expect(item['role']).toBe('user');
     expect((item['content'] as unknown[])[0]).toEqual({ type: 'input_text', text: '看图' });
-    expect(((item['content'] as unknown[])[1] as Body)['type']).toBe('image_url');
+    expect((item['content'] as unknown[])[1]).toEqual({ type: 'input_image', image_url: 'https://x/i.png' });
+    const { llm: gated } = make_adapter(ok_response);
+    await expect(gated.ainvoke([msg])).rejects.toThrow(/未声明图像输入模态|显式拒绝/);
   });
 
   it('max_output_tokens 与 temperature 透传', async () => {

@@ -29,6 +29,7 @@ import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
 import { fallback_routing } from './fallback_routing.js';
 import { routing_decision_from_output } from './routing_next.js';
 import { PAYLOAD_AMEND_KEY, process_grant_amend } from './amend_runtime.js';
+import { PAYLOAD_BOARD_KEY, process_board_write } from './board_runtime.js';
 import { payload_from_reply, build_turn_input } from './scope_turn.js';
 import { clean_payload } from './fan_in.js';
 import type { Core } from './execution_runtime.js';
@@ -111,6 +112,10 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
     // §7.3 注入：运行中用户发话并入本轮输入（main 自治仲裁消费；排队语义由
     // 注入 seam 保证——未消费消息保持待取，不丢）
     const userText = core.deps.next_user_input?.(state.run_id, state.scope.id) ?? '';
+    // 会话记忆注入：仅 main 作用域根 run 的 turn（作用域私有上下文通道，白板
+    // 语义之外；子执行/子作用域零注入——引擎不持久化记忆）
+    const sessionCtx =
+      state.scope.id === 'main' && state.parent_run_id === null ? core.session_context : null;
     const turn = await core.deps.turn.run_scope_turn({
       run_id: state.run_id,
       step: state.steps + 1,
@@ -118,6 +123,7 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
       boot_system_prompt: core.deps.boot_system_prompt ?? '',
       input: await build_turn_input(userText, state.payload, wbBlocks, {
         context_window: state.whiteboard_context_window ?? null,
+        session_context: sessionCtx ?? undefined,
       }),
       payload: { ...state.payload },
       thread_id: state.run_id,
@@ -194,6 +200,25 @@ export async function run_one(core: Core, state: RunState, emit: Emit): Promise<
       if (amend.entry.amendment !== undefined) detail['amendment'] = amend.entry.amendment;
       emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: 'whiteboard_audit', detail });
       if (core.deps.on_whiteboard_audit) core.deps.on_whiteboard_audit([amend.entry]);
+    }
+    // 圆桌共享板面写路径（`__board` 结构化产物声明）：写授权（open 模式或召集
+    // grants 显式授 board write，fail-closed）→ 追加 board 块（owner=声明作用域）
+    // → 审计经既有 whiteboard_audit 通道带出（追加产 1 条 write 审计；本处位于
+    // top-of-loop 差量之后，生效分支显式转发一次不重复）。blind 无授权 = 显式拒绝。
+    const board = process_board_write(state.whiteboard, state.scope.id, produced);
+    delete produced[PAYLOAD_BOARD_KEY];
+    if (board.status === 'rejected') {
+      return finish_fail(core, state, board.reason);
+    }
+    if (board.status === 'applied') {
+      const detail: Record<string, unknown> = {
+        scope: board.entry.scope,
+        block_id: board.entry.block_id,
+        kind: board.entry.kind,
+        action: board.entry.action,
+      };
+      emit({ run_id: state.run_id, parent_run_id: state.parent_run_id, scope: state.scope.id, action: 'whiteboard_audit', detail });
+      if (core.deps.on_whiteboard_audit) core.deps.on_whiteboard_audit([board.entry]);
     }
     let decision = routing_decision_from_output(produced, turn.reply);
     // 先验回落只作用于入口首轮（steps=1 的这次加工 = 入口路由局部判定）；其后

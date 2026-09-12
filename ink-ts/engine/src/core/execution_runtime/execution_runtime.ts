@@ -73,6 +73,8 @@ export interface Core {
   coordinator: InterruptCoordinator;
   /** 挂起恢复态（恢复时子 run 按子链尾重建，已完成子执行不重跑）。 */
   resuming: boolean;
+  /** 会话记忆摘要切片（request 级注入；仅 main 根 run turn 消费，引擎不持久化）。 */
+  session_context: string | null;
   /** 执行级 checkpoint 写入（storage 未装配/写失败 = null 降级，不击穿执行）。 */
   checkpoint: (
     state: RunState,
@@ -109,7 +111,7 @@ export class ExecutionRuntime {
   }
 
   /** run 级共享面构造（协调器注入值挂载 + checkpoint 写面 + 转场审批包装）。 */
-  #makeCore(coordinator: InterruptCoordinator, resuming: boolean): Core {
+  #makeCore(coordinator: InterruptCoordinator, resuming: boolean, sessionContext: string | null): Core {
     const deps = this.deps;
     const storage = deps.storage ?? null;
     const nowMs = deps.now_ms ?? (() => 0);
@@ -134,6 +136,7 @@ export class ExecutionRuntime {
       },
       coordinator,
       resuming,
+      session_context: sessionContext,
       checkpoint: (state, phase, opts) =>
         write_exec_checkpoint(storage, state, phase, {
           reason: opts?.reason ?? null,
@@ -153,18 +156,26 @@ export class ExecutionRuntime {
     };
   }
 
-  /** 单次执行（根 run；返回汇聚点产物 + 执行树 + 事件带；可挂起/恢复）。 */
+  /** 单次执行（根 run；返回汇聚点产物 + 执行树 + 事件带；可挂起/恢复/分支）。 */
   async run(request: ExecutionRequest): Promise<ExecutionResult> {
     const resumeFrom = request.resume_from ?? null;
+    const branchFrom = request.branch_from ?? null;
     const coordinator = new InterruptCoordinator();
     if (request.resume_inject !== null && request.resume_inject !== undefined) {
       coordinator.inject(request.resume_inject);
     }
-    const core = this.#makeCore(coordinator, resumeFrom !== null);
+    const sessionContext =
+      typeof request.session_context === 'string' && request.session_context !== ''
+        ? request.session_context
+        : null;
+    const core = this.#makeCore(coordinator, resumeFrom !== null, sessionContext);
     const emit = (event: RunEvent): void => {
       core.events.push(event);
       if (this.deps.on_event !== undefined) this.deps.on_event(event);
     };
+    if (branchFrom !== null) {
+      return this.#branch(request, core, emit, branchFrom);
+    }
     if (resumeFrom !== null) {
       return this.#resume(request, core, emit, resumeFrom);
     }
@@ -242,6 +253,80 @@ export class ExecutionRuntime {
     emit(_event(rootId, null, snapshot.state.scope.id, 'run_resumed', { checkpoint_id: resumeFrom, phase: snapshot.phase.kind }));
     try {
       const childOutcome = await run_one(core, { ...snapshot.state, phase: snapshot.phase }, emit);
+      return finish_result(core, rootId, snapshot.state.scope.id, childOutcome, emit);
+    } catch (error) {
+      if (error instanceof InterruptSignal) {
+        return pending_result(core, rootId, snapshot.state.scope.id, error, emit);
+      }
+      throw error;
+    }
+  }
+
+  /** 分支分叉入口（从既有执行 checkpoint 状态分叉新 run_id）：复用恢复解析
+   *  （resolve_exec_checkpoint）重建 RunState + 相位，改名新 run_id 后照常
+   *  进入 run 循环——checkpoint 写面按新 run_id 开新链（原 run 链零触碰）；
+   *  白板按新 run 开（request.whiteboard 注入或空），原 run 白板/载荷深拷贝
+   *  隔离（state_from_dict 全量拷贝，互不反写）。相位原样保留：turn_done =
+   *  从路由决策继续（gate pending 恢复后重过闸 = 新 run 独立审批生命周期；
+   *  gate passed 继承已放行决策不重挂）；turn_resume = 带新 run 决议重跑整轮；
+   *  settled = 按相位回执收口（不重跑）。 */
+  async #branch(
+    request: ExecutionRequest,
+    core: Core,
+    emit: (event: RunEvent) => void,
+    branchFrom: { source_run_id: string; checkpoint_id: number },
+  ): Promise<ExecutionResult> {
+    const rootId = request.run_id;
+    if (rootId === undefined || rootId === null) {
+      return blocked_result(core, 'branch', request, null, '分支分叉需 run_id（新 run 命名）');
+    }
+    validate_run_id(rootId);
+    if (rootId === branchFrom.source_run_id) {
+      return blocked_result(
+        core,
+        rootId,
+        request,
+        null,
+        `分支分叉 run_id 不得与源 run 相同（${rootId}）——新 run 须独立命名空间`,
+      );
+    }
+    if (request.resume_from !== null && request.resume_from !== undefined) {
+      return blocked_result(core, rootId, request, null, '分支分叉与挂起恢复（resume_from）互斥');
+    }
+    if (core.deps.storage === null || core.deps.storage === undefined) {
+      return blocked_result(core, rootId, request, null, '分支分叉需 storage（未装配）');
+    }
+    const storage: Storage | null = core.deps.storage ?? null;
+    let snapshot: Awaited<ReturnType<typeof resolve_exec_checkpoint>>;
+    try {
+      snapshot = await resolve_exec_checkpoint(storage, branchFrom.source_run_id, branchFrom.checkpoint_id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return blocked_result(core, rootId, request, null, `分支分叉失败: ${message}`);
+    }
+    const task = typeof snapshot.state.payload['task'] === 'string'
+      ? snapshot.state.payload['task']
+      : '';
+    emit(_event(rootId, null, snapshot.state.scope.id, 'run_start', {
+      task,
+      branch_from: { source_run_id: branchFrom.source_run_id, checkpoint_id: branchFrom.checkpoint_id },
+    }));
+    try {
+      const childOutcome = await run_one(
+        core,
+        {
+          ...snapshot.state,
+          run_id: rootId,
+          parent_run_id: null,
+          // 白板按新 run 开：request.whiteboard 注入或空（不继承源 run 白板——
+          // 白板可变状态，共享即污染原 run 视图）
+          whiteboard: load_whiteboard(request),
+          whiteboard_context_window:
+            request.whiteboard_context_window ?? snapshot.state.whiteboard_context_window,
+          phase: snapshot.phase,
+        },
+        emit,
+      );
       return finish_result(core, rootId, snapshot.state.scope.id, childOutcome, emit);
     } catch (error) {
       if (error instanceof InterruptSignal) {

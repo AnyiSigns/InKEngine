@@ -50,11 +50,15 @@ export function to_input_items(messages: readonly Message[]): Record<string, Jso
       }
       continue;
     }
-    // user 附件：文本 + 多模态段展开为 content 数组（type=input_text 命名）
+    // user 附件：文本 + 多模态段展开为 content 数组（type=input_text 命名；
+    // 图像走 Responses 协议 input_image 段，非图像沿用既有 <kind>_url 收敛）
     if (message.role === 'user' && message.attachments.length > 0) {
       const parts: Json[] = [];
       if (message.content) parts.push({ type: 'input_text', text: message.content });
-      for (const a of message.attachments) parts.push(a.to_openai_segment());
+      for (const a of message.attachments) {
+        if (a.kind === 'image') parts.push({ type: 'input_image', image_url: a.ref });
+        else parts.push(a.to_openai_segment());
+      }
       const item: Record<string, Json> = { role: 'user', content: parts };
       if (message.name) item['name'] = message.name;
       items.push(item);

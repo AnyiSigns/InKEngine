@@ -14,10 +14,10 @@
 import { useCallback } from 'react';
 
 import type { BackendAdapter } from '@/shared/backend/backendAdapter';
-import type { ChannelHub } from '@/shared/session/channelHub';
+import type { ChannelHub, HubEvent } from '@/shared/session/channelHub';
 import type { ExecutionReceipt, ExecutionRunParams } from '@/shared/session/executionTypes';
 import { parseExecutionReceipt } from '@/shared/session/executionTypes';
-import { ingestExecutionReceipt } from '@/shared/session/executionIngest';
+import { ingestExecutionReceipt, ingestRunEvent } from '@/shared/session/executionIngest';
 import { appendRoundError } from '@/shared/session/eventIngest';
 import { logger } from '@/shared/logger';
 
@@ -64,5 +64,48 @@ export function useExecutionRunDispatch(
   return useCallback(
     (threadId: string, params: ExecutionRunParams) => dispatchExecutionRun(hub, backend, threadId, params),
     [hub, backend],
+  );
+}
+
+/** 执行树事件带判定（宿主实时转发形态：payload 带 run_id + parent_run_id +
+ *  scope 三元 = 执行树事件；其余引擎事件不在此面）。 */
+export function isExecutionRunEvent(event: HubEvent): boolean {
+  const payload = event.payload;
+  return (
+    typeof payload?.run_id === 'string'
+    && payload.run_id !== ''
+    && 'parent_run_id' in (payload as Record<string, unknown>)
+    && typeof payload?.scope === 'string'
+    && payload.scope !== ''
+  );
+}
+
+/**
+ * 主线回合实时执行事件落位（W8A 增量消费：web 长回合期间逐事件更新执行树）。
+ * 事件信封 thread_id = 会话线程（回合归属）；round_id = 该轮回合（同轮多次
+ * 事件按轮替换卡片，不重复追加）。仅活动窗口镜像全局、后台线程落桶——与
+ * 回执落位同纪律。
+ */
+export function ingestExecutionRunEvent(hub: ChannelHub, event: HubEvent): void {
+  const payload = event.payload as Record<string, unknown>;
+  const runId = String(payload.run_id ?? '');
+  const threadId = typeof payload.thread_id === 'string' && payload.thread_id !== '-'
+    ? payload.thread_id
+    : hub.getSnapshot().activeSessionId;
+  if (threadId === '') return;
+  const roundId = typeof payload.round_id === 'string' ? payload.round_id : '';
+  ingestRunEvent(
+    hub,
+    threadId,
+    {
+      run_id: runId,
+      parent_run_id: typeof payload.parent_run_id === 'string' ? payload.parent_run_id : null,
+      scope: String(payload.scope ?? ''),
+      action: event.type,
+      detail: payload.detail && typeof payload.detail === 'object'
+        ? (payload.detail as Record<string, unknown>)
+        : null,
+    },
+    roundId,
   );
 }

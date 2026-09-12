@@ -21,6 +21,7 @@ import {
 import { registerBuiltinComponents } from '@/components';
 import { registerPluginFaces } from './pluginFaces.generated';
 import { createIngester, toHubEvent, setStreaming, finalizeThreadStreaming, setThreadRoundActive } from '@/shared/session/eventIngest';
+import { ingestExecutionRunEvent, isExecutionRunEvent } from '@app/state/executionWiring';
 import { AppBackend } from './backend';
 import { registerEventRenderers } from './renderers/eventRenderers';
 import App from '../App';
@@ -59,6 +60,11 @@ export function activate(): void {
     void listenHostEvent<Record<string, unknown>>(ROUND_EVENT_TOPIC, (raw) => {
       if (!raw || typeof raw !== 'object') return;
       const event = toHubEvent(raw as Record<string, unknown>);
+      // W8A 执行树增量消费：主线回合实时执行事件（payload 带 run_id/scope）
+      // 先行落位执行树（同轮事件驱动卡片逐步刷新），其余仍走回合归约。
+      if (isExecutionRunEvent(event)) {
+        ingestExecutionRunEvent(hub, event);
+      }
       // 跨会话事件一律交给 ingest 分桶：ingest 已按 targetThread 正确分桶，
       // 仅 isActive 时镜像到全局窗口；非活跃会话数据只入桶不污染当前窗口。
       ingest(event);

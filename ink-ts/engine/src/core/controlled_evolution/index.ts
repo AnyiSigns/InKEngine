@@ -13,3 +13,4 @@ export * from './adoption_gate.js';
 export * from './controlled_applier.js';
 export * from './pruning_adapter.js';
 export * from './crystallize.js';
+export * from './evaluate_options.js';

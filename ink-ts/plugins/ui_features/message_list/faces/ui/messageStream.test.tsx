@@ -11,6 +11,8 @@ describe('MessageStream', () => {
   it('renders user bubble', () => {
     render(<MessageStream entries={[{ id: '1', kind: 'text', role: 'user', content: 'hello', roundId: 'r1' }]} streaming={false} />);
     expect(screen.getByText('hello')).toBeTruthy();
+    // 零漂移：无附件 user 气泡不渲染图像容器
+    expect(document.querySelector('[data-ui="user_bubble_images"]')).toBeNull();
   });
 
   it('renders assistant text with streaming cursor', () => {
@@ -180,5 +182,46 @@ describe('MessageStream', () => {
       />,
     );
     expect(container.querySelectorAll('[data-ui="auto_round_marker"]')).toHaveLength(2);
+  });
+});
+
+/**
+ * 消息流用户气泡图像附件渲染核对（W8B 最小补齐）。
+ *
+ * 测什么：user 文本消息携带 image 附件（出站契约形态，对齐引擎 Attachment）
+ * 时气泡内渲染缩略图（data URL/远程 URL 直接进 img src）；非图像附件不进
+ * 图像容器（document/video 沿用既有文本/独立条目形态）。
+ */
+const PNG_URL = 'data:image/png;base64,iVBORw0KGgo=';
+
+function user_bubble_image(): HTMLImageElement | null {
+  const all = Array.from(document.querySelectorAll<HTMLImageElement>('[data-ui="user_bubble_images"] img'));
+  return all[0] ?? null;
+}
+
+describe('用户气泡附件图像渲染', () => {
+  it('user 消息带 image 附件：气泡渲染缩略图（src=data URL、alt=文件名）', () => {
+    render(
+      <MessageStream
+        entries={[{ id: '1', kind: 'text', role: 'user', content: '看看这张图', attachments: [{ kind: 'image', url: PNG_URL, name: 'shot.png' }] }]}
+        streaming={false}
+      />,
+    );
+    expect(screen.getByText('看看这张图')).toBeTruthy();
+    const img = user_bubble_image();
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute('src')).toBe(PNG_URL);
+    expect(img!.getAttribute('alt')).toBe('shot.png');
+  });
+
+  it('非图像附件不进图像容器（document 沿用文本引用语义）', () => {
+    render(
+      <MessageStream
+        entries={[{ id: '1', kind: 'text', role: 'user', content: '文档在这', attachments: [{ kind: 'document', url: 'x.pdf', name: 'x.pdf' }] }]}
+        streaming={false}
+      />,
+    );
+    expect(screen.getByText('文档在这')).toBeTruthy();
+    expect(user_bubble_image()).toBeNull();
   });
 });

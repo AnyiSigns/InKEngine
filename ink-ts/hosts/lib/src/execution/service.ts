@@ -1,3 +1,4 @@
+// gate: 超限(392 行) - 宿主执行装配单文件闭环（依赖注入面/回合级配置包装/run+resume+branch 三入口成对，拆文件破坏装配时序可读性）
 /**
  * 宿主执行装配（HostExecutionService）：把引擎 ExecutionRuntime（作用域/通道
  * 执行运行时）接进宿主命令面与组织类工具的唯一装配点。
@@ -85,6 +86,9 @@ export interface RunExecutionOptions {
   /** review 档挂卡开关（缺省 false；true = 通道审批在 review 档产出 interrupt
    *  态挂起而非 fail-closed 阻断——需 storage 装配才有续跑能力）。 */
   hang?: boolean;
+  /** 工具回合上限（本 run 覆写 llm_decider config；缺省 = 执行器装配值）。
+   *  rounds.send 每次活读能力记录 max_tool_rounds 随行透传。 */
+  maxToolRounds?: number | null;
 }
 
 /** 通道审批 seam 构造（审批姿态 × 宿主审批策略 × 挂卡能力 → accept/auto/reject/pending）。 */
@@ -193,6 +197,30 @@ export class HostExecutionService {
     return this.init.makeTurn();
   }
 
+  /** 回合级配置包装执行器（W8A）：request 级模型覆写/审批姿态 + run 级工具
+   *  回合上限注入每次作用域加工（缺省 = 原执行器原样直通）。引擎侧消费面 =
+   *  ScopeTurnContext.round_model/round_pose/max_tool_rounds（engine_turn_runner
+   *  决议模型解析序 + 状态种子）。 */
+  private withRoundConfig(
+    base: ScopeTurnRunner,
+    request: ExecutionRequest,
+    options: RunExecutionOptions,
+  ): ScopeTurnRunner {
+    const roundModel = request.round_model ?? null;
+    const roundPose = request.round_pose ?? null;
+    const maxToolRounds = options.maxToolRounds ?? null;
+    if (roundModel === null && roundPose === null && maxToolRounds === null) return base;
+    return {
+      run_scope_turn: (ctx) =>
+        base.run_scope_turn({
+          ...ctx,
+          ...(roundModel !== null ? { round_model: roundModel } : {}),
+          ...(roundPose !== null ? { round_pose: roundPose } : {}),
+          ...(maxToolRounds !== null ? { max_tool_rounds: maxToolRounds } : {}),
+        }),
+    };
+  }
+
   /** 当前存储面（未装配 = null；执行级 checkpoint 与档案快照共用）。 */
   currentStorage(): Storage | null {
     const getter = this.init.storage;
@@ -268,7 +296,7 @@ export class HostExecutionService {
     const runtime = new ExecutionRuntime({
       load_scope: this.init.loadScope,
       channels: this.channels,
-      turn: await this.turnRunner(),
+      turn: this.withRoundConfig(await this.turnRunner(), request, options),
       approval: this.approvalSeam(options.pose, 'execution', canHang),
       priors: this.priors,
       boot_system_prompt: this.init.bootSystemPrompt ?? '',
@@ -309,10 +337,15 @@ export class HostExecutionService {
       throw new Error(`恢复锚点 #${checkpointId} 无挂起卡（非审批挂起 checkpoint）`);
     }
     // 决议键 = 挂起卡键（宽容消费 base/base#N 由引擎 InterruptCoordinator 承担）
+    const request: ExecutionRequest = {
+      run_id: runId,
+      resume_from: checkpointId,
+      resume_inject: { [anchor.interrupt.key]: decision },
+    };
     const runtime = new ExecutionRuntime({
       load_scope: this.init.loadScope,
       channels: this.channels,
-      turn: await this.turnRunner(),
+      turn: this.withRoundConfig(await this.turnRunner(), request, options),
       approval: this.approvalSeam(options.pose, 'execution', true),
       priors: this.priors,
       boot_system_prompt: this.init.bootSystemPrompt ?? '',
@@ -328,10 +361,44 @@ export class HostExecutionService {
       abort_requested: (runId) => this.abortedRuns.has(runId),
     });
     this.abortedRuns.delete(runId);
-    return runtime.run({
-      run_id: runId,
-      resume_from: checkpointId,
-      resume_inject: { [anchor.interrupt.key]: decision },
+    return runtime.run(request);
+  }
+
+  /** 分支分叉：从既有执行 checkpoint 状态分叉新 run_id（复用引擎恢复解析重建
+   *  RunState + 相位，白板/档案注入按新 run 开——request 注入新白板或空，新
+   *  run 走自己的 exec 链/轨迹，原 run 链与结果零触碰）。选项同 runExecution
+   *  （pose 控制新 run 审批生命周期；onEvent 事件带透出）。 */
+  async branchExecution(
+    sourceRunId: string,
+    checkpointId: number,
+    options: RunExecutionOptions & { run_id?: string } = {},
+  ): Promise<ExecutionResult> {
+    const storage = this.currentStorage();
+    if (storage === null) {
+      throw new Error('分支分叉需 storage（未装配）');
+    }
+    const request: ExecutionRequest = {
+      run_id: options.run_id,
+      branch_from: { source_run_id: sourceRunId, checkpoint_id: checkpointId },
+    };
+    const runtime = new ExecutionRuntime({
+      load_scope: this.init.loadScope,
+      channels: this.channels,
+      turn: this.withRoundConfig(await this.turnRunner(), request, options),
+      approval: this.approvalSeam(options.pose, 'execution', true),
+      priors: this.priors,
+      boot_system_prompt: this.init.bootSystemPrompt ?? '',
+      guardrails:
+        options.guardrails !== undefined && options.guardrails !== null
+          ? options.guardrails
+          : this.init.guardrails ?? {},
+      ...(options.onEvent !== undefined ? { on_event: options.onEvent } : {}),
+      archive: this.orgArchive,
+      now_ms: this.init.nowMs ?? (() => 0),
+      storage,
+      next_user_input: (id, scopeId) => this.consumeUserInput(id, scopeId),
+      abort_requested: (runId) => this.abortedRuns.has(runId),
     });
+    return runtime.run(request);
   }
 }

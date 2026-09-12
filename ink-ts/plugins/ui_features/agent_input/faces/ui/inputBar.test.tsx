@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { InputBar } from './InputBar';
 import type { ModelArchiveSnapshot } from '@/shared/backend/backendAdapter';
 
@@ -121,5 +121,57 @@ describe('InputBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '弹卡档位' }));
     fireEvent.click(screen.getByRole('option', { name: /^询问/ }));
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * 输入区图像上传交互（W8B：附件选取 → 随消息走）。
+ *
+ * 测什么：隐藏 file input 选图 → data URL 附件资产入待发清单（onAttachments
+ * 带出、胶囊展示文件名）→ 发送时 onSend 携图像附件（kind=image + data: URL）；
+ * 移除钮撤下单个附件；纯文本发送附件恒为空数组（既有行为零漂移）。
+ */
+async function pickImageFile(container: HTMLElement, file: File, label: string) {
+  const input = container.querySelector('input[type=file]') as HTMLInputElement;
+  Object.defineProperty(file, 'name', { value: label });
+  fireEvent.change(input, { target: { files: [file] } });
+  await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+}
+
+describe('图像附件上传面', () => {
+  const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'x.png', { type: 'image/png' });
+
+  it('选图 → 附件进待发清单并带出 onAttachments，发送携带 data URL 图像附件', async () => {
+    const onSend = vi.fn();
+    const onAttachments = vi.fn();
+    const { container } = render(
+      <InputBar disabled={false} streaming={false} onSend={onSend} onAbort={() => {}} onAttachments={onAttachments} />,
+    );
+    await pickImageFile(container, png(), 'shot.png');
+    expect(onAttachments).toHaveBeenCalledWith([
+      expect.objectContaining({ kind: 'image', name: 'shot.png', mime: 'image/png' }),
+    ]);
+    const recorded = onAttachments.mock.calls[0]![0] as Array<{ url: string }>;
+    expect(recorded[0]!.url.startsWith('data:image/png;base64,')).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: '看看这张图' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
+    expect(onSend).toHaveBeenCalledWith(
+      '看看这张图',
+      [expect.objectContaining({ kind: 'image', name: 'shot.png' })],
+      undefined,
+    );
+  });
+
+  it('移除钮撤下附件：误选后可撤回，发送回到纯文本零附件', async () => {
+    const onSend = vi.fn();
+    const { container } = render(
+      <InputBar disabled={false} streaming={false} onSend={onSend} onAbort={() => {}} onAttachments={() => {}} />,
+    );
+    await pickImageFile(container, png(), 'oops.png');
+    fireEvent.click(screen.getByRole('button', { name: '移除附件' }));
+    await waitFor(() => expect(screen.queryByText('oops.png')).toBeNull());
+    fireEvent.change(screen.getByPlaceholderText('给智能体发消息'), { target: { value: '纯文本' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('给智能体发消息'), { key: 'Enter', code: 'Enter', charCode: 13 });
+    expect(onSend).toHaveBeenCalledWith('纯文本', [], undefined);
   });
 });

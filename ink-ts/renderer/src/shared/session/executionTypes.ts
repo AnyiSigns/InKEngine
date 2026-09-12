@@ -77,6 +77,9 @@ export interface ExecutionTrailRow {
 /** execution.run 回执（web 消费面）。 */
 export interface ExecutionReceipt {
   run_id: string;
+  /** 回合归属（主线增量回执带 round_id：同线程多轮按轮替换；execution.run
+   *  回执无此字段）。 */
+  round_id?: string;
   blocked: boolean;
   block_reason: string | null;
   outcome: ExecutionOutcome | null;
@@ -179,6 +182,7 @@ export function parseExecutionReceipt(raw: unknown): ExecutionReceipt | null {
   const finalProduct = isRecord(raw.final_product) ? raw.final_product : {};
   return {
     run_id: raw.run_id,
+    round_id: typeof raw.round_id === 'string' ? raw.round_id : undefined,
     blocked: raw.blocked === true,
     block_reason: typeof raw.block_reason === 'string' ? raw.block_reason : null,
     outcome: raw.outcome === undefined || raw.outcome === null ? null : outcomeOf(raw.outcome),

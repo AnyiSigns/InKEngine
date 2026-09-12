@@ -439,6 +439,20 @@
       "dir": "commands/evolution.crystallize"
     },
     {
+      "id": "evolution.evaluate",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-evolution-evaluate",
+      "dir": "commands/evolution.evaluate"
+    },
+    {
+      "id": "execution.branch",
+      "kind": "command",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-execution-branch",
+      "dir": "commands/execution.branch"
+    },
+    {
       "id": "execution.inject",
       "kind": "command",
       "capability": "host_tool",
@@ -3628,6 +3642,16 @@
       "id": "evolution.crystallize",
       "group": "evolution",
       "order": 1
+    },
+    {
+      "id": "evolution.evaluate",
+      "group": "evolution",
+      "order": 2
+    },
+    {
+      "id": "execution.branch",
+      "group": "execution",
+      "order": 4
     },
     {
       "id": "execution.inject",

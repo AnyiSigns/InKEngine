@@ -31,6 +31,7 @@ import type { Message } from '../../kernel/llm/messages.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
 
 import { RESPONSES_CORE_PAYLOAD_KEYS, response_tools, to_input_items } from './_responses_payload.js';
+import { assert_images_supported } from './image_gate.js';
 import {
   _parse_sse_line,
   new_responses_state,
@@ -105,6 +106,8 @@ export class OpenAIResponsesLLM extends AsyncLLM {
     params: LLMParams | null,
     stream: boolean,
   ): Record<string, unknown> {
+    // 多模态图像门禁（fail-closed）：档案未声明图像输入的模型携图即显式拒绝
+    assert_images_supported(this.config, messages);
     const payload: Record<string, unknown> = {
       model: this.config.model_id,
       input: to_input_items(messages),

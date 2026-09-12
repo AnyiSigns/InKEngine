@@ -15,6 +15,7 @@ import {
   make_engine_turn_runner,
 } from '@ink-ts/engine';
 import type { Host, LoadedScope, McpClientManager, Storage } from '@ink-ts/engine';
+import type { GuardrailConfig } from '@ink-ts/engine';
 import type { CapabilityStore } from './capability/store.js';
 import { configureCollabTempSightingSink } from './collab_command.js';
 import type { ResolvedHostConfig } from './config.js';
@@ -155,6 +156,26 @@ function makeTempSightingSink(runtime: Runtime): (record: Record<string, unknown
   };
 }
 
+/**
+ * 白板护栏产品配置读入（§十一#6 参数固化：n_max/成本阈 = GuardrailConfig
+ * 已 options 化 → 接同一配置面 model_config.org_evolution.guardrails；
+ * 非负整数才收，其余忽略 = 引擎出厂缺省档；无节/空节 = null 不覆写）。
+ */
+export function configGuardrails(
+  modelConfig: Record<string, unknown> | null,
+): GuardrailConfig | null {
+  if (modelConfig === null || !isRecord(modelConfig['org_evolution'])) return null;
+  const section = modelConfig['org_evolution'] as Record<string, unknown>;
+  const raw = isRecord(section['guardrails']) ? section['guardrails'] : null;
+  if (raw === null) return null;
+  const out: GuardrailConfig = {};
+  for (const key of ['max_steps', 'max_cost', 'max_parallel'] as const) {
+    const value = raw[key];
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** 装配 host 运行时（boot 装配 + restore 后重装配共用同一路径）。 */
 export async function assembleHostParts(input: HostBootInput): Promise<HostBootParts> {
   const retrieval = buildHostRetrieval(input.resolved.data_dir);
@@ -217,6 +238,11 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
         boot_system_prompt: assemblyRecipe.boot_system_prompt,
       }),
     storage: () => (runtime.storage ?? null) as Storage | null,
+    // 白板护栏参数固化（§十一#6）：n_max(max_parallel)/步数/成本阈从产品配置
+    // 面 org_evolution.guardrails 注入执行装配缺省档（缺位 = 引擎出厂档）
+    guardrails: configGuardrails(
+      inkHost.config.model_config as unknown as Record<string, unknown> | null,
+    ),
     // 白板裁切按模型 cw 的生产接线（W6 收口 A 留缝；未指派/无档案 = null
     // 兜底不猜，回落引擎 200k 缺省）
     resolveScopeContextWindow: (model) =>

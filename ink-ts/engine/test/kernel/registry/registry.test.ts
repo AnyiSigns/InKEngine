@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { PORT_STORAGE_SEAM } from '../../../src/dock/ports.js';
 import { audit_log_contract } from '../../../src/kernel/audit_log/contract.js';
 import {
-  PORT_STORAGE_SEAM,
   seal_mechanism_registry,
   topo_order,
   validate_mechanism_registry,

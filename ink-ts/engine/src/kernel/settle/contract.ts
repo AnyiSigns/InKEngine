@@ -13,7 +13,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** settle 机制契约：消费 storage_seam 沉淀簿记端口面。 */
 export const settle_contract: MechanismContract = {

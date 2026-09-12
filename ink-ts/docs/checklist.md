@@ -18,7 +18,7 @@
 - [ ] `spec.json`：id=目录名、kind、capability、data.*（逐字承载行为声明）；
       ui_feature 叶子/设置面板声明 `faces.ui`（target=web + entry 相对路径）；
       host logic face 声明 `faces.logic` + 按需 `depends`（端口词表见
-      `engine/src/kernel/registry/ports.ts`）。
+      `engine/src/dock/ports.ts`）。
 - [ ] `package.json`：npm 包名 `@ink-ts/plugin-<kebab>`（下划线/点号转连字符）。
 - [ ] 独占实现面（真面）才建 `faces/*/` + 同目录 `*.test.ts(x)`；data-only 不填
       占位 faces/depends/contract（防第二份平行真相）。

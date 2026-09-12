@@ -7,7 +7,7 @@
  *   （actions/depends/faces/contract），注册表行（manifest plugins[]）已携带；
  *   语义校验在此执行（生成器 sync_plugin_manifest.mjs 只守 JSON 形状）。
  * - depends 可引用其它插件 id 或机制端口 id（引擎单一真源
- *   engine/src/kernel/registry/ports.ts —— 本脚本是唯一跨进引擎内部取端口的
+ *   engine/src/dock/ports.ts —— 本脚本是唯一跨进引擎内部取端口的
  *   开发工具，端口词表不自维护第二份）。装配/装载前校验：悬空 = 违规；
  *   插件间 depends 有环 = 违规（机制端口是叶子，不参与环）。
  * - 卸载级联策略（用户定案 2026-09-07）：fail-closed 拒绝——有活动下游依赖
@@ -34,7 +34,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MECHANISM_PORT_IDS } from '../../engine/src/kernel/registry/ports.js';
+import { MECHANISM_PORT_IDS } from '../../engine/src/dock/ports.js';
 import { UI_STORE_SET, UI_INJECT_SET } from '../../hosts/web/src/app/shell/hostAccessVocab.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

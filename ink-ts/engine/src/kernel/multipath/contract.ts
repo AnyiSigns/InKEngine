@@ -15,7 +15,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** multipath 机制契约：依赖 interrupt/recovery，消费 storage_seam 读链尾/落汇流记录。 */
 export const multipath_contract: MechanismContract = {

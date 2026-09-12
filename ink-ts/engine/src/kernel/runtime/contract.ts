@@ -29,7 +29,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_LLM_PORT, PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_LLM_PORT, PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** runtime 机制契约：引擎装配/生命周期壳，编排其余机制；消费存储与模型 seam。 */
 export const runtime_contract: MechanismContract = {

@@ -1,0 +1,18 @@
+{
+  "measuredOn": "2026-09-12",
+  "engine": {
+    "srcDirs": {
+      "core": 46,
+      "kernel": 33
+    },
+    "tsFiles": 457,
+    "indexLines": 709
+  },
+  "plugins": {
+    "specs": 146,
+    "commands": 64
+  },
+  "contracts": {
+    "kernelContractDirs": 31
+  }
+}

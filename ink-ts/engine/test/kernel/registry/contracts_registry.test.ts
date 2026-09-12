@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { MECHANISM_PORT_IDS } from '../../../src/dock/ports.js';
 import { runtime_contract } from '../../../src/kernel/runtime/contract.js';
 import {
   ALL_MECHANISM_CONTRACTS,
-  MECHANISM_PORT_IDS,
   validate_mechanism_registry,
 } from '../../../src/kernel/registry/index.js';
 

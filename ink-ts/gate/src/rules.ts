@@ -8,7 +8,7 @@ import type { GateConfig } from './config.js';
 
 export interface Violation {
   path: string;
-  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid';
+  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid' | 'layer-dag' | 'test-protection' | 'public-api' | 'no-pending' | 'no-orphan';
   message: string;
 }
 
@@ -194,4 +194,53 @@ export function checkJsonValid(content: string, path: string): Violation | null 
     return { path, rule: 'json-valid', message: 'JSON 顶层须为对象' };
   }
   return null;
+}
+
+/** no-pending 禁字检查（CODING §11.1.4 禁待定；§13.6 第 4 条）：
+ *  源码/注释命中 `待接线/未来接线/待引擎补全/机制先行` 等字面即违规
+ *  （「占位」经治理裁决在产品占位语义下放行，不入默认词表），
+ *  按文件聚合（记录命中 token 与行号样例）。 */
+export function checkPendingTokens(
+  content: string,
+  path: string,
+  tokens: readonly string[],
+): Violation[] {
+  if (tokens.length === 0) return [];
+  const lines = content.split('\n');
+  const hits = new Map<string, number[]>();
+  for (let i = 0; i < lines.length; i++) {
+    for (const token of tokens) {
+      if (token !== '' && lines[i]!.includes(token)) {
+        const arr = hits.get(token) ?? [];
+        arr.push(i + 1);
+        hits.set(token, arr);
+      }
+    }
+  }
+  if (hits.size === 0) return [];
+  const detail = [...hits.entries()]
+    .map(([token, rows]) => `${token}×${rows.length}（L${rows.slice(0, 3).join(', L')}${rows.length > 3 ? ', …' : ''}）`)
+    .join('；');
+  return [{ path, rule: 'no-pending', message: `禁待定字面命中：${detail}` }];
+}
+
+/** public-api 快照逐字比对：不一致即违规（差异摘要 = 缺失/多余符号行）。
+ *  两个入参为 dump_api_surface 排序去重后的清单文本（`\n` 分隔）。 */
+export function compareApiSurface(snapshot: string, current: string, path = 'engine/api.surface.snapshot'): Violation | null {
+  if (snapshot === current) return null;
+  const before = new Set(snapshot.split('\n').filter((l) => l !== ''));
+  const after = new Set(current.split('\n').filter((l) => l !== ''));
+  const missing = [...before].filter((l) => !after.has(l));
+  const extra = [...after].filter((l) => !before.has(l));
+  const parts: string[] = [];
+  if (missing.length > 0) parts.push(`缺失 ${missing.length}：${missing.slice(0, 8).join(', ')}${missing.length > 8 ? ' …' : ''}`);
+  if (extra.length > 0) parts.push(`新增 ${extra.length}：${extra.slice(0, 8).join(', ')}${extra.length > 8 ? ' …' : ''}`);
+  if (parts.length === 0) parts.push('内容非逐字一致（行序/空白漂移）');
+  return { path, rule: 'public-api', message: `公共面快照漂移（导出符号增/删/改名即红）——${parts.join('；')}` };
+}
+
+/** test-protection 豁免标注（§13.2.3）：文件头 12 行内 `// gate: test-exempt - 原因`。 */
+export function hasTestExemptMark(content: string): boolean {
+  const head = content.split('\n', 12).join('\n');
+  return /\/\/\s*gate:\s*test-exempt\s*-/.test(head);
 }

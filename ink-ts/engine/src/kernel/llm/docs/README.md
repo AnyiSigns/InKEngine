@@ -20,5 +20,5 @@ kernel 侧 LLM 机制契约层：统一 AsyncLLM 接口与数据形态、消息/
 - `_types.ts` — `ROLES`/`ROLE_ALIASES`/`ATTACHMENT_KINDS`/`ATTACHMENT_SEGMENT_TYPES` 共享常量。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors`（`EngineError`）、`core/context/context_compression`（压缩策略）、`core/storage`（`Storage` 类型）、`kernel/builder/_sha256`（纯 TS sha256）、`kernel/registry/ports`（端口常量）；`node:async_hooks`（仅 guard.ts，白名单唯一例外）。
+- 上游（本目录实际 import）：`core/errors`（`EngineError`）、`core/context/context_compression`（压缩策略）、`core/storage`（`Storage` 类型）、`kernel/builder/_sha256`（纯 TS sha256）、`dock/ports`（端口常量）；`node:async_hooks`（仅 guard.ts，白名单唯一例外）。
 - 下游（实际 import 本目录）：`core/`（nodes、context window+compression、storage/storage_records、tool_index、tool_orchestrator、harness、declarative_tools、execution_runtime）；`kernel/`（executor、runtime、tool_pipeline、self_tools、introspection、registry/contracts）；`adapters/llm`（全部适配器/注册表/解析负载）；公共面 `src/index.ts`「LLM 机制契约」组 `export *`；hosts/lib（`host.ts` 用 `AsyncLLM`/`ModelChain`、`bridge/rounds.ts` 用 `project_history_baseline`）；测试 `test/kernel/llm`（11 测试 + 2 助手）。

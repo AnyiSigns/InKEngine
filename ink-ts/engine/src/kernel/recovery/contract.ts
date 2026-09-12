@@ -16,7 +16,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** recovery 机制契约：零机制间依赖，消费 storage_seam 读回 checkpoint 链。 */
 export const recovery_contract: MechanismContract = {

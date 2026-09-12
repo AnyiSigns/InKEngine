@@ -23,11 +23,11 @@ import { dirname } from 'node:path';
 
 import {
   ALL_MECHANISM_CONTRACTS,
-  MECHANISM_PORT_IDS,
   topo_order,
   validate_mechanism_registry,
   type MechanismContract,
 } from '../src/kernel/registry/index.js';
+import { MECHANISM_PORT_IDS } from '../src/dock/ports.js';
 import { runtime_contract } from '../src/kernel/runtime/contract.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

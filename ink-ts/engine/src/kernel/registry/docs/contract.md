@@ -6,17 +6,18 @@
 
 机制件装配闭集的注册表与密封器：机制件不是插件（插件走 CapabilityComponent），
 机制件走独立 `MechanismContract` 契约（每机制一份 `kernel/<mechanism>/contract.ts`，
-id = 目录名）。本目录提供契约类型、机制端口词表（effects/depends 命名空间单一
-事实源）、依赖图校验与拓扑装配序——boot 组密封与 verify:mechanisms 三键校验
+id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配序（机制端口词表
+已迁 `engine/src/dock/ports.ts`，effects/depends 命名空间单一事实源随迁，
+不在本目录）——boot 组密封与 verify:mechanisms 三键校验
 共用同一实现。纯函数目录，无 IO、无 seam 消费。
 
 ## 文件与职责
 
 | 文件 | 职责 |
 | ---- | ---- |
-| `index.ts` | 公共面收敛者（类型 + 端口常量 + 密封函数 + 全量契约清单） |
+| `index.ts` | 公共面收敛者（类型 + 密封函数 + 全量契约清单；端口常量不再经本面转出） |
 | `contract_types.ts` | `MechanismContract`/`MechanismRegistryOptions`/`SealedMechanismRegistry` 契约类型 |
-| `ports.ts` | 机制端口 id 规范常量（`PORT_*` + `MECHANISM_PORT_IDS`） |
+| `ports.ts`（已迁 `dock/ports.ts`） | 机制端口 id 规范常量（`PORT_*` + `MECHANISM_PORT_IDS`）——现居 `engine/src/dock/ports.ts`，不在本目录 |
 | `registry.ts` | `validate_mechanism_registry`/`find_cycles`/`seal_mechanism_registry`/`topo_order` |
 | `contracts.ts` | `ALL_MECHANISM_CONTRACTS` 单一真源聚合（31 项，只 re-export 不加边；path_assembler/pool_governance/thread_skeleton 契约已随组装链路退役删除，W7-B） |
 
@@ -35,7 +36,8 @@ id = 目录名）。本目录提供契约类型、机制端口词表（effects/d
   `find_cycles`（Tarjan 强连通分量，结点数 >1 的成员为环）、
   `seal_mechanism_registry`（违规即抛错 fail-closed，通过返回契约表 + 拓扑装配
   序；密封后不可变）、`topo_order`（被依赖者先）。
-- 端口词表：`PORT_STORAGE_SEAM`='storage_seam'（存储 seam：审计/补丁链/记录等
+- 端口词表（真源 `engine/src/dock/ports.ts`，不再经本目录 `index.ts` 转出）：
+  `PORT_STORAGE_SEAM`='storage_seam'（存储 seam：审计/补丁链/记录等
   受守卫落库端口）、`PORT_LLM_PORT`='llm_port'（模型推理 seam）、
   `PORT_EXEC_ENVELOPE`='exec_envelope'（子进程/沙箱执行端口）、
   `PORT_ROUNDS`='rounds.port'（回合端口：组装回合/恢复/审批重入，插件 depends
@@ -44,7 +46,7 @@ id = 目录名）。本目录提供契约类型、机制端口词表（effects/d
 - 公共面导出情况：本目录导出面**不在** `src/index.ts` 公共面（该文件无任何
   `kernel/registry` re-export 行）——属引擎内部面。消费方 = engine src 内部 +
   `engine/scripts/verify_mechanisms.ts` + `plugins/scripts/verify_unload.ts`
-  （取 `ports.ts` 词表，注释自述为唯一跨进引擎内部的例外）+ 镜像测试。
+   （取 `engine/src/dock/ports.ts` 词表，注释自述为唯一跨进引擎内部的例外）+ 镜像测试。
 
 ## 数据形态
 
@@ -60,8 +62,9 @@ id = 目录名）。本目录提供契约类型、机制端口词表（effects/d
 
 ## Seam 与 IO 边界
 
-纯函数，无 IO 声明：`registry.ts` 全部为纯函数（Tarjan/拓扑/校验）；`ports.ts`
-与 `contract_types.ts` 为常量与类型；`contracts.ts` 只做值面 re-export（无副
+纯函数，无 IO 声明：`registry.ts` 全部为纯函数（Tarjan/拓扑/校验）；
+`contract_types.ts` 为类型（端口常量 `ports.ts` 已迁 `engine/src/dock/ports.ts`）；
+`contracts.ts` 只做值面 re-export（无副
 作用 import）。本目录不消费任何端口、不持有状态、不触 IO。
 
 ## 装配与消费
@@ -77,7 +80,8 @@ id = 目录名）。本目录提供契约类型、机制端口词表（effects/d
 - 契约声明侧：31 个机制件 `contract.ts` 经 `contract_types.js` 取
   `MechanismContract` 类型；其中 13 个（audit_log/executor/growth/llm/
   evolution_writer/multipath/recovery/runtime/
-  settle/self_application/skill_crystal/sandbox/builder）另取 `ports.js` 端口
+  settle/self_application/skill_crystal/sandbox/builder）另取
+  `engine/src/dock/ports.ts` 端口
   常量入 effects。
 - 插件侧：`plugins/scripts/verify_unload.ts` 以 `MECHANISM_PORT_IDS` 为插件
   depends/contract.effects 词表真源（悬空/成环/未登记 = 违规 fail-closed）。
@@ -94,7 +98,7 @@ id = 目录名）。本目录提供契约类型、机制端口词表（effects/d
 - 全量集不变式（镜像测试强制）：契约 id 全局唯一且数量 = 31；每机制 effects
   只引用 `MECHANISM_PORT_IDS` 内端口；全量依赖图无环（组装时代 executor↔
   path_assembler 历史环随机制退役消失）。
-- gate：5 文件均远小于 350 行上限；kernel 层禁 node:*/第三方 import（本目录
+- gate：4 文件均远小于 350 行上限；kernel 层禁 node:*/第三方 import（本目录
   无任何外部依赖）。
 
 ## 测试

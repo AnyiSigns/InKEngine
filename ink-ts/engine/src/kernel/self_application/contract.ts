@@ -19,7 +19,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** self_application 机制契约：消费 storage_seam 守卫写通道，值依赖审批/补丁链/提案。 */
 export const self_application_contract: MechanismContract = {

@@ -16,7 +16,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_EXEC_ENVELOPE } from '../registry/ports.js';
+import { PORT_EXEC_ENVELOPE } from '../../dock/ports.js';
 
 /** sandbox 机制契约：依赖 tool_pipeline，消费 exec_envelope 进程信封端口面。 */
 export const sandbox_contract: MechanismContract = {

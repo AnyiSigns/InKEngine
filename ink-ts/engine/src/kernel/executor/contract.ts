@@ -26,7 +26,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** executor 机制契约：消费 storage_seam 落 checkpoint/事件，值依赖执行配套机制集。 */
 export const executor_contract: MechanismContract = {

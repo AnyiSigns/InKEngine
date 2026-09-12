@@ -23,6 +23,19 @@ export interface GateConfig {
   coreAllowedNodeModules: readonly string[];
   /** core 相对 import 中禁出现的子串（反向依赖下方层，如 adapters）。 */
   coreForbiddenRelSubstrings: readonly string[];
+  /** layer-dag 层向门禁是否强制（false = 报告模式：违规打印 WARN 但 exit 0）。 */
+  layerDagEnforce: boolean;
+  /** layer-dag 豁免清单（条目格式 `<导入文件相对路径>:<import 说明符>` 精确匹配）：
+   *  基线为空数组——过渡豁免**单调收缩只减不增**（阶段结束条数 ≤ 上一阶段）。 */
+  layerDagWhitelist: readonly string[];
+  /** test-protection 是否强制（false = 报告模式；P7 转强制）。 */
+  testProtectionEnforce: boolean;
+  /** no-pending 禁字（CODING §11.1.4 禁待定）：命中即违规。 「占位」经治理裁决除名（产品占位语义放行）。 */
+  noPendingTokens: readonly string[];
+  /** no-pending 强制位（false = 报告模式；保留词表零命中，经治理裁决 P0 即转强制）。 */
+  noPendingEnforce: boolean;
+  /** no-pending 扫描目录（root 相对，`.ts`/`.tsx` 文件）。 */
+  noPendingDirs: readonly string[];
 }
 
 export const defaultConfig: GateConfig = {
@@ -36,4 +49,10 @@ export const defaultConfig: GateConfig = {
   coreOpaqueTokens: ['inkling.skill/v1'],
   coreAllowedNodeModules: ['node:async_hooks'],
   coreForbiddenRelSubstrings: ['/adapters/'],
+  layerDagEnforce: false,
+  layerDagWhitelist: [],
+  testProtectionEnforce: false,
+  noPendingTokens: ['待接线', '未来接线', '待引擎补全', '机制先行'],
+  noPendingEnforce: true,
+  noPendingDirs: ['engine/src', 'hosts/lib/src', 'hosts/cli/src', 'hosts/web/src', 'renderer/src', 'plugins'],
 };

@@ -13,7 +13,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** 演化写入机制契约：依赖 audit_log/patch，消费 storage_seam 落库端口面。 */
 export const evolution_writer_contract: MechanismContract = {

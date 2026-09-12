@@ -1,9 +1,13 @@
-﻿import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+﻿import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { scan } from '../src/scan.js';
+import { scan, scanAll } from '../src/scan.js';
+import { checkTestProtection } from '../src/test_protection.js';
+import { checkPendingTokens, compareApiSurface } from '../src/rules.js';
 
 const roots: string[] = [];
 
@@ -223,5 +227,207 @@ describe('gate 规则', () => {
     await write(root, 'seed_data/ok.json', `{\n  "a": 1\n}\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).not.toContain('json-valid');
+  });
+});
+
+// ── 引擎重排 P0 立法：新增门禁自测（layer-dag / test-protection / public-api / no-pending / no-orphan）──
+
+const layerCfg = (extra: Record<string, unknown> = {}) => ({
+  lineScanDirs: ['engine/src'],
+  coreDirs: ['engine/src/core'],
+  noPendingDirs: [],
+  ...extra,
+});
+
+describe('layer-dag 层向门禁', () => {
+  it('model 零依赖违规；四件→model 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/model/m.ts', `import { l } from '../loop/l.js';\nexport const m = l;\n`);
+    await write(root, 'engine/src/loop/l.ts', `import { n } from '../model/n.js';\nexport const l = n + 1;\n`);
+    await write(root, 'engine/src/model/n.ts', `export const n = 1;\n`);
+    const { violations, warnings } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.length).toBe(1);
+    expect(violations[0]!.rule).toBe('layer-dag');
+    expect(violations[0]!.path).toContain('model/m.ts');
+    expect(warnings).toEqual([]);
+  });
+
+  it('四件→dock 仅放行 dock/ports 与 dock/registry 前缀', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/x.ts', `import { p } from '../dock/ports.js';\nimport { c } from '../dock/caps.js';\nexport const x = p + c;\n`);
+    const resEnforce = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    const dagViolations = resEnforce.violations.filter((v) => v.rule === 'layer-dag');
+    expect(dagViolations).toHaveLength(1);
+    expect(dagViolations[0]!.message).toContain('dock/caps');
+    const resReport = await scanAll({ root, config: layerCfg({ layerDagEnforce: false, noPendingEnforce: false }) });
+    expect(resReport.violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+    expect(resReport.warnings.some((v) => v.rule === 'layer-dag')).toBe(true);
+  });
+
+  it('dock→四件只允许 re-export 机制 contract.ts', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/caps.ts', `export * from '../graph/fm/contract.js';\n`);
+    await write(root, 'engine/src/dock/bad.ts', `import { run } from '../graph/exec.js';\nexport const b = run;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    const paths = violations.map((v) => v.path);
+    expect(paths).not.toContain('engine/src/dock/caps.ts');
+    expect(paths).toContain('engine/src/dock/bad.ts');
+  });
+
+  it('adapters 只 import dock/ports 前缀与 model', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/adapters/ok.ts', `import { p } from '../dock/ports.js';\nimport { m } from '../model/m.js';\nexport const ok = [p, m];\n`);
+    await write(root, 'engine/src/adapters/bad.ts', `import { l } from '../loop/l.js';\nexport const bad = l;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.map((v) => v.path)).toContain('engine/src/adapters/bad.ts');
+    expect(violations.map((v) => v.path)).not.toContain('engine/src/adapters/ok.ts');
+  });
+
+  it('四件间允许边 loop→graph、evolve→gate；其余互引违规', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/a.ts', `import { g } from '../graph/g.js';\nexport const a = g;\n`);
+    await write(root, 'engine/src/evolve/b.ts', `import { gateIt } from '../gate/gate_it.js';\nexport const b = gateIt;\n`);
+    await write(root, 'engine/src/gate/c.ts', `import { l } from '../loop/a.js';\nexport const c = l;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.map((v) => v.path)).toEqual(['engine/src/gate/c.ts']);
+  });
+
+  it('机制层红线：组装模块 import 与组装 token 命中即违规，whitelist 精确抑制', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/r.ts', `import { asm } from '../core/path_assembler.js';\n// 出厂图红线样例\nexport const r = asm;\n`);
+    const resHit = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    const msgs = resHit.violations.filter((v) => v.rule === 'layer-dag').map((v) => v.message).join('\n');
+    expect(msgs).toContain('path_assembler');
+    expect(msgs).toContain('出厂图');
+    const resSafe = await scanAll({
+      root,
+      config: layerCfg({
+        layerDagEnforce: true,
+        layerDagWhitelist: ['engine/src/loop/r.ts:../core/path_assembler.js', 'engine/src/loop/r.ts:token:出厂图'],
+      }),
+    });
+    expect(resSafe.violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('新层目录不存在整规则静默（未搬迁波次不误报）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/core/legacy.ts', `export const legacy = 1;\n`);
+    const { violations, warnings } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+});
+
+describe('test-protection 测试保护', () => {
+  it('源码改动无同批镜像测试 → 违规', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/foo/bar.ts', `export const bar = 1;\n`);
+    const violations = await checkTestProtection(root, ['engine/src/foo/bar.ts']);
+    expect(violations.map((v) => v.rule)).toContain('test-protection');
+  });
+
+  it('源码改动同批镜像测试改动 → 放行', async () => {
+    const violations = await checkTestProtection('/nonexistent-root', [
+      'engine/src/foo/bar.ts',
+      'engine/test/foo/bar.test.ts',
+    ]);
+    expect(violations).toEqual([]);
+  });
+
+  it('文件头 test-exempt 标注豁免', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/foo/gen.ts', `// gate: test-exempt - 生成物镜像，无独立测试面\nexport const g = 1;\n`);
+    const violations = await checkTestProtection(root, ['engine/src/foo/gen.ts']);
+    expect(violations).toEqual([]);
+  });
+
+  it('只改测试不改源码 → 违规（防改测试让绿灯）', async () => {
+    const violations = await checkTestProtection('/nonexistent-root', ['engine/test/foo/bar.test.ts']);
+    expect(violations.map((v) => v.rule)).toContain('test-protection');
+    expect(violations[0]!.message).toContain('src');
+  });
+
+  it('.mjs/.json/快照与 engine/scripts、gate 自身豁免；plugins 同住测试对放行', async () => {
+    const violations = await checkTestProtection('/nonexistent-root', [
+      'engine/scripts/dump_api_surface.mjs',
+      'engine/api.surface.snapshot',
+      'gate/src/scan.ts',
+      'engine/baseline.json',
+      'plugins/tools/doc_parse/faces/logic/index.ts',
+      'plugins/tools/doc_parse/faces/logic/index.test.ts',
+    ]);
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('no-pending 禁待定字面', () => {
+  it('命中 token 即 violation（文件聚合含行号）', () => {
+    const violations = checkPendingTokens(`const a = 1; // 宿主待接线\nexport const b = a; // 占位\n`, 'engine/src/x.ts', ['待接线', '占位']);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.rule).toBe('no-pending');
+    expect(violations[0]!.message).toContain('L1');
+  });
+
+  it('无命中通过；enforce=false 时 scanAll 分流到 warnings', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/ok.ts', `export const x = 1;\n`);
+    await write(root, 'engine/src/bad.ts', `// 机制先行\nexport const y = 1;\n`);
+    const res = await scanAll({
+      root,
+      config: layerCfg({ noPendingDirs: ['engine/src'], noPendingTokens: ['机制先行'], noPendingEnforce: false }),
+    });
+    expect(res.violations.filter((v) => v.rule === 'no-pending')).toEqual([]);
+    expect(res.warnings.map((v) => v.path)).toEqual(['engine/src/bad.ts']);
+    const resEnf = await scanAll({
+      root,
+      config: layerCfg({ noPendingDirs: ['engine/src'], noPendingTokens: ['机制先行'], noPendingEnforce: true }),
+    });
+    expect(resEnf.violations.map((v) => v.path)).toContain('engine/src/bad.ts');
+  });
+});
+
+describe('public-api 快照比对', () => {
+  it('逐字一致通过', () => {
+    expect(compareApiSurface('alpha:value\nbeta:type\n', 'alpha:value\nbeta:type\n')).toBeNull();
+  });
+
+  it('符号缺失/新增即违规且报告差异摘要', () => {
+    const violation = compareApiSurface('alpha:value\nbeta:type\n', 'alpha:value\ngamma:value\n');
+    expect(violation?.rule).toBe('public-api');
+    expect(violation?.message).toContain('beta:type');
+    expect(violation?.message).toContain('gamma:value');
+  });
+});
+
+describe('no-orphan 扫描器', () => {
+  const scriptPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'engine', 'scripts', 'no_orphan.mjs');
+
+  async function makeEngineSrcFixture(): Promise<string> {
+    const root = await makeRoot();
+    await write(root, 'src/index.ts', `export { a } from './app/main.js';\n`);
+    await write(root, 'src/app/main.ts', `import { k } from '../util/kit.js';\nexport const a = k;\n`);
+    await write(root, 'src/util/kit.ts', `export const k = 1;\n`);
+    await write(root, 'src/island/alone.ts', `export const o = 1;\n`);
+    return join(root, 'src');
+  }
+
+  it('report 模式列孤儿候选且 exit 0', async () => {
+    const src = await makeEngineSrcFixture();
+    const out = execFileSync(process.execPath, [scriptPath, '--src', src], { encoding: 'utf8' });
+    expect(out).toContain('island/alone.ts');
+    expect(out).not.toMatch(/orphan-candidate: app\/main\.ts/);
+    expect(out).not.toMatch(/orphan-candidate: util\/kit\.ts/);
+    expect(out).not.toMatch(/orphan-candidate: index\.ts/);
+  });
+
+  it('--strict 存在孤儿候选 exit 1', async () => {
+    const src = await makeEngineSrcFixture();
+    let status = 0;
+    try {
+      execFileSync(process.execPath, [scriptPath, '--src', src, '--strict'], { encoding: 'utf8', stdio: 'pipe' });
+    } catch (error) {
+      status = (error as { status?: number }).status ?? -1;
+    }
+    expect(status).toBe(1);
   });
 });

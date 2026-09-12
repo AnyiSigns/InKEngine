@@ -8,11 +8,14 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, normalize, relative, resolve, sep } from 'node:path';
 
 import { defaultConfig, type GateConfig } from './config.js';
+import { scanLayerDag } from './layer_dag.js';
+import { checkTestProtection } from './test_protection.js';
 import {
   checkCoreImports,
   checkCoreTokens,
   checkJsonValid,
   checkLineLimit,
+  checkPendingTokens,
   checkUtf8Valid,
   hasCrossDomainSeamMarker,
   type Violation,
@@ -22,7 +25,7 @@ const SOURCE_RE = /\.(ts|tsx)$/;
 const JSON_RE = /\.json$/;
 const REL_IMPORT_RE = /(?:from\s+|import\s*\(\s*)['"](\.[^'"]+)['"]|import\s+['"](\.[^'"]+)['"]/g;
 
-async function collectFiles(dir: string, out: string[], filter: RegExp): Promise<void> {
+export async function collectFiles(dir: string, out: string[], filter: RegExp): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = join(dir, entry.name);
@@ -185,4 +188,61 @@ export async function scan({ root, config }: ScanOptions): Promise<Violation[]> 
     if (!unused) violations.push({ path: root, rule: 'line-limit', message: '根目录不存在' });
   }
   return violations;
+}
+
+/** no-pending 扫描（§13.6 第 4 条）：禁待定字面散布于引擎/宿主/渲染器/插件源码。 */
+export async function scanNoPending(root: string, cfg: GateConfig): Promise<Violation[]> {
+  const rootNorm = normalize(root);
+  const violations: Violation[] = [];
+  for (const dir of cfg.noPendingDirs) {
+    const abs = join(rootNorm, dir);
+    let files: string[];
+    try {
+      files = [];
+      await collectFiles(abs, files, SOURCE_RE);
+    } catch {
+      continue; // 目录不存在 → 跳过（与既有行为一致）
+    }
+    for (const file of files) {
+      const content = await readFile(file, 'utf-8');
+      const rel = relative(rootNorm, file).split(sep).join('/');
+      violations.push(...checkPendingTokens(content, rel, cfg.noPendingTokens));
+    }
+  }
+  return violations;
+}
+
+export interface ScanAllOptions {
+  root: string;
+  config?: Partial<GateConfig>;
+  /** 本批变更清单（git diff --name-only HEAD，root 相对、`/` 分隔）；undefined = test-protection 跳过。 */
+  changedFiles?: readonly string[];
+}
+
+export interface ScanAllResult {
+  /** 强制模式下的违规（阻断非零退出）。 */
+  violations: Violation[];
+  /** 报告模式（过渡形态）下的命中：打印 WARN 不阻断；转强制为治理节奏议题。 */
+  warnings: Violation[];
+  /** 跳过说明（如 git 不可用）。 */
+  notes: string[];
+}
+
+/** 全量扫描 = 既有 7 规则 + 层向/待定/测试保护新规则按 enforce 分流违规与警告。 */
+export async function scanAll({ root, config, changedFiles }: ScanAllOptions): Promise<ScanAllResult> {
+  const cfg: GateConfig = { ...defaultConfig, ...config };
+  const violations = await scan({ root, config });
+  const warnings: Violation[] = [];
+  const notes: string[] = [];
+  const dag = await scanLayerDag(root, cfg);
+  (cfg.layerDagEnforce ? violations : warnings).push(...dag);
+  const pending = await scanNoPending(root, cfg);
+  (cfg.noPendingEnforce ? violations : warnings).push(...pending);
+  if (changedFiles === undefined) {
+    notes.push('test-protection 跳过：未提供本批变更清单（git 不可用）');
+  } else {
+    const tp = await checkTestProtection(root, changedFiles);
+    (cfg.testProtectionEnforce ? violations : warnings).push(...tp);
+  }
+  return { violations, warnings, notes };
 }

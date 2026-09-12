@@ -15,7 +15,7 @@
  */
 
 import type { MechanismContract } from '../registry/contract_types.js';
-import { PORT_STORAGE_SEAM } from '../registry/ports.js';
+import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** 生长机制契约：依赖 knowledge_gate，消费 storage_seam 指标时序端口面。 */
 export const growth_contract: MechanismContract = {

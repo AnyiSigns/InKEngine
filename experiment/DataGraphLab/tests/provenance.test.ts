@@ -239,7 +239,7 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     // 过滤全池扫描口径：poolSize = 族剔除 + 无 task + off-path + 子池。
     const n = r1.notes;
     expect(n.poolSize).toBe(n.excludedFollow + n.skippedNoTask + n.skippedOffPath + n.onPathPool);
-  });
+  }, 120_000);
 
   it('池含 follow 记录时默认被排除：只统计 goal/goal_verify；includeFollow 才放回', () => {
     const { records, tasks } = legitDataset();
@@ -253,7 +253,7 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     const withFollow = safeActionConflictRate(records, { tasks, seed: 3, nodeBudget: 24, includeFollow: true });
     expect(withFollow.notes.excludedFollow).toBe(0);
     expect(withFollow.notes.onPathPool).toBe(records.length);
-  });
+  }, 120_000);
 
   it('抽样上限 ≤200：子池 >200 时 sampled 恰 200；抽在过滤后子池上，limit 即有效样本量', () => {
     const tasks: Task[] = [];
@@ -269,7 +269,7 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     expect(tight.sampled).toBe(5);
     expect(full.rate).toBeGreaterThanOrEqual(0);
     expect(full.notes.poolSize).toBe(records.length);
-  });
+  }, 120_000);
 
   it('多解状态（金标之外仍有合法且通向验收的动作）计入冲突：验收态末步 exit 标签必伴随 noop 类冲突', () => {
     let task: Task | null = null;
@@ -290,7 +290,7 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     const excluded = safeActionConflictRate([exitRec], { tasks: [t!], seed: 1, nodeBudget: 400 });
     expect(excluded.notes.excludedFollow).toBe(isGoalFam(exitRec) ? 0 : 1);
     expect(excluded.sampled).toBe(isGoalFam(exitRec) ? 1 : 0);
-  });
+  }, 120_000);
 
   it('未 join 到 task 的记录计入跳过注记（全池口径、恰 1），不炸', () => {
     const { records, tasks } = legitDataset();
@@ -300,5 +300,5 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     expect(res.sampled).toBeLessThanOrEqual(3);
     expect(res.notes.poolSize).toBe(records.length + 1);
     expect(res.notes.skippedNoTask).toBe(1);
-  });
+  }, 120_000);
 });

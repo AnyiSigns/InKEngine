@@ -4,8 +4,8 @@
  * 训练线性 softmax 分类器区分目标类别 {parity, gt, len, all}。数据来自
  * makeSplit 实际生成流的 goal 族任务：拟合=train 池、早停=val 池、评估=heldout 池，
  * 三池骨架（composition_id）互斥，heldout 与 train 零重叠当场复核；
- * 分类器 seed ∈ {0..4} 各训一次（gates.md「分类器固定、只跑一次」按 seed 计划
- * 执行），5 seed 均值 top1 ≥ 0.90 判过、不达标只报失败模式不改阈值。
+ * 分类器固定超参、seed ∈ {0..4} 各训一次取均值（gates.md G0.6 五均值口径），
+ * 5 seed 均值 top1 ≥ 0.90 判过、不达标只报失败模式不改阈值。
  * gold 类别标签（task.spec.goal.kind）仅作训练/评估标签，绝不进特征通道。
  */
 

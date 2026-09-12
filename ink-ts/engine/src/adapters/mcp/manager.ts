@@ -15,7 +15,7 @@
  * 写面，仅记录调用成败证据）。
  */
 import { GraphDefinitionError } from '../../model/errors.js';
-import { EndpointType } from '../../loop/tools/declarative_tools/endpoint_types.js';
+import { EndpointType } from '../../model/endpoints.js';
 import type { DeclarativeToolSpec } from '../../loop/tools/declarative_tools/declarative_spec.js';
 import type { DeclarativeToolExecutors } from '../../loop/tools/declarative_tools/executors.js';
 import {
@@ -23,7 +23,7 @@ import {
   ToolSource,
   VettingVerdict,
   type ShadowExecutor,
-} from '../../gate/tool_vetting/tool_vetting.js';
+} from '../../model/tool_vetting/_types.js';
 import { McpToolImportError } from './_errors.js';
 import { create_node_fs_seam } from './_fs_seam.js';
 import { build_mcp_manifest, convert_mcp_tool, probe_args_from_schema } from './convert.js';

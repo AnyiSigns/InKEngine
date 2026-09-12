@@ -13,7 +13,7 @@
  * 记号差异（测试须覆盖两基线的等价性）。睡眠单位为秒（与 core fallback
  * 的 Sleeper 单位一致）。
  */
-import { RetryPolicy } from '../../loop/llm/fallback.js';
+import { RetryPolicy } from '../../model/llm/retry.js';
 import {
   LLMError,
   classify_llm_error,

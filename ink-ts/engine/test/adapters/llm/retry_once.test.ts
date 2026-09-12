@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { RetryPolicy } from '../../../src/model/llm/retry.js';
 import { LLMNetworkError, LLMServerError } from '../../../src/model/llm/errors.js';
 import {
   backoff_delay_ms,

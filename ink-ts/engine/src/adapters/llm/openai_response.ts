@@ -26,7 +26,7 @@ import {
   LLMEmptyStreamError,
   LLMFormatError,
 } from '../../model/llm/errors.js';
-import { RetryPolicy } from '../../loop/llm/fallback.js';
+import { RetryPolicy } from '../../model/llm/retry.js';
 import type { Message } from '../../model/llm/messages.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
 

@@ -23,7 +23,7 @@ import {
   VettingVerdict,
   code_files_exist,
 } from '../../../src/gate/tool_vetting/tool_vetting.js';
-import type { FsSeam } from '../../../src/gate/tool_vetting/_types.js';
+import type { FsSeam } from '../../../src/dock/ports/exec.js';
 
 /** 内存 FsSeam 假体：默认全抛错，测试按需覆写（未触达动作不实现）。 */
 function fakeFs(overrides: Partial<FsSeam>): FsSeam {

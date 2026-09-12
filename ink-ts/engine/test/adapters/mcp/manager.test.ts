@@ -12,7 +12,7 @@ import {
   DeclarativeToolSpec,
 } from '../../../src/loop/tools/declarative_tools/declarative_spec.js';
 import { DeclarativeToolExecutors } from '../../../src/loop/tools/declarative_tools/executors.js';
-import { EndpointType } from '../../../src/loop/tools/declarative_tools/endpoint_types.js';
+import { EndpointType } from '../../../src/model/endpoints.js';
 import {
   McpClientManager,
   McpServerConfig,

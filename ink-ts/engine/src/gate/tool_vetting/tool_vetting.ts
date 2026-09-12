@@ -24,11 +24,13 @@
  *   TS 侧存在性检查的 fs 来自 ToolVetting 构造注入）。
  */
 import { parse_permission } from '../permissions/permissions.js';
-import { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, VettingResult, VettingVerdict, pyRepr } from './_types.js';
-import type { FsSeam, ShadowExecutor, StaticHook } from './_types.js';
+import { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, VettingResult, VettingVerdict, pyRepr } from '../../model/tool_vetting/_types.js';
+import type { ShadowExecutor, StaticHook } from '../../model/tool_vetting/_types.js';
+import type { FsSeam } from '../../dock/ports/exec.js';
 
-export { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, VettingResult, VettingVerdict } from './_types.js';
-export type { FsSeam, ShadowExecutor, StaticHook, ToolSourceValue } from './_types.js';
+export { ToolSource, ToolManifest, ShadowRunResult, ShadowWrite, VettingCheck, VettingResult, VettingVerdict } from '../../model/tool_vetting/_types.js';
+export type { ShadowExecutor, StaticHook, ToolSourceValue } from '../../model/tool_vetting/_types.js';
+export type { FsSeam } from '../../dock/ports/exec.js';
 
 // 哈希声明形态（sha256 hex，64 字符）
 const _HASH_LENGTH = 64;

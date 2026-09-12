@@ -91,3 +91,10 @@ export function to_openai_tools(specs: readonly ToolSpec[]): Record<string, unkn
   }
   return out;
 }
+
+// P6 归位（引擎重排计划 §6 P6 动作 G）：工具结果截断上限自
+// loop/tools/tool_pipeline/_types.ts 下移 model（工具数据面共享常量）。
+// 工具结果文本截断上限（ENG6-6：100_000 魔法数字共享常量——引擎工具
+// 流水线默认值；声明式工具流水线/自指工具/内省工具同源引用，防多份
+// 拷贝漂移）
+export const DEFAULT_MAX_RESULT_CHARS = 100_000;

@@ -16,7 +16,7 @@
 import { EngineEvent } from '../../dock/ports/events.js';
 import { StorageError } from '../../model/errors.js';
 import { deepCopy, type JsonRecord } from '../../model/json.js';
-import { strip_sensitive } from '../../gate/security/security.js';
+import { strip_sensitive } from '../../model/storage/sensitive.js';
 import type {
   RecordListOptions,
   RecordListResult,

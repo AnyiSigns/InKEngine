@@ -28,16 +28,17 @@ import { isRecord } from '../../../model/json.js';
 import type { ApprovalDecision } from '../../../gate/approval/approval_types.js';
 import type { InterruptPolicy } from '../../../gate/approval/approval_types.js';
 import type { ToolSpec } from '../../../model/llm/tools.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../../model/llm/tools.js';
 import { ALLOW, DENY, REVIEW } from '../../../gate/permissions/permissions.js';
 import type { GateResult } from '../../../gate/permissions/permissions.js';
 import type { ToolTrace } from '../tool_orchestrator/_types.js';
 
 export { ALLOW, DENY, REVIEW };
 
-// 工具结果文本截断上限（ENG6-6：100_000 魔法数字共享常量——引擎工具
-// 流水线默认值；声明式工具流水线/自指工具/内省工具同源引用，防多份
-// 拷贝漂移）
-export const DEFAULT_MAX_RESULT_CHARS = 100_000;
+// P6 归位（动作 G）：DEFAULT_MAX_RESULT_CHARS 已下移 model/llm/tools.ts
+// （工具数据面共享常量），本处 re-export 保链（原注：ENG6-6 魔法数字
+// 单源，流水线/自指/内省工具同源引用防漂移）。
+export { DEFAULT_MAX_RESULT_CHARS };
 
 /** Python inspect.isawaitable 的镜像（同步/异步钩子兼容判定）。 */
 export function isAwaitable(value: unknown): value is PromiseLike<unknown> {

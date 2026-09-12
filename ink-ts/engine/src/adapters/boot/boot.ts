@@ -26,7 +26,7 @@
  */
 
 import { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
-import { HarnessDefinition } from '../../core/harness/index.js';
+import { HarnessDefinition } from '../../model/harness/definition.js';
 import type { JsonRecord } from '../../model/json.js';
 import { KnowledgeEntry, SOURCE_MODEL } from '../../core/knowledge_set/index.js';
 

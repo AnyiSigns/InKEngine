@@ -30,6 +30,7 @@
  *   抛 LLMConfigError 快速失败。
  */
 import { LLMConfigError, LLMAuthError, LLMError, is_transient_llm_error } from '../../model/llm/errors.js';
+import { RetryPolicy, _backoff_delay } from '../../model/llm/retry.js';
 import { AsyncLLM, LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../dock/ports/llm.js';
 import type { Message } from '../../model/llm/messages.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
@@ -59,24 +60,9 @@ function _as_config(cfg: LLMConfig | Record<string, unknown>): LLMConfig {
   return cfg instanceof LLMConfig ? cfg : LLMConfig.from_dict(cfg);
 }
 
-/** 重试策略（每次调用，与备用切换叠加）。 */
-export class RetryPolicy {
-  readonly attempts: number;
-  readonly base_delay: number;
-  readonly max_delay: number;
-
-  constructor(init: { attempts?: number; base_delay?: number; max_delay?: number } = {}) {
-    this.attempts = init.attempts ?? 3;
-    this.base_delay = init.base_delay ?? 1.0;
-    this.max_delay = init.max_delay ?? 10.0;
-    Object.freeze(this);
-  }
-}
-
-/** 第 n 次重试前的退避秒数（n 从 1 起：base_delay * 2^(n-1)，封顶 max_delay）。 */
-function _backoff_delay(policy: RetryPolicy, n: number): number {
-  return Math.min(policy.base_delay * 2 ** (n - 1), policy.max_delay);
-}
+// P6 归位（动作 D）：RetryPolicy 类与 _backoff_delay 助手已下移
+// model/llm/retry.ts（数据形态），本处 re-export 保持 loop/llm/index.ts 链。
+export { RetryPolicy };
 
 /**
  * 主配置 + 备用配置的模型链（链级容错：重试 → 备用 → 上抛）。

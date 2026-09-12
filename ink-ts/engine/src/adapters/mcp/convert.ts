@@ -15,12 +15,12 @@ import { GraphDefinitionError } from '../../model/errors.js';
 import {
   DeclarativeToolSpec,
 } from '../../loop/tools/declarative_tools/declarative_spec.js';
-import { EndpointType } from '../../loop/tools/declarative_tools/endpoint_types.js';
+import { EndpointType } from '../../model/endpoints.js';
 import {
   ToolManifest,
   ToolSource,
-} from '../../gate/tool_vetting/tool_vetting.js';
-import type { ToolSourceValue } from '../../gate/tool_vetting/tool_vetting.js';
+} from '../../model/tool_vetting/_types.js';
+import type { ToolSourceValue } from '../../model/tool_vetting/_types.js';
 import type { McpToolRecord } from './_types.js';
 
 /**

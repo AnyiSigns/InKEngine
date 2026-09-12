@@ -13,7 +13,7 @@ import {
   LLMRateLimitError,
   LLMServerError,
 } from '../../../src/model/llm/errors.js';
-import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { RetryPolicy } from '../../../src/model/llm/retry.js';
 import { user } from '../../../src/model/llm/messages.js';
 import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 import {

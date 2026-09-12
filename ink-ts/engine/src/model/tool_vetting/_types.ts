@@ -273,35 +273,3 @@ export type ShadowExecutor = (
   args: Record<string, unknown>,
   shadow_workdir: string,
 ) => unknown | Promise<unknown>;
-
-/**
- * 文件系统 seam：os/shutil/tempfile 动作的注入面（核心零 IO）。真实实现由
- * 宿主注入（node:fs 后端）；本模块只按这些原语表达拷贝/快照/diff 机制。
- * 路径一律以字符串表达；mkdtemp/rmtree/copy2/symlink_to 对齐对应 stdlib 语义。
- */
-export interface FsSeam {
-  /** tempfile.mkdtemp(prefix)：建唯一临时目录，返回其路径。 */
-  mkdtemp(prefix: string): string;
-  /** shutil.rmtree(path, ignore_errors)：整树删除；ignore_errors=true 吞错。 */
-  rmtree(path: string, ignore_errors: boolean): void;
-  /** path.is_dir()。 */
-  is_dir(path: string): boolean;
-  /** path.is_file()。 */
-  is_file(path: string): boolean;
-  /** entry.is_symlink()。 */
-  is_symlink(path: string): boolean;
-  /** os.readlink(path)：读符号链接指向。 */
-  readlink(path: string): string;
-  /** shutil.copy2(source, target)：拷贝文件并保留元数据。 */
-  copy2(source: string, target: string): void;
-  /** target 处建符号链接指向 link_target（对齐 symlink_to）。 */
-  symlink_to(link_target: string, link_path: string): void;
-  /** Path.mkdir(parents=True, exist_ok=True)：含父目录的目录创建。 */
-  mkdir(path: string): void;
-  /** path.iterdir()：直接子项完整路径清单。 */
-  iterdir(path: string): string[];
-  /** path.rglob('*')：全部递归后代完整路径清单。 */
-  rglob(path: string): string[];
-  /** stat().st_size：文件字节数；失败（OSError）返回 null（快照跳过）。 */
-  stat_size(path: string): number | null;
-}

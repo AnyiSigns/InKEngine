@@ -17,7 +17,7 @@
 import { EngineEvent, parse_event_lenient } from '../../dock/ports/events.js';
 import { CheckpointConflictError, StorageError } from '../../model/errors.js';
 import type { JsonRecord } from '../../model/json.js';
-import { strip_sensitive } from '../../gate/security/security.js';
+import { strip_sensitive } from '../../model/storage/sensitive.js';
 import type {
   RecordListOptions,
   RecordListResult,

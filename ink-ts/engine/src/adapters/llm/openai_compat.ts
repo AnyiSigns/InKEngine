@@ -29,7 +29,7 @@ import {
 import type { Message } from '../../model/llm/messages.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
 import { LLMEmptyStreamError } from '../../model/llm/errors.js';
-import { RetryPolicy } from '../../loop/llm/fallback.js';
+import { RetryPolicy } from '../../model/llm/retry.js';
 import {
   build_payload,
   openai_chat_completions_endpoint,

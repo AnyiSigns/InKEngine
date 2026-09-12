@@ -15,7 +15,7 @@ import {
   LLMRateLimitError,
   LLMServerError,
 } from '../../../src/model/llm/errors.js';
-import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { RetryPolicy } from '../../../src/model/llm/retry.js';
 import type { LlmResponse } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   capture,

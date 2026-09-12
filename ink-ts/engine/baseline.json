@@ -3,14 +3,14 @@
   "engine": {
     "srcDirs": {
       "core": 7,
-      "model": 21,
+      "model": 22,
       "kernel": 3,
       "graph": 5,
       "gate": 10,
       "loop": 15,
       "evolve": 6
     },
-    "tsFiles": 463,
+    "tsFiles": 467,
     "indexLines": 768
   },
   "plugins": {

@@ -19,7 +19,24 @@ engine/
 │   ├─ index.ts         # 公共面（@ink-ts/engine 唯一出口，见 package.json exports）
 │   ├─ core/            # 数据面契约 + 领域纯逻辑（零 IO）：
 │   │                   #   contracts/generated/（schemas+fixtures 生成物，禁手改）
-│   │                   #   graph/assembly/events/plan/...（回合组装、运行等纯逻辑）
+│   │                   #   执行模型主线（设计稿 agent_execution_design.md）：
+│   │                   #     scopes/（作用域规格/目录种子/先验+prior 覆写）、
+│   │                   #     channels/（通道规格与目录）、
+│   │                   #     execution_runtime/（转场循环 run_loop、挂起续跑
+│   │                   #       run_checkpoint/run_transition/run_result、白板穿透与
+│   │                   #       __amend/__board 写路径、通道闸门 channel_gate、
+│   │                   #       护栏 guardrails、回合子引擎 engine_turn_runner、
+│   │                   #       隔离试跑 trial_runner、临时作用域 temp_scope）、
+│   │                   #     whiteboard/（块模型/授权三元组/amend 仲裁门面）、
+│   │                   #     collab/（裁决四步+仲裁三档/圆桌收敛判据）、
+│   │                   #     org_archive/（组织档案+择优修剪阈值）、
+│   │                   #     controlled_evolution/（采纳闸/结晶/提案应用/阈值配置面
+│   │                   #       evaluate_options，演化资产只经受控通道落库）、
+│   │                   #     context/（输入调配管线 + block_source 白板块→物理输入）
+│   │                   #   支撑数据面：graph/events/state/run_result/nodes/plan/...
+│   │                   #   （轨迹与图数据面纯逻辑；组装时代目录 assembly/、
+│   │                   #     pool_governance、fingerprint_cache、thread_skeleton、
+│   │                   #     path_assembler 已随执行主线切换退役，勿凭旧文档找回）
 │   ├─ kernel/          # 机制件契约目录：<mechanism>/contract.ts + impl.ts + *.test.ts
 │   │                   #   装配闭集 registry.ts：boot 组密封图 + 依赖单向校验
 │   └─ adapters/        # IO 端口真实装（boot/llm/mcp/storage...）：DI 装载，可覆盖

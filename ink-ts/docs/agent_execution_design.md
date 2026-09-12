@@ -1,6 +1,7 @@
 # InKling 执行模型设计：执行 × 作用域 × 通道
 
-> 状态：**设计定稿（2026-09-09，当前执行主线）**。
+> 状态：**设计定稿（2026-09-09，当前执行主线）**；§十一/§十二 已于 2026-09-12
+> （W1–W8 落地后）逐项回填，数字对码核实。
 > 定位：InKling 执行语义的**权威稿**。替代 `agent_session_graph_design.md` 的
 > 组装/图生命周期执行语义；旧文档保留为历史与迁移记录（其 §九 含新旧映射）。
 > 维护纪律：设计稿定稿带「落地状态」栏；实现与设计差异须同步本文。
@@ -352,27 +353,90 @@
 
 ---
 
-## 十一、开放问题（逐项收敛后回填）
+## 十一、开放问题（逐项回填，2026-09-12 复核）
 
-1. 汇聚点"最终产物"的结构（文本 vs 结构化）与多轮续跑（历史如何随执行携带）。
-2. 作用域切换时载荷语义（什么数据带过去、什么留在原作用域）。
-3. 通道资格/审批与安全模型的具体化。
-4. 组织择优的信号定义与成本定价。
-5. 工具（bash/web/fs）归入作用域能力 vs 独立工具目录。 → 部分回填（§7.1 工具统一触发协议、注册表内分能力类/组织类；「作用域能力挂载 vs 全局工具面挑选」仍待裁断）。
-6. 实验沉淀参数结论（reasoning_effort、结构化输出健壮契约）固化。
-7. 中断/转向语义：用户输入注入运行中子执行时的"挂起/恢复/中止改用"协议。 → 已回填（§7.3 中断注入）。
-8. 白板授权模型：scope 间通信的读/写授权边界与审计。 → 已回填（§7.2 块模型）。
-9. 子执行失败/降级的用户可见摘要协议（何时前台、如何复盘）。 → 已回填（§7.4.6 摘要块）。
-10. 多协作者裁决协议：blind/圆桌的选择依据、冲突仲裁、轮次上限。 → 已回填（§7.4.3/7.4.4）。
-11. model 分配的成本-质量信号定义（§7.5 model 择优对象的信号化）。
+1. **已回填**：汇聚点最终产物 = 唯一结构化产物 `final_product`（`execution_runtime/run_result.ts`
+   finish_result 汇聚点单点装配，task/attachments/degraded 内部键不进回复文本）；多轮历史
+   携带 = `ExecutionRequest.session_context` 宿主摘要受控注入（W8-D 过渡收口：仅 main 根
+   run 的 turn 消费、不进 RunState/checkpoint、不进子执行；`bridge/rounds.ts`
+   historyTextFromDisplay 末 16 条/每条 ≤400 字/总量 ≤4000 预算宿主裁剪）。
+   知识/RAG 记忆通道为后续演进面。
+2. **已回填**：载荷按「载荷即契约」传递——fan-in 提交契约（全量/择优，`execution_runtime/fan_in.ts`
+   adopted 条目）决定什么带过去；引擎内部键（`__next`/`__amend`/`__board`）经 clean_payload
+   剔除防残留；私有块留在原作用域——跨作用域「带过去」的只有被授权白板块（grants 裁决）
+   与载荷投影，checkpoint 序列化只随 RunState（`run_checkpoint.ts`）。
+3. **已回填**：通道资格/审批 = `execution_runtime/channel_gate.ts`（转场审批 seam 三档姿态
+   auto/review/deny + pending 决议 + `channel_approval_key` 掺指纹挂起卡，fail-closed）
+   + `guardrails.ts`（步数/成本/并行护栏只兜底，配置面 = §十一#6）+ `run_transition.ts`
+   转场段过闸；高影响资产变更另走采纳闸（#4）。
+4. **部分回填**：择优信号 = 组织档案轨迹统计（scope×channel/链/模式三键聚合成败/degraded +
+   steps/cost/tokens/ms 均值贡献数，`org_archive/org_stats.ts`；ingest 点 = run settle
+   `trail_from(record)`，宿主 persist 快照 `org.archive` 普通通道）；成本定价 = 档案 cost
+   聚合 + 护栏 max_cost。**未闭合部分 = model 维度信号，归 #11 单独未决**（档案键不含
+   model，分配偏好无消费链）。
+5. **部分回填（维持待裁断）**：§7.1 工具统一触发协议、能力类/组织类分层已实现（工具面真源
+   plugins tools 42 + mcp 5，组织类后端 = host 工具执行体接线）；「作用域能力挂载 vs
+   全局工具面挑选」现状 = `ScopeSpec.capabilities` 为声明面（契约校验与 convene 定义摘要
+   消费），执行工具面仍按 run 级全局挑选（engine 池种子 + capability 记录），无按 scope
+   裁剪工具面的消费代码——裁决保持开放。
+6. **已回填（W8-C 参数固化）**：择优评估阈值 11 键（`model_config.org_evolution.evaluate_thresholds`，
+   键表单一真源 = 引擎 `ORG_THRESHOLD_CONFIG_KEYS`，缺省 = 现实验值零漂移，非法忽略 +
+   ignored 留痕 + 生效档回显）与白板护栏 `max_steps/max_cost/max_parallel`（同节
+   `guardrails`，boot 注入装配缺省档）已固化为产品配置面；reasoning_effort 随回合覆写
+   下发（W8-A `RoundModelOverride`）。**未成套登记项**（W8-C 报告 §3/§7）：圆桌轮次上限 R
+   的装配缺省下发点（引擎 `ConvergenceConfig.rounds_cap` options 已在位）、结晶阈值配置键
+   登记（评估函数已收 options）、`spawn_max_depth`。实现：
+   `engine/src/core/controlled_evolution/evaluate_options.ts` + `hosts/lib/src/boot.ts`。
+7. **已回填（§7.3）**：实现 = 引擎 `execution_runtime/run_loop.ts`（每轮 main 前
+   `next_user_input` 消费并入输入 + `user_inject` 事件；`abort_requested` 轮边界
+   fail-closed）+ `run_checkpoint.ts`/`run_transition.ts`（挂起卡 + 相位化续跑，已完成
+   turn/子执行不重跑）+ 宿主 `bridge/execution.ts`（execution.inject/resume/branch）、
+   `bridge/rounds.ts`（运行中 send = 注入 'injected' 回执；回合入口即主线）；转向 =
+   注入 + 用户显式指令由 main 消化，不另设机制。
+8. **已回填（§7.2）**：实现 = `engine/src/core/whiteboard/**`（授权三元组 + 五类块缺省、
+   `amend_grants` 运行中变更走 main 仲裁 W6-close B）+ `execution_runtime/{run_loop,
+   amend_runtime,board_runtime}.ts`（view 授权视图穿透装配、`__amend`/`__board` 写路径）
+   + `core/context/block_source.ts`（块→物理输入，两预算域 + 按 model cw 裁切）。
+9. **已回填（§7.4.6）**：实现 = 白板 summary 块（main 写、用户读）+ 主线回执
+   `degraded_summaries`（`bridge/rounds.ts`）+ 执行树前台摘要与点入复盘
+   （`renderer/src/shared/session/{executionIngest,executionTree}.ts`、
+   `renderer/src/renderer/executionTree.tsx` IssueSummary，W7-E）。
+10. **已回填（§7.4.3/7.4.4）**：实现 = `engine/src/core/collab/{adjudication,convergence}.ts`
+    （裁决四步 + 冲突仲裁三档 user>quality>prior + 收敛三判据，触顶非共识交 main）+
+    `hosts/lib/src/execution/convene.ts`（blind 单轮 / open 轮循环 + judge_round + 席位
+    归一投影，W6-C2）。
+11. **未决（登记现状，2026-09-12）**：model 分配成本-质量信号。信号源已有一半——档案侧
+    有 cost/tokens/steps/成败聚合（`org_stats.ts`），模型侧有 model_archive 能力/清单面
+    （`bridge/model_archive.ts` 快照）；**缺口 = 档案聚合键不含 model 维度（scope/pattern/
+    chain 三键均无 model），且「域×scope 用列表内哪个模型更省更好 → 自动调整分配偏好」无
+    写入/消费链**。§7.5 解析链现状只落三段：本次指派（`round_model`，W8-A 覆写 > 作用域
+    资产 model > 会话缺省）→ 缺「择优先验(组织档案)」一环；另 (scope×provider) 归因漂移
+    问题（fallback 链换模型 = 转移函数漂移）未解。闭合前置：档案 model 维聚合键 + 分配
+    先验下发通道。
 
 ---
 
 ## 十二、落地状态
 
-| 项 | 状态 | 备注 |
+> 2026-09-12（W1–W8 全落地后逐项回填，数字对码核实；基线终检 = engine 244 测试文件
+> /2592 passed/2 skipped、hosts/lib 42 文件/282 passed/0 failed、机制契约 31 项、
+> 插件 146 = command 64 + tool 42 + ui_feature 32 + mcp 5 + endpoint 3；来源：
+> vitest 双根 + `verify_mechanisms` + `sync_plugin_manifest --check`，7F 复核复现）。
+
+| 项 | 状态 | 实现落点 / 差异 |
 |---|---|---|
-| §二–§八 执行模型与会话内执行 | 设计定稿（2026-09-09） | 当前主线（§七 会话内执行；§7.2/§7.4 协作已细化） |
-| §一 判定与范围 / §九 术语表 | 定稿（2026-09-09） | 非实现项 |
-| §十 实现影响 | 部分落地（2026-09-10，P5-α~δ 引擎侧全量 + 宿主接线 Wave 5） | 引擎：scopes/channels/org_archive/controlled_evolution/execution_runtime 全部落 engine/src/core（Wave 1–4）；宿主：execution.run 桥命令（execution 域）+ collab_request 组织类工具执行体（host:collab_request：目录/临时作用域、n/mode blind|open、contract full|best、通道条件经 Wave-4 闸门、召集审批经统一流水线 review 档）+ scope_model_llm 宿主解析接线（recipe/boot）。差异：通道审批 seam 在执行循环内无法挂卡（review 档 fail-closed 阻断，人审弹卡由工具入口流水线承担）；open 圆桌以「子执行输入投影」实现可见性（白板共享块、open-圆桌会话内 rounds、事件带 run_id/parent_run_id 进 UI、中断注入、作用域结晶落库 = 后续排期）；组织档案 ingest（OrgArchive）暂置空 |
-| §十一 开放问题 | 未决 | 逐项收敛后回填 |
+| §一 判定与范围 / §九 术语表 | 定稿（非实现项） | 组装路径已随 W7-B 全退役，本文判定与码一致（产品开关表七位、`INK_ROUNDS_ASSEMBLY_FALLBACK` 全链清零） |
+| §二 三原语 + 补充约定 | 已实现 | 作用域 = `core/scopes/{scope_spec,scope_directory,scope_priors,prior_overlay}.ts`；通道 = `core/channels/{channel_spec,channel_directory}.ts`；执行 = `core/execution_runtime/runtime_types.ts`（载荷/轨迹/派生子执行）；汇聚点唯一产物 = `run_result.ts` finish_result；生成即路由 = `routing_next.ts`/`route_planner.ts`（产物 `__next` 并入路由决策）；载荷即契约 = `fan_in.ts`（契约归并 + 内部键剔除） |
+| §三 执行语义 | 已实现 | `execution_runtime/{execution_runtime,run_loop,run_transition}.ts` 转场循环；会话默认回合入口 = `rounds.send` → execution 主线（W7-A 切换、W7-B 组装删除；run_id=`r:<thread>` 同线程共 `exec:` 链）；轨迹/checkpoint 恢复执行状态非图（`run_checkpoint.ts` 相位化）；并行 fan_out 子 run + fan-in 归并（`run_transition.ts` spawn_children 恢复感知）；护栏兜底 = `guardrails.ts` |
+| §四 通道算子 | 已实现 | 委托/fan-out/fan-in/回传词表与转场在 `execution_runtime`；提交契约全量/择优 = `fan_in.ts`（仅回传决策语义随 fork_trial 旧链退役，决策留痕等价物 = `execution.branch` checkpoint 分叉，W8-D）；隔离试跑基座双挂载 = `trial_runner.ts`（执行期择优 + 演化采纳闸 `controlled_evolution/adoption_gate.ts` GATE_MANDATORY 强制先闸，试跑证据不进主档案） |
+| §五/§5.1 作用域目录与出厂形态 | 已实现 | 出厂预置作用域种子（main/planner/coder/critic/searcher/tester/协作者/子代理）= `scopes/scope_directory.ts` `default_scope_directory_seeds`；默认先验 = `scope_priors.ts` default 集（`fallback_routing.ts` 消费、可被组织覆写）；受控注册 = 实体注册表 + EvolutionWriter/补丁链（`controlled_evolution/controlled_applier.ts`）；宿主装载冲突序 = 注册表优先→overlay 补缺→retired 过滤（`hosts/lib/src/boot.ts`）；model/persona 覆盖经 `resolve_scope_llm` seam 生效 |
+| §六 择优与进化 | 已实现（W6-B/W7-C/W8-C 闭环） | 档案 = `org_archive/org_archive.ts`（settle ingest）+ 宿主快照 `org.archive`；择优四规则 = `pruning.ts` + `pruning_adapter.ts`；两桥命令 = `evolution.crystallize`（临时协作结晶，阈值 5/0.8）/ `evolution.evaluate`（三提案 apply_shortcut/downrank/retire_scope + keep 报告），均「强制隔离试跑闸 → 审批 → 补丁链受控落库 → 回执」；参数固化见 §十一#6；**未闭合** = model 择优（§十一#11 未决） |
+| §7.1 形态 = 既有作用域调度 | 已实现 | 无形态级提示词（作用域资产单设 persona，注册/受控通道）；工具统一触发协议 = tools 面 42 工具声明真源 plugins，组织类后端 = host 工具执行体（`collab_request` 召集 + 委托接线）；「收」= 产出 `__next` 收 / final_product，非工具 |
+| §7.2 受控白板 | 已实现 | `core/whiteboard/**`（块模型五类 + 授权三元组 fail-closed、`amend_grants` 运行中变更 = main 仲裁 W6-close B）；`execution_runtime/{run_loop,board_runtime}.ts`（view 授权视图穿透装配、审计经 `whiteboard_audit` 事件通道；`__amend`/`__board` 结构化写路径双层 fail-closed）；块→物理输入 = `core/context/block_source.ts`（协作/主持人两预算域、复用既有 ContextMixer 调配管线、按作用域 model cw 裁切——boot 生产闭包 W7-C 接线）；用户↔main 通道 = 会话回合面（rounds.send/注入） |
+| §7.3 动态形态与前后台 | 已实现 | 运行中 send = §7.3 注入（'injected' 回执、排队至下一 main 轮，abort = fail-closed 收口）；后台失败/降级 → 前台摘要（summary 块 + degraded_summaries + 执行树 IssueSummary 点入复盘）；前后台 = 执行树卡折叠语义（W7-E/W8A） |
+| §7.4 召集 blind/open | 已实现 | `hosts/lib/src/execution/convene.ts / convene_board.ts / convene_params.ts`：blind 单轮协奏 / open 轮循环 + `core/collab/convergence.ts` judge_round（三判据、触顶降级 main 拍板成本封顶）；裁决四步 + 仲裁三档 = `core/collab/adjudication.ts`；席位身份模型与 schema 门禁回退 = W6-C2 决策；席位间共享 board 块自 W8-D 起可由子执行 `__board` 自写；回执扩展 points/conflicts/rejected/convergence 进 `collab_request` |
+| §7.5 model 控制面 | 部分实现 | 候选空间 = 用户 model 清单（models.config/role_pick + model_archive）；**解析链现状 = 本次指派（`round_model` 覆写，W8-A，provider/model_id 齐备强制显式失败不静默回落）> 作用域资产 model > 会话缺省——「择优先验(组织档案)」一环未落地（归 §十一#11）**；压缩/预算按作用域 model cw 走 = `block_source.ts` + boot `resolveScopeContextWindow`（缺档案 200k 兜底） |
+| §7.6 事件、state 与展示 | 已实现 | 事件带 `run_id/parent_run_id/scope/action` = `run_loop` emit（RunEvent）；W8-A 实时转发（onEvent → JSONL FileEventsTransport + round_transports 观察链 → ws 增量执行树，同轮 round_id 就地替换）；展示 = 执行树（`renderer/{shared/session/execution*,renderer/executionTree.tsx}`，协作者组卡/圆桌审议卡）；state checkpoint 分层 = `exec:<run_id>` 子链；用户语境不被后台污染 = 归并只投影产物+摘要（回执投影） |
+| §八 图 = 投影 | 语义已实现（旧形态已换源） | 组装图快照子面随 W7-B 退役（introspection snapshot_graph/graph.instance/renderer graphInstanceSnapshot/evolution_feed 图组成段）；轨迹投影现役形态 = 执行树（回执/事件流）；将来图形态审计从组织档案/RunEvent 新建，不复旧件（plugin_issues #38） |
+| §十 实现影响与退役清单 | 已全落地 | 「保留且仍有效」清单在位（受控通道/审批/补丁链全家、checkpoint/轨迹、`resolve_scope_llm`、隔离试跑基座；edge_evidence 链路与 skill_crystal 容器 = W7-B §4 保留+标注）；「退役清单」执行完毕（path_assembler/_forward_search/池候选治理/指纹缓存/per-session 骨架/图组装链路，D 32+ 文件；契约 34→31、插件 159→144、开关表 9→7）；P5-α~δ 队列全部排完（W1–W5） |
+| §十一 开放问题 | 已逐条回填 | 共 11 项见正文（2026-09-12）：#1/2/3/6/7/8/9/10 已回填并指向实现文件；#4 择优信号部分（model 维归 #11）、#5 维持待裁断；**#11 model 成本-质量信号 = 唯一未决项**（现状与闭合前置已登记） |

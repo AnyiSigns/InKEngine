@@ -222,7 +222,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
 
-## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制）
+## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制；**现量 64 方法 / 26 域**（2026-09-12 对码 commands.generated.ts，本表方法集 = BRIDGE_METHODS 集））
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|
@@ -265,9 +265,10 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `workspace.mount.add` | workspace | 追加挂载目录（多沙箱根） |
 | `workspace.mount.remove` | workspace | 移除挂载目录 |
 | `dialog.open_directory` | dialog | 原生目录选择（exec Rust 原生件 rfd；宿主 UI 面，非 agent 端点） |
-| `execution.run` | execution | 执行运行时会话入口（设计稿执行模型主线）：task → 入口作用域（entry_scope 目录 / entry_temp_scope 现场定义，缺省 main）→ 引擎 ExecutionRuntime 转场循环（通道条件 fail-closed + 通道审批 seam 按姿态）→ 汇聚点唯一 final_product + run 树/事件带/轨迹投影；pose = 转场审批姿态（auto/review/deny）；review 档挂卡 = 结果带 pending_approval + 挂起卡 + 恢复锚点，决议经 execution.resume 续跑；中止改用走既有 rounds.abort（在途可取消任务登记）；与 rounds.send（组装回合）并行不互扰 |
+| `execution.run` | execution | 执行运行时会话入口（设计稿执行模型主线）：task → 入口作用域（entry_scope 目录 / entry_temp_scope 现场定义，缺省 main）→ 引擎 ExecutionRuntime 转场循环（通道条件 fail-closed + 通道审批 seam 按姿态）→ 汇聚点唯一 final_product + run 树/事件带/轨迹投影；pose = 转场审批姿态（auto/review/deny）；review 档挂卡 = 结果带 pending_approval + 挂起卡 + 恢复锚点，决议经 execution.resume 续跑；中止改用走既有 rounds.abort（在途可取消任务登记）；rounds.send 已切同一执行主线（W7-A/B 组装回合退役）——本命令 = 直连入口（`run:<seq>` 命名空间，与回合入口 `r:<thread_id>` 命名空间不相交） |
 | `execution.resume` | execution | 挂起续跑（W7-D）：run_id + checkpoint_id（挂起恢复锚点）+ decision（accept/reject/terminate 或含 decision 对象）→ 读锚点挂起卡键 → 决议注入 → 从执行级 checkpoint 恢复续跑（已完成 turn/子执行不重跑）；无挂起卡/跨 run 锚点 = no_pending_approval |
 | `execution.inject` | execution | 运行中用户发话注入（§7.3）：run_id + text → 入队（排队至下一 main 轮消费并入该轮输入，main 自治仲裁）；非 main 轮次不消费不丢失；中止改用走既有 abort 不进本命令 |
+| `execution.branch` | execution | 执行 checkpoint 分叉新 run（W8-D，执行模型对旧 rounds.branch 的等价物）：source_run_id + checkpoint_id（分叉锚点）+ 可选 run_id/pose → 复用恢复解析重建 RunState+相位、新 run_id 进入循环（turn_done 续跑不重跑、白板按新 run 开、checkpoint 开新链），原 run 链零触碰可另行恢复；锚点缺失/同源/与 resume 互斥 = blocked fail-closed 回执；结果投影同 execution.run（新 run 树/事件带/轨迹） |
 | `search.keys.set` | search | web_search 密钥写入（宿主内存域；不落盘，web 只回显掩码） |
 | `search.keys.get` | search | web_search 密钥掩码查询（无明文外泄） |
 | `material.import` | material | 既有资料批量导入（目录扫描 → 逐文件 doc.parse → 文本/引用归一入会话；三重上限 fail-closed） |
@@ -287,6 +288,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
 | `edge_evidence.list` | edge_evidence | 边证据条目窗口（runtime.edge_evidence_store 投影：domain/source 过滤 + limit 截断；无 store = 结构化空态） |
 | `metrics.snapshot` | metrics | 回合指标会话窗口（runtime.turn_metrics 投影：rounds/failures/avg(failure_rate)/llm_calls_by_role + skill_crystallizer 结晶计数 crystallized；无装配 = 空态） |
 | `evolution.crystallize` | evolution | 临时协作结晶入口（W7-C）：候选 scope 结晶 → 引擎评估器（纯函数：阈值 + 目录感知）→ 隔离试跑 gate（胜负不进主执行档案）→ ControlledEvolutionApplier（审批 + 补丁链 + 受控通道落账）；pose = auto/review/deny，role 必填，dry_run = 评估试跑但不写 |
+| `evolution.evaluate` | evolution | 组织择优半环收口（W8-C，与结晶对称的「出环」）：读 org.archive 快照（flush 收口后，损坏 = invalid_archive 显式拒）→ evaluate_and_adapt（pruning 四规则产 apply_shortcut/downrank/retire_scope 提案，keep 仅进回执）→ 同一采纳闸强制隔离试跑（探针 = 变更意图入口作用域）→ ControlledEvolutionApplier 受控落库；参数面 = `model_config.org_evolution.evaluate_thresholds` 活读（键表真源 ORG_THRESHOLD_CONFIG_KEYS，缺省 = 现实验值，非法忽略 + ignored 留痕/生效档回显），directory_scopes = 在册未下架资产；pose/dry_run 语义与结晶一致（headless review 无直过 = approval_required fail-closed） |
 | `entities.snapshot` | entities | 实体注册表快照（实体目录 id/label/model + 配额态 count/max；无注册表 = 空态 degraded） |
 
 host bridge 与 cli `host.ping`/`host.info` 命名空间独立并存（方法表并入 cli 命令面）。

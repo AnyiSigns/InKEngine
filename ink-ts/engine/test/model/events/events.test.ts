@@ -21,8 +21,8 @@ import {
   EngineEvent,
   parse_event_lenient,
   ProtocolVersionError,
-} from '../../../src/core/events/events.js';
-import type { EngineEventInit, EngineTransport } from '../../../src/core/events/events.js';
+} from '../../../src/dock/ports/events.js';
+import type { EngineEventInit, EngineTransport } from '../../../src/dock/ports/events.js';
 
 function _event(overrides: Partial<EngineEventInit> = {}): EngineEvent {
   const base: EngineEventInit = {

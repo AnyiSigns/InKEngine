@@ -25,11 +25,11 @@ import {
   LLMConfig,
   LLMParams,
   LLMResult,
-} from '../../kernel/llm/base.js';
-import type { Message } from '../../kernel/llm/messages.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
-import { LLMEmptyStreamError } from '../../kernel/llm/errors.js';
-import { RetryPolicy } from '../../kernel/llm/fallback.js';
+} from '../../dock/ports/llm.js';
+import type { Message } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
+import { LLMEmptyStreamError } from '../../model/llm/errors.js';
+import { RetryPolicy } from '../../loop/llm/fallback.js';
 import {
   build_payload,
   openai_chat_completions_endpoint,

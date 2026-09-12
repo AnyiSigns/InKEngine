@@ -25,7 +25,7 @@ import { StorageError } from '../../../src/model/errors.js';
 import { BudgetExceededError } from '../../../src/gate/budget/budget.js';
 import type { BudgetPolicy } from '../../../src/gate/budget/budget_types.js';
 import { DemoBudgetPolicy } from './helpers.js';
-import type { EngineEvent } from '../../../src/core/events/events.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
 
 async function collect(engine: Engine, state: Record<string, unknown>, opts: Record<string, unknown> = {}): Promise<EngineEvent[]> {
   const events: EngineEvent[] = [];

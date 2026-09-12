@@ -11,9 +11,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
+import { ToolPipeline } from '../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { Engine } from '../../../src/graph/executor/index.js';
@@ -28,7 +28,7 @@ import { _build_agent_scope_graph } from '../../../src/graph/nodes/agent.js';
 import {
   build_turn_input_with_media,
   turn_image_to_attachment,
-} from '../../../src/core/execution_runtime/scope_turn.js';
+} from '../../../src/loop/execution_runtime/scope_turn.js';
 
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUg==';
 const PNG_URL = `data:image/png;base64,${PNG_B64}`;

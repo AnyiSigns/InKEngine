@@ -8,7 +8,7 @@
  * 2. 装配完整：runtime 契约 depends 闭包 ∪ 自足叶子机制（depends=[] 且
  *    effects=[]——宿主/UI 直用原语如 round_steps，不经 runtime 装配）= 全量
  *    机制集合（孤儿机制/漏装配即校验失败）；每机制 effects 只引用已登记端口。
- * 3. 0-IO：kernel/graph/gate 机制层零自持 IO——禁 node:*（除 node:async_hooks 白名单，
+ * 3. 0-IO：kernel/graph/gate/loop 机制层零自持 IO——禁 node:*（除 node:async_hooks 白名单，
  *    gate 同步口径）、禁裸第三方 import、禁 IO 全局原语（fetch/process.env/
  *    process.exit/process.cwd/WebSocket/XMLHttpRequest、setTimeout 定时器属
  *    等待语义不属 IO 不拦）；执行体一律经注入 seam（SpawnSeam/Storage/AsyncLLM）。
@@ -28,14 +28,16 @@ import {
   type MechanismContract,
 } from '../src/dock/registry/index.js';
 import { MECHANISM_PORT_IDS } from '../src/dock/ports.js';
-import { runtime_contract } from '../src/kernel/runtime/contract.js';
+import { runtime_contract } from '../src/loop/runtime/contract.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, '..');
 /** 0-IO 扫描目录（P3a 起 = kernel + graph：builder/executor 迁入 graph 后覆盖等价；
  *  P3b 起 + gate：approval/audit_log/budget/patch/permissions/tool_vetting/sandbox 等
- *  运行期门禁机制件迁入 gate/，0-IO 纪律随迁等价覆盖）。 */
-const MECH_SRC_DIRS = ['kernel', 'graph', 'gate'].map((d) => join(ENGINE, 'src', d));
+ *  运行期门禁机制件迁入 gate/，0-IO 纪律随迁等价覆盖；P4 起 + loop：执行主线机制件
+ *  （runtime/round_steps/interrupt/recovery/settle/tool_pipeline/llm 域等）迁入
+ *  loop/，0-IO 纪律随迁等价覆盖）。 */
+const MECH_SRC_DIRS = ['kernel', 'graph', 'gate', 'loop'].map((d) => join(ENGINE, 'src', d));
 
 /** gate 同步白名单：core/kernel 允许的 node 内置模块（镜像 gate config）。 */
 const CORE_ALLOWED_NODE = new Set(['node:async_hooks']);
@@ -181,7 +183,7 @@ function run(): number {
 
   if (failures.length === 0) {
     console.log(
-      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel/graph/gate 机制层零自持 IO`,
+      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel/graph/gate/loop 机制层零自持 IO`,
     );
     return 0;
   }

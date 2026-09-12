@@ -14,7 +14,7 @@
  * 失败安全语义，不引入日志/控制台设施，core 保持零 IO）。
  */
 
-import { EngineError } from '../../model/errors.js';
+import { EngineError } from '../errors.js';
 import {
   ATTACHMENT_KINDS,
   ATTACHMENT_SEGMENT_TYPES,

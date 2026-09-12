@@ -26,9 +26,9 @@ import {
   ThresholdCompressionPolicy,
   compress_message_history,
   type CompressionPolicy,
-} from '../../core/context/context_compression.js';
+} from '../context/context_compression.js';
 
-import type { Message } from './messages.js';
+import type { Message } from '../../model/llm/messages.js';
 import type {
   AsyncLLM,
   InvokeOptions,
@@ -36,7 +36,7 @@ import type {
   LLMConfig,
   LLMResult,
   Usage,
-} from './_guard_types.js';
+} from '../../model/llm/_guard_types.js';
 
 // 包装器协议形态的占位配置（不发网络调用；config 仅是 AsyncLLM 协议字段）。
 const _GUARD_CONFIG: LLMConfig = {

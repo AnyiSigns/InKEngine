@@ -21,15 +21,15 @@
  */
 import { Graph, type CompiledGraph } from '../../model/graph/graph.js';
 import { RunOptions } from '../../core/run_result/run_result.js';
-import { InterruptCoordinator } from '../../kernel/interrupt/interrupt.js';
+import { InterruptCoordinator } from '../../loop/interrupt/interrupt.js';
 import { GraphDefinitionError } from '../../model/errors.js';
-import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
-import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../kernel/settle/index.js';
+import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
+import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/settle/index.js';
 import type { Graph as GraphType } from '../../model/graph/graph.js';
 
 import type { _AsyncQueue, NodeContext } from './_internals.js';
 import { _TransportSequencer, _Mutex } from './_internals.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 
 /** ``_execute`` 主执行循环选项（镜像 Python 关键字参）。 */
 export interface ExecuteOptions {

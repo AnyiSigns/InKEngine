@@ -11,8 +11,8 @@
  * 缺省取确定值（now=0、固定 uuid 串），保证同输入必得同输出（可缓存、可断言）。
  */
 
-import { isRecord } from '../../model/json.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { isRecord } from '../../../model/json.js';
+import type { ToolSpec } from '../../../model/llm/tools.js';
 
 /** 默认本轮工具集预算（数量上限，与 spawn 清单上限同档成本护栏语义）。 */
 export const DEFAULT_MAX_TOOLS = 14;

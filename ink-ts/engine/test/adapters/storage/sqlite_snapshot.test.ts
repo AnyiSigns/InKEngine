@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SqliteStorage 快照/恢复单测（对标 pytest test_storage_snapshot.py 的
  * TestSqliteSnapshot）：snapshot = 目标库一致副本（backup API 语义，三通道
  * 齐全）；restore = 源内容整体替换当前库（可信快照目录限定 + 常规文件校验）。
@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';
 import { makeTempDir, cleanupTempDirs } from './helpers.js';

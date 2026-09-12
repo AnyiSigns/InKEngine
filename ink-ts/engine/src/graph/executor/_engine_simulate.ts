@@ -14,7 +14,7 @@
  * 分支链不做链级压缩：落选分支的轨迹树引用（回溯对比/换选锚点）依赖完整
  * 子链，压缩会削掉中间 checkpoint。
  */
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import {
   BestBranchMixer,
@@ -27,7 +27,7 @@ import type { SimulateSpec } from '../../kernel/simulation/simulation_types.js';
 import { EvaluatedBranch } from '../../kernel/simulation/simulation_types.js';
 import { SimulationError } from '../../model/errors.js';
 import { fan_out } from '../../core/fanout/fanout.js';
-import { tail_checkpoint } from '../../kernel/recovery/index.js';
+import { tail_checkpoint } from '../../loop/recovery/index.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import type { NodeContext } from './_internals.js';

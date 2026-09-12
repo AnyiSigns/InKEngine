@@ -14,14 +14,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DeclarativeToolSpec } from '../../../src/core/declarative_tools/index.js';
+import { DeclarativeToolSpec } from '../../../src/loop/tools/declarative_tools/index.js';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import {
   HarnessDefinition,
   HarnessRegistry,
 } from '../../../src/core/harness/index.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 
 import { _harness, _registry } from './helpers.js';
 

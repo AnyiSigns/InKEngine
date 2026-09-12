@@ -17,7 +17,7 @@ import {
   TRACE_SUCCESS,
   UPDATE_FAIL,
   UPDATE_SUCCESS,
-} from './_constants.js';
+} from '../../model/settle/_constants.js';
 import {
   EdgeUpdate,
   SettleContext,
@@ -28,7 +28,7 @@ import {
   path_key,
   token_key,
   traversal_edge_key,
-} from './types.js';
+} from '../../model/settle/types.js';
 
 // ── 轨迹回放 ────────────────────────────────────────────────────────────────
 

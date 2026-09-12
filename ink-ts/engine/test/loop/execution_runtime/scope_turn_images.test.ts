@@ -22,8 +22,8 @@ import {
   split_turn_payload,
   turn_image_ref,
   turn_image_to_attachment,
-} from '../../../src/core/execution_runtime/scope_turn.js';
-import type { TurnImageComponent } from '../../../src/core/execution_runtime/scope_turn.js';
+} from '../../../src/loop/execution_runtime/scope_turn.js';
+import type { TurnImageComponent } from '../../../src/loop/execution_runtime/scope_turn.js';
 
 const BASE64 = 'iVBORw0KGgoAAAANSUhEUg==';
 

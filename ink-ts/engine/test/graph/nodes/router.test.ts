@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 
 import { make_router_judge_factory, router_judge_contract } from '../../../src/graph/nodes/router.js';
 import { _EngineNodeSeamsBox } from '../../../src/graph/nodes/seams.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
 import { TYPE_ROUTER_JUDGE } from '../../../src/graph/nodes/constants.js';
 
 /** 按调用序回放文本的 stub 模型（记录每次收到的消息链供断言）。 */

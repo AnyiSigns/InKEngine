@@ -13,10 +13,10 @@
  * 计划步内的终止/中断（并行组成员 terminate、spawn 实例 interrupt）以控制流
  * 信号返回（不落 checkpoint——终态快照由主循环统一写入）。
  */
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { KIND_NODES, KIND_PARALLEL, KIND_SPAWNS, PLAN_KEY, Plan } from '../../core/plan/plan.js';
-import type { PlanStep } from '../../core/plan/plan.js';
+import { KIND_NODES, KIND_PARALLEL, KIND_SPAWNS, PLAN_KEY, Plan } from '../../model/plan/plan.js';
+import type { PlanStep } from '../../model/plan/plan.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { SPAWN_KEY, collect_spawn_specs, type SpawnSpec } from '../../kernel/spawn/spawn.js';
 import type { Graph } from '../../model/graph/graph.js';

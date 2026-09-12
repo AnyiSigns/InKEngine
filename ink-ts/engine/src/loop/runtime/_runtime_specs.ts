@@ -11,9 +11,9 @@
  * 装载（同名常量，两端须同步）。
  */
 
-import { DefaultEvolutionWriter, runtime_config_writer } from '../evolution_writer/evolution_writer.js';
-import { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
-import type { ToolSpec } from '../llm/tools.js';
+import { DefaultEvolutionWriter, runtime_config_writer } from '../../kernel/evolution_writer/evolution_writer.js';
+import { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import {
   BASELINE_IMMUTABLE_TOOLS,
   BASELINE_RECORD_COLLECTION,

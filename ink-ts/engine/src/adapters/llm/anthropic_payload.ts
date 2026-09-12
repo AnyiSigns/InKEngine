@@ -13,9 +13,9 @@
  * 调用方覆盖核心键。
  */
 
-import { REASONING_EFFORTS, type LLMConfig, type LLMParams } from '../../kernel/llm/base.js';
-import type { Message } from '../../kernel/llm/messages.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { REASONING_EFFORTS, type LLMConfig, type LLMParams } from '../../dock/ports/llm.js';
+import type { Message } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import { anthropic_image_source, assert_images_supported } from './image_gate.js';
 
 /** Anthropic 最低 max_tokens 兜底（API 要求显式 max_tokens）。 */

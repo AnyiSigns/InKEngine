@@ -33,7 +33,7 @@ export * from './view.js';
 export * from '../model/errors.js';
 
 // ── 1. 运行时装配 ──
-export { AssemblyRecipe, Runtime, RuntimeState, RunTicket, set_runtime_clock } from '../kernel/runtime/index.js';
+export { AssemblyRecipe, Runtime, RuntimeState, RunTicket, set_runtime_clock } from '../loop/runtime/index.js';
 export type {
   AssemblyRecipeInit,
   AssemblySourceProvider,
@@ -43,7 +43,7 @@ export type {
   RunTaskHandle,
   RuntimeConfigInit,
   ToolWiring,
-} from '../kernel/runtime/index.js';
+} from '../loop/runtime/index.js';
 
 // ── 2. 核心机制公开面 ──
 
@@ -119,11 +119,11 @@ export {
   PROTOCOL_VERSION,
   ProtocolVersionError,
   parse_event_lenient,
-} from '../core/events/events.js';
-export type { EngineEventInit, EngineTransport } from '../core/events/events.js';
+} from './ports/events.js';
+export type { EngineEventInit, EngineTransport } from './ports/events.js';
 
 // 事件展示聚合器（从事件流派生展示态消息流；宿主经 transport 接入采集）
-export { DisplayStreamCollector, type DisplayMessage } from '../kernel/display/display_stream.js';
+export { DisplayStreamCollector, type DisplayMessage } from '../loop/display_stream/display_stream.js';
 
 // 状态（Reducer 注册 + StateSchema/Channel）
 export * from '../core/state/reducers.js';
@@ -141,11 +141,11 @@ export * from '../model/storage/storage_records.js';
 export * from '../model/storage/storage_constants.js';
 
 // LLM 机制契约（base/messages/tools/errors/fallback/cache，core 纯 seam）
-export * from '../kernel/llm/index.js';
+export * from '../loop/llm/index.js';
 
 // 统一工具执行流水线（ToolPipeline.execute = 引擎工具执行 seam：权限门禁 →
 // 沙箱守卫 → 审批 → 分发；宿主 agent 节点经此执行工具）
-export { ToolPipeline, ToolResult } from '../kernel/tool_pipeline/tool_pipeline.js';
+export { ToolPipeline, ToolResult } from '../loop/tools/tool_pipeline/tool_pipeline.js';
 export type {
   AuditSink,
   Executor,
@@ -155,15 +155,15 @@ export type {
   Guard,
   SandboxSeam,
   TraceSink,
-} from '../kernel/tool_pipeline/tool_pipeline.js';
+} from '../loop/tools/tool_pipeline/tool_pipeline.js';
 
 // 声明式工具（端点注册表/工具定义/执行体注册/流水线/结点契约映射）
-export * from '../core/declarative_tools/index.js';
+export * from '../loop/tools/declarative_tools/index.js';
 
 // 工具编排与索引（WeightedToolScorer/ToolSelector/ToolVectorIndex）
-export * from '../core/tool_orchestrator/tool_orchestrator.js';
-export { ToolVectorIndex } from '../core/tool_index/tool_index.js';
-export type { AsyncEmbedderType, EndpointsType } from '../core/tool_index/tool_index.js';
+export * from '../loop/tools/tool_orchestrator/tool_orchestrator.js';
+export { ToolVectorIndex } from '../loop/tools/tool_index/tool_index.js';
+export type { AsyncEmbedderType, EndpointsType } from '../loop/tools/tool_index/tool_index.js';
 
 // 环境装配（EnvironmentSpec/EnvironmentHandle/Provider 面）
 export * from '../core/environments/index.js';
@@ -208,8 +208,8 @@ export {
 
 // 恢复 / 中断 / 预算（ResumeResolution/InterruptCoordinator/BudgetManager；
 // BudgetExceededError = 预算硬检查终止错误，属预算机制本模块）
-export * from '../kernel/recovery/index.js';
-export * from '../kernel/interrupt/interrupt.js';
+export * from '../loop/recovery/index.js';
+export * from '../loop/interrupt/interrupt.js';
 export {
   BudgetExceededError,
   BudgetManager,
@@ -232,7 +232,7 @@ export type {
 
 // 回合步骤记录形态（RoundSteps 主类仍为 executor 侧消费；宿主经 runtime
 // round_steps() 取 StepRecord 命名返回类型）
-export type { StepRecord } from '../kernel/round_steps/index.js';
+export type { StepRecord } from '../loop/round_steps/index.js';
 
 // 自学习族可装配面（memory/记忆抽取/技能结晶/离线进化/自适应调参；宿主经
 // 这些构造器装配自管存储或读取运行时默认装配产物）
@@ -617,9 +617,9 @@ export type {
 
 // ── 执行运行时（P5-δ：作用域装载 / 通道执行 / 汇聚点合成 / 护栏；含 __next
 //     路由数据面、路由规划、通道条件、归并语义、护栏与隔离试跑基座）──
-export * from '../core/execution_runtime/index.js';
-export type { RoundModelOverride } from '../core/execution_runtime/runtime_types.js';
-export type { BoardWriteOutcome } from '../core/execution_runtime/board_runtime.js';
+export * from '../loop/execution_runtime/index.js';
+export type { RoundModelOverride } from '../loop/execution_runtime/runtime_types.js';
+export type { BoardWriteOutcome } from '../loop/execution_runtime/board_runtime.js';
 
 // ── 受控白板（会话内共享上下文数据面：块模型 / 授权 / 纯数据面状态机，
 //    纯 JSON 进 JSON 出、零 IO；可见性唯一裁决源，未授权默认拒绝 fail-closed，
@@ -635,7 +635,7 @@ export {
   parse_whiteboard_block,
   parse_whiteboard_grants,
   whiteboard_block_to_dict,
-} from '../core/whiteboard/index.js';
+} from '../loop/whiteboard/index.js';
 export type {
   DefaultGrantsOptions,
   WhiteboardAccess,
@@ -644,7 +644,7 @@ export type {
   WhiteboardBlockKind,
   WhiteboardGrantEntry,
   WhiteboardGrants,
-} from '../core/whiteboard/index.js';
+} from '../loop/whiteboard/index.js';
 
 // ── 协作裁决（圆桌归并去重/冲突检测/仲裁/收敛判据；纯数据面，供 6C convene 波装配）──
 export {
@@ -671,7 +671,7 @@ export {
   opinions_digest,
   parse_opinion_entry,
   validate_opinion_schema,
-} from '../core/collab/index.js';
+} from '../loop/collab/index.js';
 export type {
   AdjudicationOptions,
   AdjudicationResult,
@@ -690,11 +690,11 @@ export type {
   SynthesisConflict,
   SynthesisInput,
   SynthesisPoint,
-} from '../core/collab/index.js';
+} from '../loop/collab/index.js';
 
 // ── 受控白板授权块（上下文装载面：执行运行时读共享块经 AuthorizedBlock
 //    契约；W6C2 缺口补透出）──
-export type { AuthorizedBlock } from '../core/context/block_source.js';
+export type { AuthorizedBlock } from '../loop/context/block_source.js';
 
 // ── 3. adapters 工厂面 ──
 
@@ -719,7 +719,7 @@ export {
   get_adapter_class,
   register_adapter,
 } from '../adapters/llm/registry.js';
-export type { LLMAdapterCtor } from '../adapters/llm/registry.js';
+export type { LLMAdapterCtor } from './ports/llm.js';
 
 // MCP client（配置/注册表/会话/管理/传输；SpawnSeam 与 core 同名冲突 →
 // 本层按语义别名 McpSpawnSeam）

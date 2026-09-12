@@ -49,7 +49,7 @@ import {
   PLAN_KEY,
   Plan,
   PlanStep,
-} from '../../../src/core/plan/plan.js';
+} from '../../../src/model/plan/plan.js';
 
 // ── 工厂 ──────────────────────────────────────────────────────────────────────
 

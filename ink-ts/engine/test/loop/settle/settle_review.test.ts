@@ -15,10 +15,10 @@ import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/store.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import {
   PolicyEdgeReviewSettleHook,
-} from '../../../src/kernel/settle/review.js';
+} from '../../../src/loop/settle/review.js';
 import {
   TRACE_SUCCESS,
-} from '../../../src/kernel/settle/_constants.js';
+} from '../../../src/model/settle/_constants.js';
 import {
   NOW,
   edgeKey,

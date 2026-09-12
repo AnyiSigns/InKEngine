@@ -10,7 +10,7 @@
  * （常量 + marker + 纯数据结构）。
  */
 
-import { PROTOCOL_VERSION } from '../../core/events/events.js';
+import { PROTOCOL_VERSION } from '../events/events.js';
 
 export const SCHEME_MEMORY = 'memory';
 export const SCHEME_SQLITE = 'sqlite';

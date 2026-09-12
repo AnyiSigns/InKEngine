@@ -22,14 +22,14 @@
 
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import { DeclarativeToolSpec, EndpointType } from '../../core/declarative_tools/index.js';
+import { DeclarativeToolSpec, EndpointType } from '../../loop/tools/declarative_tools/index.js';
 import { EntitySpec } from '../../core/entities/entities.js';
 import { EnvironmentSpec } from '../../core/environments/spec.js';
 import { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
 import { Graph } from '../../model/graph/graph.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
 import { KnowledgeEntry } from '../../core/knowledge_set/index.js';
-import { Plan } from '../../core/plan/plan.js';
+import { Plan } from '../../model/plan/plan.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
 import { Rule } from '../../model/rules/index.js';
 import {

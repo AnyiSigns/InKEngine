@@ -5,12 +5,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ContextSource } from '../../../src/core/context/context_types.js';
+import { ContextSource } from '../../../src/loop/context/context_types.js';
 import {
   ContextMixer,
   FusionHook,
   FusionRegistry,
-} from '../../../src/core/context/context_mixer.js';
+} from '../../../src/loop/context/context_mixer.js';
 
 function _src(type = 'chapter', content = '内容'): ContextSource {
   return new ContextSource(type, content);

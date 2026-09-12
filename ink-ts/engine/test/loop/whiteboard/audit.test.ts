@@ -11,7 +11,7 @@ import {
   Whiteboard,
   WhiteboardAccessError,
   type WhiteboardBlock,
-} from '../../../src/core/whiteboard/index.js';
+} from '../../../src/loop/whiteboard/index.js';
 
 function blk(over: Partial<WhiteboardBlock>): WhiteboardBlock {
   return { id: 'x', kind: 'task', owner: 'main', content: '', seq: 1, ...over };

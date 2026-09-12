@@ -21,9 +21,9 @@
 
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import { merge_ledger, type Ledger } from '../../model/ledger/ledger.js';
-import { TRACE_FAILED } from '../settle/_constants.js';
+import { TRACE_FAILED } from '../../model/settle/_constants.js';
 import { terminal_failure_reason } from '../settle/attribution.js';
-import type { SettleContext } from '../settle/types.js';
+import type { SettleContext } from '../../model/settle/types.js';
 
 /** 知识使用归因钩子的运行时访问面（结构契约，避免钩子依赖叶类）。 */
 export interface _KnowledgeUsageRuntime {

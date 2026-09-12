@@ -27,7 +27,7 @@
 import type { EntitySpec } from '../../core/entities/entities.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { Graph } from '../../model/graph/graph.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import { NodeContract } from '../../model/contracts/contracts.js';
 import { TYPE_LLM_DECIDER } from './constants.js';

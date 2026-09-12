@@ -42,8 +42,8 @@ import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import type { EdgeConditionRegistryLike } from '../../../src/model/graph/graph_types.js';
 
-import { Plan } from '../../../src/core/plan/plan.js';
-import { KIND_NODES, KIND_PARALLEL } from '../../../src/core/plan/plan.js';
+import { Plan } from '../../../src/model/plan/plan.js';
+import { KIND_NODES, KIND_PARALLEL } from '../../../src/model/plan/plan.js';
 
 // ── 工厂 ──────────────────────────────────────────────────────────────────────
 

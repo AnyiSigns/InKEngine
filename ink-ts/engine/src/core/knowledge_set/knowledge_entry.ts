@@ -7,8 +7,8 @@
  * 截断——超长 data 不得撑爆注入上下文。
  */
 
-import { ContextSource } from '../context/context_types.js';
-import type { Clock } from '../context/context_types.js';
+import { ContextSource } from '../../loop/context/context_types.js';
+import type { Clock } from '../../loop/context/context_types.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import {
   isRecord,

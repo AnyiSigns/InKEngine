@@ -8,23 +8,23 @@
  * 中断 = 快照续跑；无链 = 新鲜派生（Promise.all 保持 fan_out 并行）。
  */
 
-import { validate_run_id, type TrailHop, type TrailOutcome } from '../org_archive/execution_trail.js';
+import { validate_run_id, type TrailHop, type TrailOutcome } from '../../core/org_archive/execution_trail.js';
 import { check_parallel_guard } from './guardrails.js';
-import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
 import {
   approval_required,
   channel_approval_key,
   enforce_transition_conditions,
 } from './channel_gate.js';
 import { fan_in_merge, clean_payload, strip_quality, type FanInMerged } from './fan_in.js';
-import { plan_routing, type RoutePlan } from './route_planner.js';
+import { plan_routing, type RoutePlan } from '../route/route_planner.js';
 import { build_temp_scope_entity, parse_temp_scope_def } from './temp_scope.js';
 import {
   exec_chain_tail,
   resolve_exec_checkpoint,
   type ExecCheckpointSnapshot,
 } from './run_checkpoint.js';
-import type { RoutingDecision } from './routing_next.js';
+import type { RoutingDecision } from '../route/routing_next.js';
 import { run_one } from './run_loop.js';
 import type { Core } from './execution_runtime.js';
 import {

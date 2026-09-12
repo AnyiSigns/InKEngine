@@ -16,13 +16,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec } from '../../../../src/model/llm/tools.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
   EndpointType,
   RETRIEVAL_CONTROLLED_FETCH,
-} from '../../../src/core/declarative_tools/index.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
 
 /** collect_material 形态声明式定义（endpoint=mcp + 受控取回标记）。 */
 function controlledCollect(overrides: Record<string, unknown> = {}): DeclarativeToolSpec {

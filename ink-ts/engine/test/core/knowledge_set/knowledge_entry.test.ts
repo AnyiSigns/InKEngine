@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ContextSource } from '../../../src/core/context/context_types.js';
+import { ContextSource } from '../../../src/loop/context/context_types.js';
 import { KnowledgeEntry } from '../../../src/core/knowledge_set/knowledge_entry.js';
 import { LEVEL_WORK } from '../../../src/core/knowledge_set/_types.js';
 import { default_credibility } from '../../../src/core/knowledge_set/_types.js';

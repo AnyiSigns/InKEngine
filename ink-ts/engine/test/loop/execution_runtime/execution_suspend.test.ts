@@ -21,15 +21,15 @@ import { describe, expect, it } from 'vitest';
 import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
 import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';
+import { ExecutionRuntime } from '../../../src/loop/execution_runtime/execution_runtime.js';
 import type {
   ExecutionResult,
   ExecutionRuntimeDeps,
   ScopeTurnContext,
   ScopeTurnResult,
-} from '../../../src/core/execution_runtime/runtime_types.js';
-import { exec_checkpoint_thread } from '../../../src/core/execution_runtime/run_checkpoint.js';
-import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
+} from '../../../src/loop/execution_runtime/runtime_types.js';
+import { exec_checkpoint_thread } from '../../../src/loop/execution_runtime/run_checkpoint.js';
+import { InterruptState } from '../../../src/loop/interrupt/interrupt_types.js';
 import { validate_chain } from '../../../src/dock/ports/storage.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
 

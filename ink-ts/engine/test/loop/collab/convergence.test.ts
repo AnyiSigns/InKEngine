@@ -19,7 +19,7 @@ import {
   judge_round,
   opinions_digest,
   type OpinionEntry,
-} from '../../../src/core/collab/index.js';
+} from '../../../src/loop/collab/index.js';
 
 function op(over: Partial<OpinionEntry>): OpinionEntry {
   return { owner: 'c1', content: '', seq: 1, ...over };

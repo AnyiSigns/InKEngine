@@ -14,7 +14,7 @@
 
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import { EntitySpec } from '../entities/entities.js';
+import { EntitySpec } from '../../core/entities/entities.js';
 import { build_scope_asset } from '../../model/scopes/scope_directory.js';
 import type { ScopeDecl } from '../../model/scopes/scope_spec.js';
 

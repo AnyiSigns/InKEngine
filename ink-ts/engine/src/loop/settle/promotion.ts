@@ -21,10 +21,10 @@ import { edge_key_tuple } from '../../core/edge_evidence/storage_seam.js';
 import type { EdgeKey } from '../../core/edge_evidence/_types.js';
 import { EVENT_AUDIT_PROMOTION } from '../../model/event_types/eventTypeSpecs.js';
 import { now } from './_time.js';
-import { UPDATE_SUCCESS } from './_constants.js';
+import { UPDATE_SUCCESS } from '../../model/settle/_constants.js';
 import { derive_traversals, run_verdict } from './attribution.js';
 import { recommended_prior_eligible } from './rules.js';
-import { SettleContext, edge_key_str, traversal_edge_key } from './types.js';
+import { SettleContext, edge_key_str, traversal_edge_key } from '../../model/settle/types.js';
 
 /** 产出质量判定窄协议（推进门前置闸门；结构性 = 既有引擎闸门形态）。 */
 export type QualityGate = {

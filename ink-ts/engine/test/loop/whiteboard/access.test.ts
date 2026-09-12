@@ -13,7 +13,7 @@ import {
   WhiteboardAccessError,
   default_whiteboard_grants,
   type WhiteboardBlock,
-} from '../../../src/core/whiteboard/index.js';
+} from '../../../src/loop/whiteboard/index.js';
 
 function block(over: Partial<WhiteboardBlock>): WhiteboardBlock {
   return {

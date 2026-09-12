@@ -13,7 +13,7 @@
  * 贝，杜绝消费方存活引用污染存储。
  */
 
-import { EngineEvent } from '../../core/events/events.js';
+import { EngineEvent } from '../../dock/ports/events.js';
 import { StorageError } from '../../model/errors.js';
 import { deepCopy, type JsonRecord } from '../../model/json.js';
 import { strip_sensitive } from '../../gate/security/security.js';

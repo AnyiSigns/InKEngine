@@ -8,8 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { CheckpointConflictError, StorageError } from '../../../src/model/errors.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
-import { Message, ToolCall } from '../../../src/kernel/llm/messages.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
+import { Message, ToolCall } from '../../../src/model/llm/messages.js';
 import { PatchChain } from '../../../src/gate/patch/patchChain.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import { validate_chain } from '../../../src/dock/ports/storage.js';

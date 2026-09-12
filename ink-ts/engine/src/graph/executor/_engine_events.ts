@@ -17,8 +17,8 @@
 import { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { ChainLink } from '../../model/storage/storage_records.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
-import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
+import type { InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import type { JsonRecord } from '../../model/json.js';
 import { maybe_compact_chain } from '../../gate/chain_rebase/chain_rebase.js';
 import type { RunResult } from '../../core/run_result/run_result.js';

@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import * as llm from '../../../src/kernel/llm/index.js';
-import { LLMConfig, Message } from '../../../src/kernel/llm/index.js';
+import * as llm from '../../../src/loop/llm/index.js';
+import { LLMConfig, Message } from '../../../src/loop/llm/index.js';
 
 describe('core/llm 公开导出面', () => {
   it('base 面：AsyncLLM 接口 + 配置/参数/增量数据形态 + collect_result', () => {

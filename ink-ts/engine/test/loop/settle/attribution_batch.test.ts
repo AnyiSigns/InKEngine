@@ -11,8 +11,8 @@ import { describe, expect, it } from 'vitest';
 import type { EdgeEvidence, EdgeKey } from '../../../src/core/edge_evidence/_types.js';
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/store.js';
 import type { EdgeEvidenceStorage, EdgeKeyTuple } from '../../../src/core/edge_evidence/storage_seam.js';
-import { EdgeEvidenceSettleHook } from '../../../src/kernel/settle/hooks.js';
-import { TRACE_SUCCESS } from '../../../src/kernel/settle/_constants.js';
+import { EdgeEvidenceSettleHook } from '../../../src/loop/settle/hooks.js';
+import { TRACE_SUCCESS } from '../../../src/model/settle/_constants.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { edgeKey, makeCtx, stepsOf } from './helpers.js';
 

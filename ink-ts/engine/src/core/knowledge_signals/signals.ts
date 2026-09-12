@@ -12,7 +12,7 @@
  * 确定性复现——纯逻辑不进 Date.now）。
  */
 
-import type { Clock } from '../context/context_types.js';
+import type { Clock } from '../../loop/context/context_types.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord, type JsonRecord, typeName } from '../../model/json.js';
 import {

@@ -14,25 +14,25 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ThresholdCompressionPolicy,
-} from '../../../src/core/context/context_compression.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
+} from '../../../src/loop/context/context_compression.js';
+import type { Message } from '../../../src/model/llm/messages.js';
 import {
   assistant,
   system,
   user,
-} from '../../../src/kernel/llm/messages.js';
+} from '../../../src/model/llm/messages.js';
 import type {
   AsyncLLM,
   LLMChunk,
   LLMConfig,
   LLMResult,
   Usage,
-} from '../../../src/kernel/llm/_guard_types.js';
+} from '../../../src/model/llm/_guard_types.js';
 import {
   CompressingLLM,
   UsageTrackingLLM,
   current_node_context,
-} from '../../../src/kernel/llm/guard.js';
+} from '../../../src/loop/llm/guard.js';
 
 class RecordingLLM implements AsyncLLM {
   readonly adapter = 'recording';

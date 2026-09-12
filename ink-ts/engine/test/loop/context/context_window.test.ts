@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { Message, ToolCall, assistant, tool_result, user } from '../../../src/kernel/llm/messages.js';
+import { Message, ToolCall, assistant, tool_result, user } from '../../../src/model/llm/messages.js';
 import {
   DEFAULT_MAX_TOOL_ROUNDS,
   archive_digest,
@@ -20,7 +20,7 @@ import {
   iter_tool_rounds,
   last_body_message,
   message_text,
-} from '../../../src/core/context/context_window.js';
+} from '../../../src/loop/context/context_window.js';
 
 // 测试用工具→域归属表：write/query 各自成域，shared_lookup 为公共集（null）
 const TOOL_GROUPS: Record<string, string | null> = {

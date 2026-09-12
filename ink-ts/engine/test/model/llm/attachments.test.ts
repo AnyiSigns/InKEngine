@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
+import { LLMConfigError } from '../../../src/model/llm/errors.js';
 import {
   Attachment,
   Message,
@@ -15,7 +15,7 @@ import {
   system,
   tool_result,
   user,
-} from '../../../src/kernel/llm/messages.js';
+} from '../../../src/model/llm/messages.js';
 
 describe('Attachment（默认值/校验/序列化）', () => {
   it('defaults are complete（kind=image，其余 None）', () => {

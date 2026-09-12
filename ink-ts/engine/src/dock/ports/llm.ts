@@ -1,5 +1,6 @@
 /**
- * 统一 LLM 接口（AsyncLLM）与数据模型（Python llm/base.py 移植，1:1）。
+ * LLM 端口面（计划 §4.1，统一 LLM 接口 AsyncLLM + 适配器构造契约；
+ * Python llm/base.py 移植，1:1）：接口/配置/参数/增量数据形态与累积函数。
  *
  * 接口形态：AsyncLLM.astream(messages, tools?, params?) → AsyncIterable<LLMChunk>。
  * LLMChunk 增量语义（{token?, tool_calls_delta?, reasoning_token?} + finish_reason/
@@ -7,16 +8,17 @@
  * 路径）。厂商差异全部收敛到 adapters 层适配器内部（流式 SSE 解析、工具增量、
  * reasoning 透传），上层只消费统一增量模型。
  *
- * core 纯契约：本文件零 IO、零依赖，仅承载配置/参数/增量数据形态与累积函数；
- * 适配器（engine/src/adapters/llm/*）实现 AsyncLLM 并注册，装配方按配置注入。
+ * core 纯契约：本文件零 IO、零自持依赖，仅承载配置/参数/增量数据形态与累积
+ * 函数（消息/工具/异常形态真源在 model/llm）；适配器（engine/src/adapters/llm/*）
+ * 实现 AsyncLLM 并注册，装配方按配置注入。
  */
 
-import { LLMConfigError } from './errors.js';
-import type { Json } from './_shapes.js';
-import type { ToolCall, ToolCallDelta } from './_shapes.js';
-import { accumulate_tool_calls } from './messages.js';
-import type { Message } from './messages.js';
-import type { ToolSpec } from './tools.js';
+import { LLMConfigError } from '../../model/llm/errors.js';
+import type { Json } from '../../model/llm/_shapes.js';
+import type { ToolCall, ToolCallDelta } from '../../model/llm/_shapes.js';
+import { accumulate_tool_calls } from '../../model/llm/messages.js';
+import type { Message } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 /** from_dict 白名单键（模型配置形态）；未知键收进 extra 透传不破坏。 */
 const _CONFIG_KEYS = [
@@ -242,6 +244,11 @@ export abstract class AsyncLLM {
   /** 释放适配器持有的长生命周期资源（如 HTTP 连接池），无资源时为空实现。 */
   async aclose(): Promise<void> {}
 }
+
+/** LLM 适配器构造契约（计划 §4.1 端口面点名）：厂商适配器 = 按配置构造
+ *  AsyncLLM 的类；adapters 层注册表/工厂消费本声明（S2  adapters 外移后
+ *  本端口面即宿主端口实现的实现目标）。 */
+export type LLMAdapterCtor = new (config: LLMConfig) => AsyncLLM;
 
 /** 把流式增量累积为 LLMResult（内容/推理拼接、工具调用按 index 合并）。 */
 export async function collect_result(stream: AsyncIterable<LLMChunk>): Promise<LLMResult> {

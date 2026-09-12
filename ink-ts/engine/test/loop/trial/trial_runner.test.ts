@@ -14,15 +14,15 @@ import { describe, expect, it } from 'vitest';
 
 import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';
-import type { ExecutionResult } from '../../../src/core/execution_runtime/runtime_types.js';
+import { ExecutionRuntime } from '../../../src/loop/execution_runtime/execution_runtime.js';
+import type { ExecutionResult } from '../../../src/loop/execution_runtime/runtime_types.js';
 import {
   default_trial_probe,
   make_trial_runner,
   trial_verdict,
-} from '../../../src/core/execution_runtime/trial_runner.js';
-import type { ScopeTurnResult } from '../../../src/core/execution_runtime/scope_turn.js';
-import type { ScopeTurnContext, ExecutionRuntimeDeps } from '../../../src/core/execution_runtime/runtime_types.js';
+} from '../../../src/loop/trial/trial_runner.js';
+import type { ScopeTurnResult } from '../../../src/loop/execution_runtime/scope_turn.js';
+import type { ScopeTurnContext, ExecutionRuntimeDeps } from '../../../src/loop/execution_runtime/runtime_types.js';
 import { run_adoption_gate, type TrialSpec } from '../../../src/core/controlled_evolution/adoption_gate.js';
 import { EvolutionProposal } from '../../../src/core/controlled_evolution/evolution_proposal.js';
 

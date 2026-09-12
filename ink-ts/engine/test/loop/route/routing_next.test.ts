@@ -17,7 +17,7 @@ import {
   parse_next_in_text,
   parse_routing_decision,
   routing_decision_from_output,
-} from '../../../src/core/execution_runtime/routing_next.js';
+} from '../../../src/loop/route/routing_next.js';
 
 describe('parse_routing_decision 结构校验（四 kind）', () => {
   it('scope 合法声明：target + 缺省通道委托', () => {

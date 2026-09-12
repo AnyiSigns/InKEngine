@@ -11,7 +11,7 @@ import type { SelfApplicationPipeline } from '../self_application/index.js';
 import { _apply, _propose, _propose_domain, _revert } from './_proposal_ops.js';
 import { _request_tool, _search_tools } from './_discover_ops.js';
 import type { SelfToolContext, SelfToolExecutor, SelfToolNodeContext } from './_types.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 /**
  * 契约自指工具执行器（统一流水线分发用；ctx/spec/args/approval → 文本）。

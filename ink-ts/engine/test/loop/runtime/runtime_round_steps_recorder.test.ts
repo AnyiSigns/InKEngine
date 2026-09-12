@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
-import { _RoundStepsRecorder, DEFAULT_STEP_LIMIT } from '../../../src/kernel/runtime/_round_steps_recorder.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
+import { _RoundStepsRecorder, DEFAULT_STEP_LIMIT } from '../../../src/loop/runtime/_round_steps_recorder.js';
 
 function ev(
   type: string,

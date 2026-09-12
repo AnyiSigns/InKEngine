@@ -8,7 +8,7 @@
  * 隔离、同会话重复幂等），响应携带端点状态（绑定 ≠ 端点可用）。
  */
 
-import { isAwaitable } from '../tool_pipeline/_types.js';
+import { isAwaitable } from '../../loop/tools/tool_pipeline/_types.js';
 import { TAG_THREAD_PREFIX } from './_constants.js';
 import { _json } from './_json.js';
 import type { SelfToolContext, SelfToolNodeContext } from './_types.js';

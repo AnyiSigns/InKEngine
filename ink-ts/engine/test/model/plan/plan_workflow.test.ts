@@ -42,7 +42,7 @@ import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec } from '../../../src/model/workflow/workflow_types.js';
 
-import { Plan } from '../../../src/core/plan/plan.js';
+import { Plan } from '../../../src/model/plan/plan.js';
 
 // ── 工厂 ──────────────────────────────────────────────────────────────────────
 

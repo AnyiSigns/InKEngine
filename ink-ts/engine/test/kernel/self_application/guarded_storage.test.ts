@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { GuardedStorage } from '../../../src/kernel/self_application/index.js';
 

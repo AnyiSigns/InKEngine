@@ -10,9 +10,9 @@
  * 受控取回 url 档：按声明 retrieval 标记查受控执行体（注册键 =
  * meta.retrieval，声明驱动非按名写死）；file/text 档回落端点执行体。
  */
-import { GraphDefinitionError } from '../../model/errors.js';
-import { ToolSpec } from '../../kernel/llm/tools.js';
-import { isAwaitable } from '../../kernel/tool_pipeline/_types.js';
+import { GraphDefinitionError } from '../../../model/errors.js';
+import { ToolSpec } from '../../../model/llm/tools.js';
+import { isAwaitable } from '../tool_pipeline/_types.js';
 import { DeclarativeToolSpec } from './declarative_spec.js';
 import { RETRIEVAL_CONTROLLED_FETCH } from './operations.js';
 

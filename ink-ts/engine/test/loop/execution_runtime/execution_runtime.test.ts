@@ -18,9 +18,9 @@ import { ChannelDirectory, default_channel_seeds } from '../../../src/model/chan
 import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
 import { OrgArchive } from '../../../src/core/org_archive/org_archive.js';
-import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';
-import type { ScopeTurnResult } from '../../../src/core/execution_runtime/scope_turn.js';
-import type { ExecutionRuntimeDeps, ScopeTurnContext } from '../../../src/core/execution_runtime/runtime_types.js';
+import { ExecutionRuntime } from '../../../src/loop/execution_runtime/execution_runtime.js';
+import type { ScopeTurnResult } from '../../../src/loop/execution_runtime/scope_turn.js';
+import type { ExecutionRuntimeDeps, ScopeTurnContext } from '../../../src/loop/execution_runtime/runtime_types.js';
 
 function entity(id: string, persona: string): EntitySpec {
   return new EntitySpec({ id, role: id, persona, model: null });

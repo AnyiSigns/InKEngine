@@ -12,8 +12,8 @@
  * 随「运行时装配/执行器入口」组保留在 dock/index.ts，本面不复制。
  */
 
-export * from '../core/execution_runtime/index.js';
+export * from '../loop/execution_runtime/index.js';
 export * from '../core/run_result/run_result.js';
 export * from '../gate/approval/approval.js';
-export * from '../kernel/recovery/index.js';
-export * from '../kernel/interrupt/interrupt.js';
+export * from '../loop/recovery/index.js';
+export * from '../loop/interrupt/interrupt.js';

@@ -37,11 +37,11 @@ import {
   user,
   Attachment,
   Message,
-} from '../../kernel/llm/messages.js';
-import { LLMParams } from '../../kernel/llm/base.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
-import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+} from '../../model/llm/messages.js';
+import { LLMParams } from '../../dock/ports/llm.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
+import type { ToolPipeline } from '../../loop/tools/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import {
   clamp_tool_rounds,

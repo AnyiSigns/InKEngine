@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { LLMChunk, LLMConfig, LLMResult } from '../../../src/kernel/llm/base.js';
+import { LLMChunk, LLMConfig, LLMResult } from '../../../src/dock/ports/llm.js';
 import {
   LLMAuthError,
   LLMBadRequestError,
@@ -21,9 +21,9 @@ import {
   LLMNetworkError,
   LLMServerError,
   LLMTimeoutError,
-} from '../../../src/kernel/llm/errors.js';
-import { ModelChain, RetryPolicy } from '../../../src/kernel/llm/fallback.js';
-import { user } from '../../../src/kernel/llm/messages.js';
+} from '../../../src/model/llm/errors.js';
+import { ModelChain, RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { user } from '../../../src/model/llm/messages.js';
 import {
   INFINITE_STREAM,
   ScriptedLLM,

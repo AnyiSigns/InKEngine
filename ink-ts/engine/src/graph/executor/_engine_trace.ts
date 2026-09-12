@@ -10,10 +10,10 @@
  * (graph_path, node) token 账键 = settle/token_key——与 SettleContext 同源，
  * 沉淀回放取用同一把键）。
  */
-import { SettleContext, TraceStep } from '../../kernel/settle/index.js';
-import { DEFAULT_DOMAIN } from '../../kernel/settle/index.js';
-import { path_key, token_key } from '../../kernel/settle/types.js';
-import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../kernel/settle/index.js';
+import { SettleContext, TraceStep } from '../../loop/settle/index.js';
+import { DEFAULT_DOMAIN } from '../../loop/settle/index.js';
+import { path_key, token_key } from '../../model/settle/types.js';
+import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/settle/index.js';
 import type { Graph } from '../../model/graph/graph.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import { EngineEvents } from './_engine_events.js';

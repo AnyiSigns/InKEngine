@@ -14,9 +14,9 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '../../../src/model/contracts/generated/index.js';
-import { SandboxViolation } from '../../../src/model/errors.js';
-import { FIELD_ARRAY, SchemaField } from '../../../src/model/schema/schemaValidator.js';
+import { BUILTIN_ENDPOINT_NAMES, BUILTIN_ENDPOINTS } from '../../../../src/model/contracts/generated/index.js';
+import { SandboxViolation } from '../../../../src/model/errors.js';
+import { FIELD_ARRAY, SchemaField } from '../../../../src/model/schema/schemaValidator.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
@@ -26,8 +26,8 @@ import {
   endpoint_operation_failure_reason,
   endpoint_registry,
   tool_contract_from_declaration,
-} from '../../../src/core/declarative_tools/index.js';
-import { assert_endpoint_contract } from '../../../src/core/declarative_tools/endpoint_types.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
+import { assert_endpoint_contract } from '../../../../src/loop/tools/declarative_tools/endpoint_types.js';
 
 /** 清空测试期登记的自定义端点（内置 7 种保留）。 */
 function removeCustom(name: string): void {

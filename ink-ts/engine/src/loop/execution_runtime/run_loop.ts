@@ -23,11 +23,11 @@ import {
   CHANNEL_SHAPE_FAN_IN,
   type ChannelShape,
 } from '../../model/channels/channel_spec.js';
-import type { TrailHop, TrailOutcome } from '../org_archive/execution_trail.js';
+import type { TrailHop, TrailOutcome } from '../../core/org_archive/execution_trail.js';
 import { check_steps_guard, check_cost_guard } from './guardrails.js';
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
-import { fallback_routing } from './fallback_routing.js';
-import { routing_decision_from_output } from './routing_next.js';
+import { InterruptSignal } from '../interrupt/interrupt_types.js';
+import { fallback_routing } from '../route/fallback_routing.js';
+import { routing_decision_from_output } from '../route/routing_next.js';
 import { PAYLOAD_AMEND_KEY, process_grant_amend } from './amend_runtime.js';
 import { PAYLOAD_BOARD_KEY, process_board_write } from './board_runtime.js';
 import { payload_from_reply, build_turn_input } from './scope_turn.js';

@@ -5,13 +5,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { WeightedBudgetAllocator } from '../../../src/core/context/context_allocator.js';
+import { WeightedBudgetAllocator } from '../../../src/loop/context/context_allocator.js';
 import {
   ContextSource,
   MODE_DROP,
   MODE_KEEP_FULL,
   MODE_TRUNCATE,
-} from '../../../src/core/context/context_types.js';
+} from '../../../src/loop/context/context_types.js';
 
 interface SrcFields {
   readonly type?: string;

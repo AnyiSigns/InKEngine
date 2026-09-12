@@ -16,7 +16,7 @@ import {
   EndpointType,
   endpoint_operation,
   endpoint_operation_failure_reason,
-} from '../../../src/core/declarative_tools/index.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
 
 describe('http_fetch 端点判定', () => {
   it('从参数推导 (connect, host)——域名判定目标', () => {

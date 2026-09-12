@@ -12,14 +12,14 @@
  * 若各引擎独立维护 next_seq/pending，实例后续事件会因本引擎 seq 缺孔永远
  * 无法补齐（事件静默卡在各自缓冲）。共享同一协调器后，seq 连续即冲刷。
  */
-import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
+import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { Graph } from '../../model/graph/graph.js';
-import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal, InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import { strip_sensitive } from '../../gate/security/security.js';
-import type { Plan } from '../../core/plan/plan.js';
+import type { Plan } from '../../model/plan/plan.js';
 import type { StateSchema } from '../../core/state/schema.js';
-import type { ResumeMap } from '../../kernel/recovery/recovery_types.js';
+import type { ResumeMap } from '../../loop/recovery/recovery_types.js';
 
 // ── 日志留痕 seam（Python logger → core 零 IO：缺省静默，可注入收集）────
 let _warn_sink: ((message: string) => void) | null = null;

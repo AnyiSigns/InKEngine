@@ -18,23 +18,23 @@ import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
   build_declarative_pipeline,
-} from '../declarative_tools/index.js';
+} from '../../loop/tools/declarative_tools/index.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { Graph } from '../../model/graph/graph.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import type { NetworkPolicy } from '../../gate/permissions/networkPolicy.js';
-import { Plan } from '../plan/plan.js';
+import { Plan } from '../../model/plan/plan.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
 import { StateSchema } from '../state/schema.js';
-import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/tool_pipeline.js';
-import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../loop/tools/tool_pipeline/tool_pipeline.js';
+import type { ToolPipeline } from '../../loop/tools/tool_pipeline/tool_pipeline.js';
 import type {
   AuditSink,
   GateSeam,
   Guard,
   SandboxSeam,
   TraceSink,
-} from '../../kernel/tool_pipeline/_types.js';
+} from '../../loop/tools/tool_pipeline/_types.js';
 import { _keyword_match } from './builder.js';
 import { DEFAULT_ROUTE_THRESHOLD, HarnessDefinition } from './definition.js';
 import type { CapabilityMatcher } from './definition.js';

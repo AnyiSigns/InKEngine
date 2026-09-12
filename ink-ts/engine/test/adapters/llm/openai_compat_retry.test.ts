@@ -8,14 +8,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { collect_result } from '../../../src/kernel/llm/base.js';
-import { user } from '../../../src/kernel/llm/messages.js';
+import { collect_result } from '../../../src/dock/ports/llm.js';
+import { user } from '../../../src/model/llm/messages.js';
 import {
   LLMAuthError,
   LLMRateLimitError,
   LLMServerError,
-} from '../../../src/kernel/llm/errors.js';
-import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
+} from '../../../src/model/llm/errors.js';
+import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
 import type { LlmResponse } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   capture,

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 旁路写防护（kernel/self_application.py GuardedStorage 移植）：storage 包装
  * （演化资产集合的直写/整集删除被拒绝）。
  *
@@ -18,7 +18,7 @@
  * logging.warning 留痕属可观测性副作用，core 不落。
  */
 
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from '../../dock/ports/events.js';
 import type { ChainLink, CheckpointRecord } from '../../model/storage/storage_records.js';
 import type {
   RecordListOptions,

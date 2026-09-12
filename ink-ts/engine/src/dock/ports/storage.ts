@@ -17,7 +17,7 @@
  * 侧抛（写入端不变量），校验器不涉及。
  */
 
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from './events.js';
 
 import { ChainLink, CheckpointRecord } from '../../model/storage/storage_records.js';
 import { DEFAULT_CHAIN_WALK_LIMIT, DEFAULT_LIST_CHECKPOINTS_LIMIT } from '../../model/storage/storage_constants.js';

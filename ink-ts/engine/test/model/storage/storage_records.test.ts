@@ -13,8 +13,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
-import { Message, ToolCall } from '../../../src/kernel/llm/messages.js';
+import { InterruptState } from '../../../src/loop/interrupt/interrupt_types.js';
+import { Message, ToolCall } from '../../../src/model/llm/messages.js';
 import { PatchChain } from '../../../src/gate/patch/patchChain.js';
 import { CheckpointRecord, fromJsonable, jsonableStrip } from '../../../src/model/storage/storage_records.js';
 import {

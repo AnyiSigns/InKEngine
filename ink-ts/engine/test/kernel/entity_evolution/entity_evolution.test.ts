@@ -28,7 +28,7 @@ import {
 } from '../../../src/kernel/entity_evolution/index.js';
 import { EntityRegistry, EntitySpec } from '../../../src/core/entities/entities.js';
 import type { EvolutionRecord, EvolutionWriter } from '../../../src/kernel/evolution_writer/_types.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 
 /** EvolutionWriter 协议记录桩（断言演化写入管线留痕）。 */
 class RecorderWriter implements EvolutionWriter {

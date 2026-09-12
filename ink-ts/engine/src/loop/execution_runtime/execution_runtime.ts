@@ -23,7 +23,7 @@
  */
 
 import { default_scope_priors } from '../../model/scopes/scope_priors.js';
-import { validate_run_id } from '../org_archive/execution_trail.js';
+import { validate_run_id } from '../../core/org_archive/execution_trail.js';
 import type { ScopePriorPattern } from '../../model/scopes/scope_priors.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import {
@@ -47,8 +47,8 @@ import {
   load_whiteboard,
   pending_result,
 } from './run_result.js';
-import { InterruptCoordinator } from '../../kernel/interrupt/interrupt.js';
-import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptCoordinator } from '../interrupt/interrupt.js';
+import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
 import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import type {

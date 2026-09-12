@@ -8,9 +8,9 @@
  * 通道同规格，凭据永不进入模型上下文；快照必须完整可序列化，契约破坏
  * 显式抛错（fail-closed），不静默降级为字符串。
  */
-import { ToolSpec } from '../llm/tools.js';
+import { ToolSpec } from '../../model/llm/tools.js';
 import { strip_sensitive } from '../../gate/security/security.js';
-import type { Executor } from '../tool_pipeline/_types.js';
+import type { Executor } from '../../loop/tools/tool_pipeline/_types.js';
 import {
   INTROSPECTION_PERMISSION,
   _KNOWLEDGE_LIMIT_MAX,

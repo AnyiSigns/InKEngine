@@ -9,7 +9,7 @@
  */
 
 import { WHITEBOARD_VERSION, Whiteboard, whiteboard_block_to_dict } from '../whiteboard/index.js';
-import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal, InterruptState } from '../interrupt/interrupt_types.js';
 import { exec_chain_tail } from './run_checkpoint.js';
 import { estuary_synthesize } from './fan_in.js';
 import { parse_temp_scope_def, build_temp_scope_entity, temp_scope_id } from './temp_scope.js';

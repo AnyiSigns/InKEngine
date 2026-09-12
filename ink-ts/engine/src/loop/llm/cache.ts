@@ -33,12 +33,12 @@
 import { sha256_hex } from '../../graph/builder/_sha256.js';
 import type { Storage } from '../../dock/ports/storage.js';
 
-import type { LLMParams, LLMResult } from './base.js';
-import { AsyncLLM, LLMChunk, LLMConfig } from './base.js';
+import type { LLMParams, LLMResult } from '../../dock/ports/llm.js';
+import { AsyncLLM, LLMChunk, LLMConfig } from '../../dock/ports/llm.js';
 import { _result_from_dict, _result_to_dict, _stable_json } from './_cache_serialize.js';
-import type { Message } from './messages.js';
-import { to_openai_tools } from './tools.js';
-import type { ToolSpec } from './tools.js';
+import type { Message } from '../../model/llm/messages.js';
+import { to_openai_tools } from '../../model/llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 /** 默认 TTL：24 小时（秒，常量——缓存命中与出局的节奏参数）。 */
 export const DEFAULT_CACHE_TTL = 24 * 3600.0;

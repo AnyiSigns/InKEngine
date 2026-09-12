@@ -18,11 +18,11 @@
  * 上一步存在图边关联（策略由 RunOptions.plan_policy 配置）。
  */
 
-import { GraphDefinitionError } from '../../model/errors.js';
-import { Graph } from '../../model/graph/graph.js';
-import type { EdgeConditionRegistryLike } from '../../model/graph/graph_types.js';
-import { isRecord, typeName } from '../../model/json.js';
-import { WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec } from '../../model/workflow/workflow_types.js';
+import { GraphDefinitionError } from '../errors.js';
+import { Graph } from '../graph/graph.js';
+import type { EdgeConditionRegistryLike } from '../graph/graph_types.js';
+import { isRecord, typeName } from '../json.js';
+import { WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec } from '../workflow/workflow_types.js';
 
 export const PLAN_KEY = '__plan__';
 

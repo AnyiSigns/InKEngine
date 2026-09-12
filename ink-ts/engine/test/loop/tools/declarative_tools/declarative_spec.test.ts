@@ -12,18 +12,18 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { NetworkPolicy } from '../../../src/gate/permissions/networkPolicy.js';
+import { ToolSpec } from '../../../../src/model/llm/tools.js';
+import { NetworkPolicy } from '../../../../src/gate/permissions/networkPolicy.js';
 import {
   DeclarativeToolSpec,
   EndpointType,
   EndpointTypeSpec,
   endpoint_registry,
   endpoint_operation,
-} from '../../../src/core/declarative_tools/index.js';
-import { DeclarativeToolExecutors } from '../../../src/core/declarative_tools/index.js';
-import { make_declarative_extractor } from '../../../src/core/declarative_tools/index.js';
-import { GraphDefinitionError } from '../../../src/model/errors.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
+import { DeclarativeToolExecutors } from '../../../../src/loop/tools/declarative_tools/index.js';
+import { make_declarative_extractor } from '../../../../src/loop/tools/declarative_tools/index.js';
+import { GraphDefinitionError } from '../../../../src/model/errors.js';
 
 /** 默认声明式定义构建（对齐 Python 测试 _declarative 辅助）。 */
 function declarative(

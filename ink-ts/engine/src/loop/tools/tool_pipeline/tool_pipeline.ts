@@ -13,8 +13,8 @@
  * 为注入 seam，缺省未注入 = 未配置执行器拒绝。
  */
 
-import { SandboxViolation } from '../../model/errors.js';
-import { isRecord } from '../../model/json.js';
+import { SandboxViolation } from '../../../model/errors.js';
+import { isRecord } from '../../../model/json.js';
 import {
   ApprovalDecision,
   DECISION_AUTO, DECISION_EDIT, DECISION_REJECT, DECISION_TERMINATE,
@@ -22,12 +22,12 @@ import {
   approve_before_execute,
   normalizeApprovalPose,
   type ApprovalInterruptContext, type InterruptPolicy,
-} from '../../gate/approval/approval.js';
-import type { ToolSpec } from '../llm/tools.js';
-import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../../gate/permissions/permissions.js';
-import { STATE_ROUND_POSE } from '../../graph/nodes/constants.js';
-import { strip_sensitive } from '../../gate/security/security.js';
-import { ToolTrace } from '../../core/tool_orchestrator/_types.js';
+} from '../../../gate/approval/approval.js';
+import type { ToolSpec } from '../../../model/llm/tools.js';
+import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../../../gate/permissions/permissions.js';
+import { STATE_ROUND_POSE } from '../../../graph/nodes/constants.js';
+import { strip_sensitive } from '../../../gate/security/security.js';
+import { ToolTrace } from '../tool_orchestrator/_types.js';
 import {
   DEFAULT_MAX_RESULT_CHARS, ToolResult, _substitute_target, isAwaitable,
   sandbox_guarded, sandbox_resolve,

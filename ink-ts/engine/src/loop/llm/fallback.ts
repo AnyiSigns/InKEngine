@@ -29,10 +29,10 @@
  *   层按配置装配），core 零依赖不内置适配器注册表——未注入时首次需建模型即
  *   抛 LLMConfigError 快速失败。
  */
-import { LLMConfigError, LLMAuthError, LLMError, is_transient_llm_error } from './errors.js';
-import { AsyncLLM, LLMChunk, LLMConfig, LLMParams, LLMResult } from './base.js';
-import type { Message } from './messages.js';
-import type { ToolSpec } from './tools.js';
+import { LLMConfigError, LLMAuthError, LLMError, is_transient_llm_error } from '../../model/llm/errors.js';
+import { AsyncLLM, LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../dock/ports/llm.js';
+import type { Message } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 /** 退避睡眠注入面（seconds 与 Python asyncio.sleep 单位一致）。 */
 export type Sleeper = (seconds: number) => Promise<void>;

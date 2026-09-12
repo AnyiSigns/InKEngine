@@ -10,7 +10,7 @@
  * 本模块只管契约工具。
  */
 
-import { ToolSpec } from '../llm/tools.js';
+import { ToolSpec } from '../../model/llm/tools.js';
 import { _PATCH_KIND_VALUES } from '../self_proposal/self_proposal.js';
 import { PERMISSION_APPLY, PERMISSION_PROPOSE } from './_constants.js';
 

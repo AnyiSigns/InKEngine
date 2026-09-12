@@ -18,9 +18,9 @@ import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
 import type { EdgeRoundDelta } from '../../core/edge_evidence/store.js';
 import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
 import { now } from './_time.js';
-import { TRACE_FAILED, UPDATE_SUCCESS } from './_constants.js';
+import { TRACE_FAILED, UPDATE_SUCCESS } from '../../model/settle/_constants.js';
 import { attribution_plan, derive_traversals } from './attribution.js';
-import { SettleContext, edge_key_str, traversal_edge_key } from './types.js';
+import { SettleContext, edge_key_str, traversal_edge_key } from '../../model/settle/types.js';
 
 /** 沉淀钩子接口（注册式扩展；失败仅记录不阻断主流程）。 */
 export interface SettleHook {

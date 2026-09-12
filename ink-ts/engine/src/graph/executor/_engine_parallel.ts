@@ -18,15 +18,15 @@
  * 归一为成员失败或信号，promise 显式消费拒绝——无 unhandledRejection、无静默
  * 丢失败。
  */
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { BudgetExceededError } from '../../gate/budget/budget.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { current_node_context } from '../../kernel/llm/guard.js';
-import { PLAN_KEY, PlanStep } from '../../core/plan/plan.js';
+import { current_node_context } from '../../loop/llm/guard.js';
+import { PLAN_KEY, PlanStep } from '../../model/plan/plan.js';
 import { SIMULATE_KEY } from '../../kernel/simulation/simulation.js';
 import { SPAWN_KEY, collect_spawn_specs } from '../../kernel/spawn/spawn.js';
 import type { Graph } from '../../model/graph/graph.js';
-import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../kernel/settle/index.js';
+import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/settle/index.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { _interrupt_state, _PlanWorkOutcome, _warn } from './_internals.js';

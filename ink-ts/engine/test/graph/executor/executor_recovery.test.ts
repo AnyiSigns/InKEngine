@@ -14,7 +14,7 @@ import { MemoryStorage, _execute, make_engine } from './helpers.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
-import type { EngineEvent } from '../../../src/core/events/events.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
 
 async function collect(engine: Engine, state: Record<string, unknown>, opts: Record<string, unknown> = {}): Promise<EngineEvent[]> {
   const events: EngineEvent[] = [];

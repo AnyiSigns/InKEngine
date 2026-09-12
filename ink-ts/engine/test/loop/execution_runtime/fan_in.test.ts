@@ -22,8 +22,8 @@ import {
   fan_in_merge,
   pick_best,
   strip_quality,
-} from '../../../src/core/execution_runtime/fan_in.js';
-import type { ChildRunOutcome } from '../../../src/core/execution_runtime/runtime_types.js';
+} from '../../../src/loop/execution_runtime/fan_in.js';
+import type { ChildRunOutcome } from '../../../src/loop/execution_runtime/runtime_types.js';
 
 function child(
   run_id: string,

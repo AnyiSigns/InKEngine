@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import {
   GrowthConfig,
   GrowthPipeline,

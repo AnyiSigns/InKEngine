@@ -13,9 +13,9 @@
  * 仅 cache.ts 复用；下划线命名 = 模块内私件，非公开契约。
  */
 
-import type { Json } from './_shapes.js';
-import { ToolCall } from './_shapes.js';
-import { LLMResult } from './base.js';
+import type { Json } from '../../model/llm/_shapes.js';
+import { ToolCall } from '../../model/llm/_shapes.js';
+import { LLMResult } from '../../dock/ports/llm.js';
 
 /** LLMResult → 记录负载（JSON 形态；ToolCall 与 Message 同款内联）。 */
 export function _result_to_dict(result: LLMResult): Record<string, unknown> {

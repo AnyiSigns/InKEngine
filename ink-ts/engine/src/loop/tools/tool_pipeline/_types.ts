@@ -24,13 +24,13 @@
  * 会使 .length 少计，等同不接受 name）。
  */
 
-import { isRecord } from '../../model/json.js';
-import type { ApprovalDecision } from '../../gate/approval/approval_types.js';
-import type { InterruptPolicy } from '../../gate/approval/approval_types.js';
-import type { ToolSpec } from '../llm/tools.js';
-import { ALLOW, DENY, REVIEW } from '../../gate/permissions/permissions.js';
-import type { GateResult } from '../../gate/permissions/permissions.js';
-import type { ToolTrace } from '../../core/tool_orchestrator/_types.js';
+import { isRecord } from '../../../model/json.js';
+import type { ApprovalDecision } from '../../../gate/approval/approval_types.js';
+import type { InterruptPolicy } from '../../../gate/approval/approval_types.js';
+import type { ToolSpec } from '../../../model/llm/tools.js';
+import { ALLOW, DENY, REVIEW } from '../../../gate/permissions/permissions.js';
+import type { GateResult } from '../../../gate/permissions/permissions.js';
+import type { ToolTrace } from '../tool_orchestrator/_types.js';
 
 export { ALLOW, DENY, REVIEW };
 

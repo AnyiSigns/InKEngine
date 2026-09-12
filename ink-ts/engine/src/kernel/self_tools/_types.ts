@@ -12,9 +12,9 @@
 import type { ApprovalInterruptContext } from '../../gate/approval/approval.js';
 import type { HarnessRegistry } from '../../core/harness/index.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import type { SelfApplicationPipeline } from '../self_application/index.js';
-import type { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
+import type { ToolVectorIndex } from '../../loop/tools/tool_index/tool_index.js';
 
 /** 收敛管制评估结果（Assessment：allowed/state/target/reason，鸭子协议）。 */
 export interface ConvergenceAssessment {

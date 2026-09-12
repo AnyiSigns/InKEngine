@@ -7,7 +7,7 @@
  */
 
 import type { JsonRecord } from '../../model/json.js';
-import { EngineEvent } from '../../core/events/events.js';
+import { EngineEvent } from '../../dock/ports/events.js';
 import { SOURCE_MODEL, SOURCE_USER } from '../../core/knowledge_set/index.js';
 import { SOURCE_RANK } from '../../core/knowledge_signals/index.js';
 

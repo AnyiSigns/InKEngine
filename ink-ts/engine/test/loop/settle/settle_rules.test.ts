@@ -13,11 +13,11 @@ import {
   policy_edge_needs_review,
   recommended_prior_eligible,
   should_propose,
-} from '../../../src/kernel/settle/rules.js';
+} from '../../../src/loop/settle/rules.js';
 import {
   PROPOSAL_FAIL_RATE,
   PROPOSAL_MIN_FAILS,
-} from '../../../src/kernel/settle/_constants.js';
+} from '../../../src/model/settle/_constants.js';
 import { edgeKey, NOW } from './helpers.js';
 
 /** 策略边证据构造（对标 test_settle.py 内部 edge() helper）。 */

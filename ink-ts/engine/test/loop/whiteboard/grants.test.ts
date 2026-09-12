@@ -14,7 +14,7 @@ import {
   BLOCK_KINDS,
   default_whiteboard_grants,
   parse_whiteboard_grants,
-} from '../../../src/core/whiteboard/index.js';
+} from '../../../src/loop/whiteboard/index.js';
 
 describe('parse_whiteboard_grants fail-closed 校验', () => {
   it('合法 blind 授权解析通过', () => {

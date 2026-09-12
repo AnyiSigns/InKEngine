@@ -10,7 +10,7 @@
  * 清单（结构化拒绝），不在执行期以裸异常击穿。
  */
 
-import { DeclarativeToolSpec } from '../../core/declarative_tools/index.js';
+import { DeclarativeToolSpec } from '../../loop/tools/declarative_tools/index.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { build_minimal_harness } from '../../core/harness/index.js';
 import { isRecord } from '../../model/json.js';

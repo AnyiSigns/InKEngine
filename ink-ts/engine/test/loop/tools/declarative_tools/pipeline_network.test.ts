@@ -15,16 +15,16 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PermissionGate } from '../../../src/gate/permissions/permissions.js';
-import { NetworkPolicy } from '../../../src/gate/permissions/networkPolicy.js';
-import { ProcessSandbox } from '../../../src/gate/sandbox/index.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { PermissionGate } from '../../../../src/gate/permissions/permissions.js';
+import { NetworkPolicy } from '../../../../src/gate/permissions/networkPolicy.js';
+import { ProcessSandbox } from '../../../../src/gate/sandbox/index.js';
+import { ToolSpec } from '../../../../src/model/llm/tools.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
   EndpointType,
   build_declarative_pipeline,
-} from '../../../src/core/declarative_tools/index.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
 
 /** 普通节点上下文：emit 收集（对齐 Python 的 emit-only Ctx）。 */
 class EmitCtx {

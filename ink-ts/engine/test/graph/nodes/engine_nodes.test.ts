@@ -28,12 +28,12 @@ import {
 import { Graph } from '../../../src/model/graph/graph.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { CollectorTransport } from '../../../src/core/events/events.js';
+import { CollectorTransport } from '../../../src/dock/ports/events.js';
 import { MemoryStorage } from '../executor/helpers.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import { ToolCallDelta } from '../../../src/kernel/llm/_shapes.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
+import { ToolPipeline } from '../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import { ToolCallDelta } from '../../../src/model/llm/_shapes.js';
 import { ENGINE_STUB_REPLY } from '../../../src/graph/nodes/index.js';
 
 /** 装配测试注册表（引擎内置池种子；契约池含 llm_decider/tool_pipeline/router_judge）。 */

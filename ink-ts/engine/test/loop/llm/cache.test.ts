@@ -7,11 +7,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ToolCall } from '../../../src/kernel/llm/_shapes.js';
-import { LLMParams, LLMResult } from '../../../src/kernel/llm/base.js';
-import { CACHE_COLLECTION, CachingLLM } from '../../../src/kernel/llm/cache.js';
-import { user } from '../../../src/kernel/llm/messages.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolCall } from '../../../src/model/llm/_shapes.js';
+import { LLMParams, LLMResult } from '../../../src/dock/ports/llm.js';
+import { CACHE_COLLECTION, CachingLLM } from '../../../src/loop/llm/cache.js';
+import { user } from '../../../src/model/llm/messages.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 
 import {
   ChainCountingLLM,

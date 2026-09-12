@@ -14,11 +14,11 @@
  */
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { NodeExecutionError } from '../../model/errors.js';
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { SPAWN_KEY, collect_spawn_specs } from '../../kernel/spawn/spawn.js';
 import { SIMULATE_KEY, parse_simulate } from '../../kernel/simulation/simulation.js';
 import { MULTIPATH_KEY } from '../../kernel/multipath/index.js';
-import { PLAN_KEY, Plan } from '../../core/plan/plan.js';
+import { PLAN_KEY, Plan } from '../../model/plan/plan.js';
 import type { Graph } from '../../model/graph/graph.js';
 import { _locate_next, _merge_overlay, _now_epoch, _warn } from './_internals.js';
 import { EngineExecuteHelpers } from './_engine_execute_helpers.js';

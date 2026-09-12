@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/model/errors.js';
-import { EndpointType } from '../../../src/core/declarative_tools/endpoint_types.js';
+import { EndpointType } from '../../../src/loop/tools/declarative_tools/endpoint_types.js';
 import { ToolSource } from '../../../src/gate/tool_vetting/tool_vetting.js';
 import {
   build_mcp_manifest,

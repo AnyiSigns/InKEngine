@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
+import { LLMConfigError } from '../../../src/model/llm/errors.js';
 import {
   Message,
   ToolCall,
@@ -18,7 +18,7 @@ import {
   system,
   tool_result,
   user,
-} from '../../../src/kernel/llm/messages.js';
+} from '../../../src/model/llm/messages.js';
 
 describe('message_role（角色归一）', () => {
   it('engine Message roles pass through', () => {

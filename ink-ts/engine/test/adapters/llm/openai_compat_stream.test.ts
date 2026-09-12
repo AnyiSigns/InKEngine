@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { LLMParams, collect_result } from '../../../src/kernel/llm/base.js';
-import { user } from '../../../src/kernel/llm/messages.js';
+import { LLMParams, collect_result } from '../../../src/dock/ports/llm.js';
+import { user } from '../../../src/model/llm/messages.js';
 import {
   LLMAuthError,
   LLMBadRequestError,
@@ -15,7 +15,7 @@ import {
   LLMRateLimitError,
   LLMServerError,
   LLMTimeoutError,
-} from '../../../src/kernel/llm/errors.js';
+} from '../../../src/model/llm/errors.js';
 import { TimeoutError } from '../../../src/adapters/llm/fetch_transport.js';
 import {
   body_of,

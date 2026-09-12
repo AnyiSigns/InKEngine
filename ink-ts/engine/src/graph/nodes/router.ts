@@ -20,8 +20,8 @@
 
 import { NodeContract } from '../../model/contracts/contracts.js';
 import { FIELD_STRING, SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
-import { Message, system, user } from '../../kernel/llm/messages.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import { Message, system, user } from '../../model/llm/messages.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { NodeFactory } from '../registry/registry_types.js';
 import { STATE_MESSAGES, STATE_ROUTE_TO } from './constants.js';
 import { type EngineNodeSeams, type _EngineNodeSeamsBox } from './seams.js';

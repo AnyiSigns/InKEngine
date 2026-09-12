@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { collect_resume_anchors, resolve_resume, tail_checkpoint } from '../../../src/kernel/recovery/index.js';
+import { collect_resume_anchors, resolve_resume, tail_checkpoint } from '../../../src/loop/recovery/index.js';
 import { asStore, chain, FakeStorage, pathKey } from './helpers.js';
 
 describe('collect_resume_anchors / tail_checkpoint', () => {

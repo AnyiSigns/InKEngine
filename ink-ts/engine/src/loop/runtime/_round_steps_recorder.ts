@@ -20,7 +20,7 @@
  * round_id 变化即开新回合缓冲，旧回合丢弃）。零 IO、确定性可测。
  */
 
-import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
+import type { EngineEvent, EngineTransport } from '../../dock/ports/events.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { StepRecord } from '../round_steps/index.js';
 

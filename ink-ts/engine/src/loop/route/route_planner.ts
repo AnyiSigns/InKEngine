@@ -28,7 +28,7 @@ import {
   type ChannelCommit,
   type ChannelShape,
 } from '../../model/channels/channel_spec.js';
-import { parse_temp_scope_def, type TempScopeDef } from './temp_scope.js';
+import { parse_temp_scope_def, type TempScopeDef } from '../execution_runtime/temp_scope.js';
 import type { RoutingDecision } from './routing_next.js';
 
 // ── 计划种类 ──

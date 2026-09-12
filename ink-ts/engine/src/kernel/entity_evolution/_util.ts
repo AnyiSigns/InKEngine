@@ -11,7 +11,7 @@
 
 import { sha256_hex } from '../../graph/builder/_sha256.js';
 import type { EntitySpec } from '../../core/entities/entities.js';
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from '../../dock/ports/events.js';
 import { SOURCE_MODEL, SOURCE_RANK, SOURCE_USER } from '../../core/knowledge_signals/_types.js';
 import type { ExecutionSignal } from '../../core/knowledge_signals/signals.js';
 import { LEVEL_WORK } from '../../core/knowledge_set/index.js';

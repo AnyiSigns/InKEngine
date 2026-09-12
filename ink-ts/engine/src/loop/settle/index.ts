@@ -26,7 +26,7 @@ export {
   TRACE_SUCCESS,
   UPDATE_FAIL,
   UPDATE_SUCCESS,
-} from './_constants.js';
+} from '../../model/settle/_constants.js';
 
 export {
   EdgeEvidenceSettleHook,
@@ -56,8 +56,8 @@ export {
   path_key,
   token_key,
   traversal_edge_key,
-} from './types.js';
-export type { SettleContextInit } from './types.js';
+} from '../../model/settle/types.js';
+export type { SettleContextInit } from '../../model/settle/types.js';
 
 export { attribution_plan, derive_traversals, run_verdict, terminal_failure_reason } from './attribution.js';
 

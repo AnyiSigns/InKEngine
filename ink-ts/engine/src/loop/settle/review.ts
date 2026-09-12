@@ -19,10 +19,10 @@ import type { EdgeEvidence } from '../../core/edge_evidence/_types.js';
 import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
 import { laplace_success } from '../../core/edge_evidence/tier_model.js';
 import { now } from './_time.js';
-import { POLICY_REVIEW_DOMAIN_MIN_EDGES, TRACE_FAILED } from './_constants.js';
+import { POLICY_REVIEW_DOMAIN_MIN_EDGES, TRACE_FAILED } from '../../model/settle/_constants.js';
 import { derive_traversals } from './attribution.js';
 import { policy_edge_needs_review } from './rules.js';
-import { SettleContext, edge_key_str, traversal_edge_key } from './types.js';
+import { SettleContext, edge_key_str, traversal_edge_key } from '../../model/settle/types.js';
 
 // ── 策略边对抗复审钩子（ENG1-9 增量 + 限频）──────────────────────────────────
 

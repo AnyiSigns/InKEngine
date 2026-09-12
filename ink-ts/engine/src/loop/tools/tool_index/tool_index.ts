@@ -29,7 +29,7 @@ import {
   type Tier,
   type ToolIndexEntry,
 } from './_types.js';
-import { ToolSpec } from '../../kernel/llm/tools.js';
+import { ToolSpec } from '../../../model/llm/tools.js';
 
 /** 嵌入异常消息字符串化（Python str(exc) 口径：Error 取 message，其余兜底）。 */
 function errMessage(err: unknown): string {

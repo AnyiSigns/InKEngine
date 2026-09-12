@@ -15,7 +15,7 @@ import {
   StateMachine,
   StateTransition,
   TransitionLog,
-} from '../../../src/core/state_machine/state_machine.js';
+} from '../../../src/loop/state_machine/state_machine.js';
 
 // 测试用状态机：draft → review → published（终态）/ rejected
 const _STATES = ['draft', 'review', 'published', 'rejected'];

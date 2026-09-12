@@ -16,8 +16,8 @@
 import { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import type { JsonRecord } from '../../model/json.js';
-import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
-import { tail_checkpoint } from '../../kernel/recovery/index.js';
+import type { InterruptState } from '../../loop/interrupt/interrupt_types.js';
+import { tail_checkpoint } from '../../loop/recovery/index.js';
 import { EngineInstance } from './_engine_instance.js';
 import type { NodeContext } from './_internals.js';
 import { _error } from './_internals.js';

@@ -14,8 +14,8 @@
 import { GraphDefinitionError } from '../../model/errors.js';
 import {
   DeclarativeToolSpec,
-} from '../../core/declarative_tools/declarative_spec.js';
-import { EndpointType } from '../../core/declarative_tools/endpoint_types.js';
+} from '../../loop/tools/declarative_tools/declarative_spec.js';
+import { EndpointType } from '../../loop/tools/declarative_tools/endpoint_types.js';
 import {
   ToolManifest,
   ToolSource,

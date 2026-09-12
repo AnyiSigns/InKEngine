@@ -5,12 +5,12 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ContextAssembler } from '../../../src/core/context/context_assembler.js';
+import { ContextAssembler } from '../../../src/loop/context/context_assembler.js';
 import {
   ContextSource,
   MODE_KEEP_FULL,
-} from '../../../src/core/context/context_types.js';
-import { WeightedBudgetAllocator } from '../../../src/core/context/context_allocator.js';
+} from '../../../src/loop/context/context_types.js';
+import { WeightedBudgetAllocator } from '../../../src/loop/context/context_allocator.js';
 
 interface SrcFields {
   readonly type?: string;

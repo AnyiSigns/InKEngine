@@ -12,7 +12,7 @@
  * 默认开——检出指令型措辞的条目剔除，不放行进上下文。
  */
 
-import { ContextSource } from '../context/context_types.js';
+import { ContextSource } from '../../loop/context/context_types.js';
 import {
   KIND_PATH,
   KIND_SCRIPT,

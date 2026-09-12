@@ -26,7 +26,7 @@ import {
   make_introspection_executor,
 } from '../../../src/kernel/introspection/index.js';
 import { LEVEL_USER } from '../../../src/core/knowledge_set/_types.js';
-import { ToolSpec, to_openai_tools } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec, to_openai_tools } from '../../../src/model/llm/tools.js';
 import {
   INTROSPECTION_TOOL_NAMES,
   harness_registry,

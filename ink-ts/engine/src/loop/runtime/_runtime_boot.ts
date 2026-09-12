@@ -21,7 +21,7 @@ import {
   EntityRegistry,
   entity_collection,
 } from '../../core/entities/entities.js';
-import { DefaultEvolutionWriter } from '../evolution_writer/evolution_writer.js';
+import { DefaultEvolutionWriter } from '../../kernel/evolution_writer/evolution_writer.js';
 import {
   harness_collection,
   HarnessRegistry,
@@ -32,26 +32,26 @@ import {
   IntrospectionSources,
   introspection_tool_specs,
   make_introspection_executor,
-} from '../introspection/index.js';
-import { GrowthPipeline } from '../growth/index.js';
+} from '../../kernel/introspection/index.js';
+import { GrowthPipeline } from '../../kernel/growth/index.js';
 import { KnowledgeSet, seed_knowledge_set } from '../../core/knowledge_set/index.js';
 import { seed_general } from '../../model/seeds/seeds.js';
 import {
   declarative_failure_reason,
   declarative_operation,
-} from '../../core/declarative_tools/index.js';
-import { EntityEvolutionPipeline } from '../entity_evolution/index.js';
-import { GuardedStorage, SelfApplicationPipeline } from '../self_application/index.js';
+} from '../tools/declarative_tools/index.js';
+import { EntityEvolutionPipeline } from '../../kernel/entity_evolution/index.js';
+import { GuardedStorage, SelfApplicationPipeline } from '../../kernel/self_application/index.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
-import { ProposalValidator } from '../self_proposal/index.js';
-import { MetaTuner, TurnMetrics } from '../tuning/index.js';
+import { ProposalValidator } from '../../kernel/self_proposal/index.js';
+import { MetaTuner, TurnMetrics } from '../../kernel/tuning/index.js';
 import { KnowledgeSetRetriever, RetrieverRegistry } from '../../core/retrieval/index.js';
-import { ToolPipeline } from '../tool_pipeline/tool_pipeline.js';
-import { ToolSelector } from '../../core/tool_orchestrator/tool_orchestrator.js';
-import { ToolVectorIndex } from '../../core/tool_index/tool_index.js';
+import { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
+import { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
+import { ToolVectorIndex } from '../tools/tool_index/tool_index.js';
 import { ToolVetting } from '../../gate/tool_vetting/tool_vetting.js';
 import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
 import { _RoundStepsRecorder } from './_round_steps_recorder.js';

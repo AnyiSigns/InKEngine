@@ -7,9 +7,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { CachingLLM } from '../../../src/kernel/llm/cache.js';
-import { CACHE_COLLECTION } from '../../../src/kernel/llm/cache.js';
-import { user } from '../../../src/kernel/llm/messages.js';
+import { CachingLLM } from '../../../src/loop/llm/cache.js';
+import { CACHE_COLLECTION } from '../../../src/loop/llm/cache.js';
+import { user } from '../../../src/model/llm/messages.js';
 
 import { CountingLLM, MemStorage, makeCached, makeClock } from './helpers.js';
 

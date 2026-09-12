@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
-import { LLMNetworkError, LLMServerError } from '../../../src/kernel/llm/errors.js';
+import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { LLMNetworkError, LLMServerError } from '../../../src/model/llm/errors.js';
 import {
   backoff_delay_ms,
   retry_attempts,

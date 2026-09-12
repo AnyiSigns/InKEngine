@@ -13,10 +13,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { ToolVectorIndex } from '../../../src/core/tool_index/tool_index.js';
-import { MAX_RESULTS } from '../../../src/core/tool_index/_types.js';
-import type { AsyncEmbedder } from '../../../src/core/tool_index/_types.js';
+import { ToolSpec } from '../../../../src/model/llm/tools.js';
+import { ToolVectorIndex } from '../../../../src/loop/tools/tool_index/tool_index.js';
+import { MAX_RESULTS } from '../../../../src/loop/tools/tool_index/_types.js';
+import type { AsyncEmbedder } from '../../../../src/loop/tools/tool_index/_types.js';
 
 function spec(name: string, description: string, parameters?: unknown): ToolSpec {
   return new ToolSpec({ name, description, parameters });

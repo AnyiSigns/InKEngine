@@ -6,10 +6,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { collect_result, LLMParams } from '../../../src/kernel/llm/base.js';
-import { LLMEmptyStreamError, LLMRateLimitError } from '../../../src/kernel/llm/errors.js';
-import { assistant, tool_result, user } from '../../../src/kernel/llm/messages.js';
-import { ToolCall } from '../../../src/kernel/llm/_shapes.js';
+import { collect_result, LLMParams } from '../../../src/dock/ports/llm.js';
+import { LLMEmptyStreamError, LLMRateLimitError } from '../../../src/model/llm/errors.js';
+import { assistant, tool_result, user } from '../../../src/model/llm/messages.js';
+import { ToolCall } from '../../../src/model/llm/_shapes.js';
 
 import {
   DONE_FRAME,

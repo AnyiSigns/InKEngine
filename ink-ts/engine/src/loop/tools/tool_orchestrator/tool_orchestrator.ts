@@ -20,8 +20,8 @@
  * 后端由宿主注入。
  */
 
-import { strip_sensitive } from '../../gate/security/security.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { strip_sensitive } from '../../../gate/security/security.js';
+import type { ToolSpec } from '../../../model/llm/tools.js';
 import {
   DEFAULT_MAX_TOOLS,
   DEFAULT_MIN_SCORE,

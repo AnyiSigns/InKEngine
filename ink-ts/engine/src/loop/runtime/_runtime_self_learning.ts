@@ -19,20 +19,20 @@
  * → 收尾调参 → 决议事件边界清理。
  */
 
-import { EvolutionFactory } from '../evolution/index.js';
-import type { EvolutionGate } from '../evolution/index.js';
+import { EvolutionFactory } from '../../kernel/evolution/index.js';
+import type { EvolutionGate } from '../../kernel/evolution/index.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import { StorageBackedMemoryStore } from '../../core/memory/index.js';
 import {
   DEFAULT_NAMESPACE,
   MemoryExtractSettleHook,
-} from '../memory_extract/index.js';
+} from '../../kernel/memory_extract/index.js';
 import type { SettleContext, SettleHooks } from '../settle/index.js';
-import { KnowledgeSkillStore } from '../skill_crystal/index.js';
+import { KnowledgeSkillStore } from '../../kernel/skill_crystal/index.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import { MetaTuner } from '../tuning/index.js';
-import type { TunableParams, TurnMetrics } from '../tuning/index.js';
+import { MetaTuner } from '../../kernel/tuning/index.js';
+import type { TunableParams, TurnMetrics } from '../../kernel/tuning/index.js';
 import type { AssemblyRecipe } from './_types.js';
 import { _round_ledger_facts } from './_settle.js';
 import { RuntimeRebuild } from './_runtime_engine.js';

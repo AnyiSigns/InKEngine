@@ -28,16 +28,16 @@ import { describe, expect, it } from 'vitest';
 import { ChannelDirectory, default_channel_seeds } from '../../../src/model/channels/channel_directory.js';
 import { ChannelSpec } from '../../../src/model/channels/channel_spec.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import { ExecutionRuntime } from '../../../src/core/execution_runtime/execution_runtime.js';
-import type { ScopeTurnResult } from '../../../src/core/execution_runtime/scope_turn.js';
+import { ExecutionRuntime } from '../../../src/loop/execution_runtime/execution_runtime.js';
+import type { ScopeTurnResult } from '../../../src/loop/execution_runtime/scope_turn.js';
 import type {
   ExecutionRuntimeDeps,
   ScopeTurnContext,
   WhiteboardSession,
-} from '../../../src/core/execution_runtime/runtime_types.js';
-import { exec_checkpoint_thread } from '../../../src/core/execution_runtime/run_checkpoint.js';
-import { default_whiteboard_grants } from '../../../src/core/whiteboard/index.js';
-import type { WhiteboardBlock } from '../../../src/core/whiteboard/index.js';
+} from '../../../src/loop/execution_runtime/runtime_types.js';
+import { exec_checkpoint_thread } from '../../../src/loop/execution_runtime/run_checkpoint.js';
+import { default_whiteboard_grants } from '../../../src/loop/whiteboard/index.js';
+import type { WhiteboardBlock } from '../../../src/loop/whiteboard/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
 
 function entity(id: string): EntitySpec {

@@ -33,7 +33,7 @@ import {
   InterruptState,
   interrupt_base_key,
   interrupt_key_matches,
-} from '../../../src/kernel/interrupt/interrupt.js';
+} from '../../../src/loop/interrupt/interrupt.js';
 
 // ── InterruptSignal 信号形态 ──
 

@@ -14,7 +14,7 @@
  * 返回 'break' = 迭代在展开/定位处终止；'continue' = 下一迭代。
  */
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { SimulationError } from '../../model/errors.js';
 import { SimulationResult } from '../../kernel/simulation/simulation.js';
 import type { MultiPathResult } from '../../kernel/multipath/results.js';

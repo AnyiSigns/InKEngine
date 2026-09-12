@@ -19,7 +19,7 @@
 
 import { DEFAULT_CONTRACT_VERSION } from '../../core/edge_evidence/_types.js';
 import type { EdgeKey } from '../../core/edge_evidence/_types.js';
-import type { Graph } from '../../model/graph/graph.js';
+import type { Graph } from '../graph/graph.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 
 // ── 主键编码（tuple 语义的字符串化）──

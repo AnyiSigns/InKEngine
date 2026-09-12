@@ -9,9 +9,9 @@
  * 自举 harness，tool_wiring 复用 kernel/self_tools 契约工具——
  * 与 Python 端 stdio 配方同构，纯引擎侧、零后端代码。
  */
-import { Runtime, AssemblyRecipe } from '../../src/kernel/runtime/index.js';
-import type { Host } from '../../src/kernel/runtime/index.js';
-import type { AsyncLLM } from '../../src/kernel/llm/base.js';
+import { Runtime, AssemblyRecipe } from '../../src/loop/runtime/index.js';
+import type { Host } from '../../src/loop/runtime/index.js';
+import type { AsyncLLM } from '../../src/dock/ports/llm.js';
 import type { Storage } from '../../src/dock/ports/storage.js';
 import { create_memory_storage, type MemoryStorage } from '../../src/adapters/storage/index.js';
 import {
@@ -21,8 +21,8 @@ import {
   boot_harness_definition,
 } from '../../src/adapters/boot/index.js';
 import { DefaultInterruptPolicy } from '../../src/gate/approval/approval.js';
-import { CollectorTransport } from '../../src/core/events/events.js';
-import type { EngineTransport, EngineEvent } from '../../src/core/events/events.js';
+import { CollectorTransport } from '../../src/dock/ports/events.js';
+import type { EngineTransport, EngineEvent } from '../../src/dock/ports/events.js';
 import {
   make_self_executor,
   operation_of,

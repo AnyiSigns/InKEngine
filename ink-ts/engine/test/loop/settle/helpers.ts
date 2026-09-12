@@ -23,7 +23,7 @@ import {
   TraceStep,
   path_key,
   token_key,
-} from '../../../src/kernel/settle/types.js';
+} from '../../../src/model/settle/types.js';
 
 export const NOW = 1_800_000_000;
 

@@ -16,11 +16,11 @@ import {
   EdgeEvidenceSettleHook,
   FailureAuditSettleHook,
   SettleHooks,
-} from '../../../src/kernel/settle/hooks.js';
+} from '../../../src/loop/settle/hooks.js';
 import {
   TRACE_FAILED,
   TRACE_SUCCESS,
-} from '../../../src/kernel/settle/_constants.js';
+} from '../../../src/model/settle/_constants.js';
 import { edgeKey, makeCtx, stepsOf } from './helpers.js';
 
 describe('EdgeEvidenceSettleHook 归因钩子落库', () => {

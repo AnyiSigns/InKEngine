@@ -20,12 +20,12 @@
  */
 import { Graph } from '../../model/graph/graph.js';
 import { GraphDefinitionError, NodeExecutionError } from '../../model/errors.js';
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';
 import { subgraph_overlay_delta } from '../../core/state/schema.js';
 import type { StateSchema } from '../../core/state/schema.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { NodeContext } from './_internals.js';
 import { _pop_resume_anchor } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';

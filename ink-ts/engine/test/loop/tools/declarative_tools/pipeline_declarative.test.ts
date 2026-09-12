@@ -14,16 +14,16 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PermissionGate } from '../../../src/gate/permissions/permissions.js';
-import { ProcessSandbox } from '../../../src/gate/sandbox/index.js';
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
+import { PermissionGate } from '../../../../src/gate/permissions/permissions.js';
+import { ProcessSandbox } from '../../../../src/gate/sandbox/index.js';
+import { ToolPipeline } from '../../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
   EndpointType,
   build_declarative_pipeline,
   endpoint_operation,
-} from '../../../src/core/declarative_tools/index.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
 
 /** 鸭子类型节点上下文：emit 收集 tool_audit 事件供断言（对齐 Python Ctx）。 */
 class EmitCtx {

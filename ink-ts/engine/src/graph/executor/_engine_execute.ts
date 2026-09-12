@@ -21,11 +21,11 @@
  *   顺序节点步中断 = 重入该节点——显式 work_step 标记优先，旧存档回落
  *   节点名判据兼容）。
  */
-import { Plan } from '../../core/plan/plan.js';
+import { Plan } from '../../model/plan/plan.js';
 import { RunOptions, RunResult } from '../../core/run_result/run_result.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
-import { resolve_resume } from '../../kernel/recovery/index.js';
+import { InterruptState } from '../../loop/interrupt/interrupt_types.js';
+import { resolve_resume } from '../../loop/recovery/index.js';
 import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { Graph } from '../../model/graph/graph.js';

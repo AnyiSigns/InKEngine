@@ -19,14 +19,14 @@ import {
   eligibility_allowed,
   parallel_allowed,
   cost_pool_allowed,
-} from '../../../src/core/execution_runtime/channel_gate.js';
+} from '../../../src/loop/execution_runtime/channel_gate.js';
 import {
   GUARDRAIL_DEFAULT_MAX_STEPS,
   check_cost_guard,
   check_parallel_guard,
   check_steps_guard,
   normalize_guardrails,
-} from '../../../src/core/execution_runtime/guardrails.js';
+} from '../../../src/loop/execution_runtime/guardrails.js';
 
 type Approval = 'accept' | 'auto' | 'reject';
 const approve = async (d: Approval): Promise<Approval> => d;

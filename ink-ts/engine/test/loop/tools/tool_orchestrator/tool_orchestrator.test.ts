@@ -12,19 +12,19 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import { DEFAULT_UUID_HEX } from '../../../src/core/tool_orchestrator/_types.js';
+import { ToolSpec } from '../../../../src/model/llm/tools.js';
+import { DEFAULT_UUID_HEX } from '../../../../src/loop/tools/tool_orchestrator/_types.js';
 import type {
   ToolMatchStrategy,
   TraceRecordsStore,
-} from '../../../src/core/tool_orchestrator/_types.js';
+} from '../../../../src/loop/tools/tool_orchestrator/_types.js';
 import {
   ToolCandidate,
   ToolSelector,
   ToolTrace,
   ToolTraceStore,
   WeightedToolScorer,
-} from '../../../src/core/tool_orchestrator/tool_orchestrator.js';
+} from '../../../../src/loop/tools/tool_orchestrator/tool_orchestrator.js';
 
 function spec(name: string): ToolSpec {
   return new ToolSpec({ name, description: `${name} 工具`, parameters: {} });

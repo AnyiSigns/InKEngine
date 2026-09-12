@@ -15,9 +15,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { LLMConfig } from '../../../src/kernel/llm/base.js';
-import { Attachment, user } from '../../../src/kernel/llm/messages.js';
-import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
+import { LLMConfig } from '../../../src/dock/ports/llm.js';
+import { Attachment, user } from '../../../src/model/llm/messages.js';
+import { LLMConfigError } from '../../../src/model/llm/errors.js';
 import {
   anthropic_image_source,
   assert_images_supported,

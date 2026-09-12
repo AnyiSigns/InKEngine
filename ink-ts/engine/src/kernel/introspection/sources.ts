@@ -21,7 +21,7 @@
  */
 import type { HarnessRegistry } from '../../core/harness/registry.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/knowledge_set.js';
-import type { ToolSpec } from '../llm/tools.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 // 内省工具的统一权限声明（只读域；未命中默认拒绝，fail-closed）
 export const INTROSPECTION_PERMISSION = 'introspection:read:*';

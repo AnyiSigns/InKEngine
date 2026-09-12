@@ -12,9 +12,9 @@ import {
   LLMChunk,
   LLMConfig,
   LLMResult,
-} from '../../../src/kernel/llm/base.js';
-import { ModelChain, type RetryPolicy } from '../../../src/kernel/llm/fallback.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
+} from '../../../src/dock/ports/llm.js';
+import { ModelChain, type RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import type { Message } from '../../../src/model/llm/messages.js';
 
 /** 退避睡眠注入面（秒）。 */
 export type Sleeper = (seconds: number) => Promise<void>;

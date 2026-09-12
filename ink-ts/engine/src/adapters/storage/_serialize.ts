@@ -15,7 +15,7 @@
  * 防消费方修改污染存储内快照。
  */
 
-import { EngineEvent } from '../../core/events/events.js';
+import { EngineEvent } from '../../dock/ports/events.js';
 import { deepCopy, type Json, type JsonRecord } from '../../model/json.js';
 import { StorageError } from '../../model/errors.js';
 import { CheckpointRecord } from '../../model/storage/storage_records.js';

@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { DisplayStreamCollector } from '../../../src/kernel/display/display_stream.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { DisplayStreamCollector } from '../../../src/loop/display_stream/display_stream.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 
 function ev(type: string, payload: JsonRecord, step_id: string | null = null, round_id: string | null = 'r1'): EngineEvent {

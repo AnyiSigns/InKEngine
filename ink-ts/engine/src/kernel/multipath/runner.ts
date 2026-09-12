@@ -14,7 +14,7 @@
 
 import type { BudgetRemaining } from '../../gate/budget/budget_types.js';
 import type { QualityGate } from '../../model/contracts/contracts.js';
-import type { EngineTransport } from '../../core/events/events.js';
+import type { EngineTransport } from '../../dock/ports/events.js';
 import { check_multipath_budget, multipath_budget_required, MultiPathConfig } from './config.js';
 import type { AssemblyCandidate, AssemblyRequest } from './types.js';
 import {

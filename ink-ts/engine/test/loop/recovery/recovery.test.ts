@@ -12,10 +12,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { GraphVersionMismatchError, StorageError } from '../../../src/model/errors.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 import { register_reducer } from '../../../src/core/state/reducers.js';
-import { resolve_resume } from '../../../src/kernel/recovery/index.js';
+import { resolve_resume } from '../../../src/loop/recovery/index.js';
 import { asStore, chain, ckpt, FakeStorage, pathKey } from './helpers.js';
 
 describe('resolve_resume：resume_from 基础恢复', () => {

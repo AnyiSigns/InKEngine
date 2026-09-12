@@ -9,7 +9,7 @@
  * 优先于生成」共用——数值仅供排序，不产出可信度字段。
  */
 
-import type { Clock } from '../context/context_types.js';
+import type { Clock } from '../../loop/context/context_types.js';
 import type { JsonRecord } from '../../model/json.js';
 import {
   SOURCE_DIALOG,

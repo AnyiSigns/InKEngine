@@ -25,7 +25,7 @@ import {
 } from '../../model/channels/channel_spec.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { isRecord } from '../../model/json.js';
-import type { TempScopeDef } from './temp_scope.js';
+import type { TempScopeDef } from '../execution_runtime/temp_scope.js';
 
 /** 产物保留键：路由声明（自治调度并入产出的 `__next` 键）。 */
 export const PAYLOAD_NEXT_KEY = '__next';

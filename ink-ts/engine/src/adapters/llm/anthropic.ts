@@ -25,14 +25,14 @@ import {
   LLMConfig,
   LLMResult,
   type LLMParams,
-} from '../../kernel/llm/base.js';
+} from '../../dock/ports/llm.js';
 import {
   LLMEmptyStreamError,
   LLMFormatError,
-} from '../../kernel/llm/errors.js';
-import { RetryPolicy } from '../../kernel/llm/fallback.js';
-import { Message, ToolCall, type Json } from '../../kernel/llm/messages.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+} from '../../model/llm/errors.js';
+import { RetryPolicy } from '../../loop/llm/fallback.js';
+import { Message, ToolCall, type Json } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import { build_anthropic_payload } from './anthropic_payload.js';
 import { AnthropicStreamParser, STOP_REASON_MAP } from './anthropic_sse.js';
 import { raise_for_status, request_timeout_ms } from './sse_common.js';

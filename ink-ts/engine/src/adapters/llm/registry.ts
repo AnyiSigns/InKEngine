@@ -18,8 +18,8 @@
  * Gemini 适配器未迁移到 TS（迁移波未到），注册表只收录已落地的协议类。
  */
 
-import { AsyncLLM, LLMConfig } from '../../kernel/llm/base.js';
-import { LLMConfigError } from '../../kernel/llm/errors.js';
+import { AsyncLLM, LLMConfig } from '../../dock/ports/llm.js';
+import { LLMConfigError } from '../../model/llm/errors.js';
 import { AnthropicLLM } from './anthropic.js';
 import { OpenAICompatibleLLM } from './openai_compat.js';
 import { OpenAIResponsesLLM } from './openai_response.js';

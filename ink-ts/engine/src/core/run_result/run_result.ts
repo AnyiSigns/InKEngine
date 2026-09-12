@@ -18,14 +18,14 @@
 import type { Storage } from '../../dock/ports/storage.js';
 import type { StateSchema } from '../state/schema.js';
 import type { BudgetManager } from '../../gate/budget/budget.js';
-import type { EngineTransport } from '../events/events.js';
-import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import type { EngineTransport } from '../../dock/ports/events.js';
+import type { InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../../graph/registry/registry.js';
 import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
 import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
-import type { SettleHooks } from '../../kernel/settle/index.js';
+import type { SettleHooks } from '../../loop/settle/index.js';
 import type { WorkflowSpec } from '../../model/workflow/workflow_types.js';
-import { DEFAULT_MAX_PLAN_STEPS } from '../plan/plan.js';
+import { DEFAULT_MAX_PLAN_STEPS } from '../../model/plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
 
 /**

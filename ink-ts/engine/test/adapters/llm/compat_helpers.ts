@@ -6,14 +6,14 @@
  * 命名带 compat_ 前缀：与同目录其他适配器（anthropic/openai_responses）的
  * helpers.ts 隔离，避免并行会话共享文件名互相覆盖。
  */
-import { LLMConfig } from '../../../src/kernel/llm/base.js';
+import { LLMConfig } from '../../../src/dock/ports/llm.js';
 import type {
   LlmPostRequest,
   LlmResponse,
   LlmTransport,
 } from '../../../src/adapters/llm/fetch_transport.js';
 import { OpenAICompatibleLLM } from '../../../src/adapters/llm/openai_compat.js';
-import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
+import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
 import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 
 export type CompatHandler = (req: LlmPostRequest) => LlmResponse | Promise<LlmResponse>;

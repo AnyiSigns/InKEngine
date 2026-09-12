@@ -15,9 +15,9 @@
  * 写面，仅记录调用成败证据）。
  */
 import { GraphDefinitionError } from '../../model/errors.js';
-import { EndpointType } from '../../core/declarative_tools/endpoint_types.js';
-import type { DeclarativeToolSpec } from '../../core/declarative_tools/declarative_spec.js';
-import type { DeclarativeToolExecutors } from '../../core/declarative_tools/executors.js';
+import { EndpointType } from '../../loop/tools/declarative_tools/endpoint_types.js';
+import type { DeclarativeToolSpec } from '../../loop/tools/declarative_tools/declarative_spec.js';
+import type { DeclarativeToolExecutors } from '../../loop/tools/declarative_tools/executors.js';
 import {
   ShadowRunResult,
   ToolSource,

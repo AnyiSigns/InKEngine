@@ -4,9 +4,9 @@
  */
 
 import { AnthropicLLM } from '../../../src/adapters/llm/anthropic.js';
-import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
-import { LLMConfig } from '../../../src/kernel/llm/base.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { LLMConfig } from '../../../src/dock/ports/llm.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 import type {
   LlmPostRequest,

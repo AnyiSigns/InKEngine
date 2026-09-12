@@ -15,8 +15,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ContextAssembler } from '../../../src/core/context/context_assembler.js';
-import { WeightedBudgetAllocator } from '../../../src/core/context/context_allocator.js';
+import { ContextAssembler } from '../../../src/loop/context/context_assembler.js';
+import { WeightedBudgetAllocator } from '../../../src/loop/context/context_allocator.js';
 import {
   AuthorizedBlock,
   BlockKind,
@@ -29,14 +29,14 @@ import {
   SOURCE_TYPE_SCOPE_CONTEXT,
   SOURCE_TYPE_SUMMARY,
   SOURCE_TYPE_TASK,
-} from '../../../src/core/context/block_source.js';
+} from '../../../src/loop/context/block_source.js';
 import {
   ContextSource,
   DEFAULT_BUDGET_CHARS,
   DEFAULT_RELEVANCE,
   MODE_KEEP_FULL,
   MODE_TRUNCATE,
-} from '../../../src/core/context/context_types.js';
+} from '../../../src/loop/context/context_types.js';
 
 function block(
   kind: BlockKind,

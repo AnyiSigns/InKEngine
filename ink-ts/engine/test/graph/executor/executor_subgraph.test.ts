@@ -16,7 +16,7 @@ import { Graph } from '../../../src/model/graph/graph.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { StateSchema } from '../../../src/core/state/schema.js';
 import { register_reducer } from '../../../src/core/state/reducers.js';
-import type { EngineEvent } from '../../../src/core/events/events.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
 
 async function collect(engine: Engine, state: Record<string, unknown>, opts: Record<string, unknown> = {}): Promise<EngineEvent[]> {
   const events: EngineEvent[] = [];

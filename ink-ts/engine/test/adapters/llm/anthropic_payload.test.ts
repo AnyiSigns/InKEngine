@@ -7,16 +7,16 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMParams } from '../../../src/kernel/llm/base.js';
+import { LLMParams } from '../../../src/dock/ports/llm.js';
 import {
   LLMAuthError,
   LLMBadRequestError,
   LLMNotFoundError,
   LLMRateLimitError,
   LLMServerError,
-} from '../../../src/kernel/llm/errors.js';
-import { assistant, system, tool_result, user } from '../../../src/kernel/llm/messages.js';
-import { ToolCall } from '../../../src/kernel/llm/_shapes.js';
+} from '../../../src/model/llm/errors.js';
+import { assistant, system, tool_result, user } from '../../../src/model/llm/messages.js';
+import { ToolCall } from '../../../src/model/llm/_shapes.js';
 
 import { WEATHER_TOOL, body_of, error_json, make_anthropic, ok_json } from './anthropic_helpers.js';
 

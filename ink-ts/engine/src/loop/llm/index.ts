@@ -1,5 +1,7 @@
 /**
- * kernel/llm 公开导出面（mirror python kernel/llm/__init__.py 的 __all__ 纯本地名）。
+ * loop/llm 公开导出面（mirror python kernel/llm/__init__.py 的 __all__ 纯本地名；
+ * §3.2 拆分后 fallback/cache 住本层，接口/数据形态端口面在 dock/ports/llm.ts，
+ * 消息/工具/异常/形态真源在 model/llm）。
  *
  * 本 barrel 只承载 core 本地纯契约模块——base（接口/数据形态）/ messages /
  * tools / errors / fallback / cache；适配器（OpenAICompatibleLLM/AnthropicLLM/
@@ -19,7 +21,7 @@ export {
   LLMParams,
   LLMResult,
   collect_result,
-} from './base.js';
+} from '../../dock/ports/llm.js';
 
 // errors：异常体系 + 分类/瞬时判定（mirror __all__ 的 11 个 LLM* 异常名）
 export {
@@ -37,7 +39,7 @@ export {
   LLMUnknownError,
   classify_llm_error,
   is_transient_llm_error,
-} from './errors.js';
+} from '../../model/llm/errors.js';
 
 // messages：消息 + 角色工厂 + 工具调用增量累积（ToolCall/ToolCallDelta 经
 // messages 中转导出，与 python 侧从 messages/base 取同名符号对齐）
@@ -52,10 +54,10 @@ export {
   system,
   tool_result,
   user,
-} from './messages.js';
+} from '../../model/llm/messages.js';
 
 // tools：工具 schema 声明 + OpenAI function 形态转换
-export { ToolSpec, to_openai_tools } from './tools.js';
+export { ToolSpec, to_openai_tools } from '../../model/llm/tools.js';
 
 // fallback：模型链（主配置 + 备用切换 + 指数退避重试/流式中断，mirror __all__）
 export { ModelChain, RetryPolicy } from './fallback.js';

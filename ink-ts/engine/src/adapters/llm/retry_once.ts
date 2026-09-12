@@ -13,12 +13,12 @@
  * 记号差异（测试须覆盖两基线的等价性）。睡眠单位为秒（与 core fallback
  * 的 Sleeper 单位一致）。
  */
-import { RetryPolicy } from '../../kernel/llm/fallback.js';
+import { RetryPolicy } from '../../loop/llm/fallback.js';
 import {
   LLMError,
   classify_llm_error,
   is_transient_llm_error,
-} from '../../kernel/llm/errors.js';
+} from '../../model/llm/errors.js';
 
 /** 退避睡眠注入面（seconds；缺省真实计时，测试注入录制 sleeper 覆盖）。 */
 export type Sleeper = (seconds: number) => Promise<void>;

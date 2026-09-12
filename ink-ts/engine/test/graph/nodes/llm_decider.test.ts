@@ -7,12 +7,12 @@ import { describe, expect, it } from 'vitest';
 
 import { make_llm_decider_factory } from '../../../src/graph/nodes/llm_decider.js';
 import { _EngineNodeSeamsBox } from '../../../src/graph/nodes/seams.js';
-import { LLMChunk, LLMConfig } from '../../../src/kernel/llm/base.js';
-import type { AsyncLLM } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
-import { ToolCallDelta } from '../../../src/kernel/llm/messages.js';
-import type { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import type { LLMParams } from '../../../src/kernel/llm/base.js';
+import { LLMChunk, LLMConfig } from '../../../src/dock/ports/llm.js';
+import type { AsyncLLM } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
+import { ToolCallDelta } from '../../../src/model/llm/messages.js';
+import type { ToolSpec } from '../../../src/model/llm/tools.js';
+import type { LLMParams } from '../../../src/dock/ports/llm.js';
 
 /** 单次 astream 内发射多帧的 mock 模型（reasoning_token + token 混合）。 */
 function fakeLLM(frames: Array<{ reasoning?: string; token?: string }>): AsyncLLM {

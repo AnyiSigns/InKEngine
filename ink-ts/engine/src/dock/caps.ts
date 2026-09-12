@@ -18,10 +18,10 @@
 // ── tools：声明式工具 + 工具编排 ──
 
 // 声明式工具（端点注册表/工具定义/执行体注册/流水线/结点契约映射）
-export * from '../core/declarative_tools/index.js';
+export * from '../loop/tools/declarative_tools/index.js';
 
 // 工具编排与索引（WeightedToolScorer/ToolSelector/ToolVectorIndex）
-export * from '../core/tool_orchestrator/tool_orchestrator.js';
+export * from '../loop/tools/tool_orchestrator/tool_orchestrator.js';
 
 // ── node_types：引擎内置节点注册面 ──
 

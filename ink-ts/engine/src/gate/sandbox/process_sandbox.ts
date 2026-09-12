@@ -13,7 +13,7 @@
 
 import { SandboxViolation } from '../../model/errors.js';
 import type { SpawnHandle, SpawnSeam } from '../../dock/ports/exec.js';
-import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/tool_pipeline.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../loop/tools/tool_pipeline/tool_pipeline.js';
 
 /** 子进程执行结果（退出码 + 截断输出 + 超时标记）。 */
 export class ProcessResult {

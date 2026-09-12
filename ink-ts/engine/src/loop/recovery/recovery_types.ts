@@ -8,7 +8,7 @@
  * dataclass(slots=True) 一一对应，字段只读，无构造期副作用。
  */
 
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from '../../dock/ports/events.js';
 import type { JsonRecord } from '../../model/json.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { Storage } from '../../dock/ports/storage.js';

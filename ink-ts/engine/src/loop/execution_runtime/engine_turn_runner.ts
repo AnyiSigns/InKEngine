@@ -15,12 +15,12 @@
 
 import { GraphRegistries } from '../../graph/registry/registry.js';
 import { Graph } from '../../model/graph/graph.js';
-import { RunOptions } from '../run_result/run_result.js';
+import { RunOptions } from '../../core/run_result/run_result.js';
 import { Engine } from '../../graph/executor/index.js';
-import { EntitySpec } from '../entities/entities.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
-import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import { EntitySpec } from '../../core/entities/entities.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
+import type { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 import { register_engine_node_types, bind_engine_node_seams, default_engine_pool_seed } from '../../graph/nodes/index.js';
 import { _build_agent_scope_graph } from '../../graph/nodes/agent.js';
 import { STATE_ROUND_MODEL, STATE_ROUND_POSE } from '../../graph/nodes/constants.js';

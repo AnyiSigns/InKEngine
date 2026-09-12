@@ -10,9 +10,9 @@ import { describe, expect, it } from 'vitest';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import {
   DeclarativeToolSpec,
-} from '../../../src/core/declarative_tools/declarative_spec.js';
-import { DeclarativeToolExecutors } from '../../../src/core/declarative_tools/executors.js';
-import { EndpointType } from '../../../src/core/declarative_tools/endpoint_types.js';
+} from '../../../src/loop/tools/declarative_tools/declarative_spec.js';
+import { DeclarativeToolExecutors } from '../../../src/loop/tools/declarative_tools/executors.js';
+import { EndpointType } from '../../../src/loop/tools/declarative_tools/endpoint_types.js';
 import {
   McpClientManager,
   McpServerConfig,

@@ -12,13 +12,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
-import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
-import { DEFAULT_MAX_PLAN_STEPS } from '../../../src/core/plan/plan.js';
+import { InterruptState } from '../../../src/loop/interrupt/interrupt_types.js';
+import { DEFAULT_MAX_PLAN_STEPS } from '../../../src/model/plan/plan.js';
 import { DEFAULT_MAX_SIMULATIONS } from '../../../src/kernel/simulation/simulation.js';
 import type { Storage } from '../../../src/dock/ports/storage.js';
 import type { StateSchema } from '../../../src/core/state/schema.js';
 import type { BudgetManager } from '../../../src/gate/budget/budget.js';
-import type { EngineTransport } from '../../../src/core/events/events.js';
+import type { EngineTransport } from '../../../src/dock/ports/events.js';
 
 describe('RunOptions 默认值', () => {
   it('默认构造逐字段对齐 Python dataclass', () => {

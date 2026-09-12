@@ -7,9 +7,9 @@
  * 可用；未注册工具返回 null（调用方自行兜底）。
  */
 
-import { EndpointType } from '../../core/declarative_tools/index.js';
-import type { ToolSpec } from '../llm/tools.js';
-import { SelfToolContext } from '../self_tools/index.js';
+import { EndpointType } from '../tools/declarative_tools/index.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
+import { SelfToolContext } from '../../kernel/self_tools/index.js';
 import { RuntimeUiComponents } from './_runtime_ui.js';
 
 /** 自指/索引基座。 */

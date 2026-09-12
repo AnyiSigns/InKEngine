@@ -6,7 +6,7 @@
  * （父指针同线程且 event_seq 不高于新节点才可写）。
  */
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { ChainLink, CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import type { Storage } from '../../../src/dock/ports/storage.js';
 import type { JsonRecord } from '../../../src/model/json.js';

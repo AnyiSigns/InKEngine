@@ -9,8 +9,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Runtime, AssemblyRecipe } from '../../../src/kernel/runtime/index.js';
-import type { Host } from '../../../src/kernel/runtime/index.js';
+import { Runtime, AssemblyRecipe } from '../../../src/loop/runtime/index.js';
+import type { Host } from '../../../src/loop/runtime/index.js';
 import { EDGE_EVIDENCE_COLLECTION } from '../../../src/core/edge_evidence/index.js';
 import type { EdgeKey } from '../../../src/core/edge_evidence/_types.js';
 import { EnvironmentSpec, RuntimeKind } from '../../../src/core/environments/index.js';

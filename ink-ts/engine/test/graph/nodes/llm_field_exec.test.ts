@@ -12,11 +12,11 @@ import { describe, expect, it } from 'vitest';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { make_llm_decider_factory } from '../../../src/graph/nodes/llm_decider.js';
 import { _EngineNodeSeamsBox } from '../../../src/graph/nodes/seams.js';
-import { LLMChunk, LLMConfig } from '../../../src/kernel/llm/base.js';
-import type { AsyncLLM } from '../../../src/kernel/llm/_guard_types.js';
-import { ToolCallDelta, type Message } from '../../../src/kernel/llm/messages.js';
-import type { ToolSpec } from '../../../src/kernel/llm/tools.js';
-import type { LLMParams } from '../../../src/kernel/llm/base.js';
+import { LLMChunk, LLMConfig } from '../../../src/dock/ports/llm.js';
+import type { AsyncLLM } from '../../../src/model/llm/_guard_types.js';
+import { ToolCallDelta, type Message } from '../../../src/model/llm/messages.js';
+import type { ToolSpec } from '../../../src/model/llm/tools.js';
+import type { LLMParams } from '../../../src/dock/ports/llm.js';
 
 interface EmitRecord {
   type: string;

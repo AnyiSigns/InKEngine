@@ -10,7 +10,7 @@
  */
 
 import { EntityRegistry, EntitySpec } from '../../core/entities/entities.js';
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from '../../dock/ports/events.js';
 import type { EvolutionWriter } from '../evolution_writer/_types.js';
 import { SignalClassifier } from '../../core/knowledge_signals/signals.js';
 import type { ExecutionSignal } from '../../core/knowledge_signals/signals.js';

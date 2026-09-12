@@ -23,9 +23,9 @@
 
 import type { EntitySpec } from '../../core/entities/entities.js';
 import type { NodeTypeRegistry } from '../registry/registry.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
-import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
+import type { ToolPipeline } from '../../loop/tools/tool_pipeline/tool_pipeline.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 /** 引擎内置节点执行期实时 seams（每引擎重建绑定一次；执行时现取）。 */
 export interface EngineNodeSeams {

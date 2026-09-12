@@ -12,8 +12,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { build_turn_input } from '../../../src/core/execution_runtime/scope_turn.js';
-import type { AuthorizedBlock } from '../../../src/core/context/block_source.js';
+import { build_turn_input } from '../../../src/loop/execution_runtime/scope_turn.js';
+import type { AuthorizedBlock } from '../../../src/loop/context/block_source.js';
 
 function block(kind: AuthorizedBlock['kind'], owner: string, content: string, seq = 0): AuthorizedBlock {
   return { kind, owner, content, seq };

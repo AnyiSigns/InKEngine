@@ -14,7 +14,7 @@
  * 依赖；`@types/node` 24 自带 node:sqlite 类型声明。
  */
 
-import { EngineEvent, parse_event_lenient } from '../../core/events/events.js';
+import { EngineEvent, parse_event_lenient } from '../../dock/ports/events.js';
 import { CheckpointConflictError, StorageError } from '../../model/errors.js';
 import type { JsonRecord } from '../../model/json.js';
 import { strip_sensitive } from '../../gate/security/security.js';

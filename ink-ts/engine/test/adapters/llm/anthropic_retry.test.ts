@@ -7,14 +7,14 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { collect_result } from '../../../src/kernel/llm/base.js';
+import { collect_result } from '../../../src/dock/ports/llm.js';
 import {
   LLMAuthError,
   LLMRateLimitError,
   LLMServerError,
-} from '../../../src/kernel/llm/errors.js';
-import { RetryPolicy } from '../../../src/kernel/llm/fallback.js';
-import { user } from '../../../src/kernel/llm/messages.js';
+} from '../../../src/model/llm/errors.js';
+import { RetryPolicy } from '../../../src/loop/llm/fallback.js';
+import { user } from '../../../src/model/llm/messages.js';
 import type { Sleeper } from '../../../src/adapters/llm/retry_once.js';
 import {
   error_json,

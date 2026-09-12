@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import {
   GrowthConfig,
   GrowthPipeline,
@@ -29,7 +29,7 @@ import {
   type MetricStore,
 } from '../../../src/kernel/growth/index.js';
 import { KIND_INSIGHT, KnowledgeSet } from '../../../src/core/knowledge_set/index.js';
-import type { SettleContext } from '../../../src/kernel/settle/types.js';
+import type { SettleContext } from '../../../src/model/settle/types.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 
 /** 事件构造（镜像 Python _event：EngineEvent(type=etype, payload=payload)）。 */

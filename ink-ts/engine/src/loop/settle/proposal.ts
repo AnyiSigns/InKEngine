@@ -10,10 +10,10 @@
 
 import { EdgeEvidenceStore } from '../../core/edge_evidence/store.js';
 import { now } from './_time.js';
-import { CAPABILITY_GAP_CATEGORIES, TRACE_FAILED } from './_constants.js';
+import { CAPABILITY_GAP_CATEGORIES, TRACE_FAILED } from '../../model/settle/_constants.js';
 import { derive_traversals } from './attribution.js';
 import { classify_failure, draft_node_contract, should_propose } from './rules.js';
-import { SettleContext, traversal_edge_key } from './types.js';
+import { SettleContext, traversal_edge_key } from '../../model/settle/types.js';
 
 /** 提案登记回调（记录形态 = 契约草案 + 归因上下文）。 */
 export type ProposalSink = (record: Record<string, unknown>) => unknown;

@@ -19,12 +19,12 @@ import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
-import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../../src/loop/interrupt/interrupt_types.js';
 import {
   KnowledgeEntry,
   SOURCE_MODEL,
 } from '../../../src/core/knowledge_set/index.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 import {
   PERMISSION_APPLY,
   PERMISSION_PROPOSE,

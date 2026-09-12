@@ -22,7 +22,7 @@ import {
   plan_routing,
   route_blocked,
   route_ok,
-} from '../../../src/core/execution_runtime/route_planner.js';
+} from '../../../src/loop/route/route_planner.js';
 
 function dir(ids: string[]): { has_scope(id: string): boolean } {
   const set = new Set(ids);

@@ -7,8 +7,8 @@
  * 供断言），与 Python 侧 _StubCtx 同构。
  */
 
-import type { EngineEvent } from '../../../src/core/events/events.js';
-import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
+import { InterruptSignal } from '../../../src/loop/interrupt/interrupt_types.js';
 import { HarnessRegistry } from '../../../src/core/harness/index.js';
 import { KnowledgeSet } from '../../../src/core/knowledge_set/index.js';
 import { ApprovalLevel, SelfApplicationPipeline } from '../../../src/kernel/self_application/index.js';
@@ -25,7 +25,7 @@ import {
   self_tool_specs,
 } from '../../../src/kernel/self_tools/index.js';
 import type { ConvergenceHook, SelfToolNodeContext } from '../../../src/kernel/self_tools/index.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 
 /** 内存假存储：records/事件日志三原语 + checkpoint 惰性通道全量实现。 */
 export class MemStorage implements Storage {

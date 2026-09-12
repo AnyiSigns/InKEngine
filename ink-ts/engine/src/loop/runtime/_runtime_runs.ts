@@ -14,7 +14,7 @@
 
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { CheckpointRecord } from '../../model/storage/storage_records.js';
-import { MetaTuner } from '../tuning/index.js';
+import { MetaTuner } from '../../kernel/tuning/index.js';
 import { RuntimeState } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';
 import { RuntimeStateMachine } from './_runtime_state.js';

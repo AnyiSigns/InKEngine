@@ -8,7 +8,7 @@
  * （模拟挂起/注入消费/重入读回已挂卡），与 Python 侧同构。
  */
 
-import type { EngineEvent } from '../../../src/core/events/events.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
 import type { ApprovalInterruptContext } from '../../../src/gate/approval/approval.js';
 import { ProposalValidator, SelfProposal } from '../../../src/kernel/self_proposal/index.js';
 import type { PatchKind } from '../../../src/kernel/self_proposal/index.js';

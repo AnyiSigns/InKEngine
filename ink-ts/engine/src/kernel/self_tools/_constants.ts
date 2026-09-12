@@ -9,7 +9,7 @@
  * 发现通道（检索工具集 / 把工具绑定到当前会话窗口）。
  */
 
-import { DEFAULT_MAX_RESULT_CHARS } from '../tool_pipeline/_types.js';
+import { DEFAULT_MAX_RESULT_CHARS } from '../../loop/tools/tool_pipeline/_types.js';
 
 // 权限声明（自定义域：self:propose / self:apply）
 export const PERMISSION_PROPOSE = 'self:propose:*';

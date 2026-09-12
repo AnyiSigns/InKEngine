@@ -11,8 +11,8 @@ import {
   LLMParams,
   REASONING_EFFORTS,
   collect_result,
-} from '../../../src/kernel/llm/base.js';
-import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
+} from '../../../src/dock/ports/llm.js';
+import { LLMConfigError } from '../../../src/model/llm/errors.js';
 
 describe('LLMConfig', () => {
   it('from_dict：白名单键入位、未知键收进 extra、缺必填抛 LLMConfigError', () => {

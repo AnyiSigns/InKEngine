@@ -20,9 +20,9 @@
  * 池），供引擎侧自检工具使用——非运行时机制，无回合内自动接线（默认
  * 开关：自检入口按需调用）。
  */
-import { NodeContract } from '../../model/contracts/contracts.js';
-import { GraphDefinitionError } from '../../model/errors.js';
-import { deepEqual, isRecord } from '../../model/json.js';
+import { NodeContract } from '../../../model/contracts/contracts.js';
+import { GraphDefinitionError } from '../../../model/errors.js';
+import { deepEqual, isRecord } from '../../../model/json.js';
 import {
   FIELD_ARRAY,
   FIELD_BOOL,
@@ -31,8 +31,8 @@ import {
   FIELD_STRING,
   SchemaField,
   SchemaSpec,
-} from '../../model/schema/schemaValidator.js';
-import type { FieldKind } from '../../model/schema/schemaValidator.js';
+} from '../../../model/schema/schemaValidator.js';
+import type { FieldKind } from '../../../model/schema/schemaValidator.js';
 import type { DeclarativeToolSpec } from './declarative_spec.js';
 import { endpoint_registry } from './endpoint_registry.js';
 

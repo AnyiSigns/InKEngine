@@ -24,14 +24,14 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { Runtime, RuntimeState, AssemblyRecipe, _KnowledgeUsageSettleHook } from '../../../src/kernel/runtime/index.js';
-import type { Host } from '../../../src/kernel/runtime/index.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { Runtime, RuntimeState, AssemblyRecipe, _KnowledgeUsageSettleHook } from '../../../src/loop/runtime/index.js';
+import type { Host } from '../../../src/loop/runtime/index.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import { EVOLUTION_AUDIT_TYPE } from '../../../src/kernel/evolution_writer/evolution_writer.js';
-import { ROUND_LEDGER_COLLECTION } from '../../../src/kernel/runtime/_settle.js';
+import { ROUND_LEDGER_COLLECTION } from '../../../src/loop/runtime/_settle.js';
 import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
@@ -40,7 +40,7 @@ import { ApprovalLevel } from '../../../src/kernel/self_application/index.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/kernel/tuning/index.js';
-import { SettleContext } from '../../../src/kernel/settle/index.js';
+import { SettleContext } from '../../../src/loop/settle/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
@@ -602,7 +602,7 @@ function _ev(type: string, payload: JsonRecord = {}, extra: Partial<EngineEvent>
 describe('runtime 回合账本归约（ledger 钩子直驱）', () => {
   it('无记录回合不产出（空 ctx 直驱钩子）', async () => {
     const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    const { _LedgerSettleHook } = await import('../../../src/kernel/runtime/_settle.js');
+    const { _LedgerSettleHook } = await import('../../../src/loop/runtime/_settle.js');
     const hook = new _LedgerSettleHook(runtime);
     const empty = new SettleContext({
       thread_id: 't-empty',

@@ -15,7 +15,7 @@
 
 import { isRecord, stableStringify } from '../json.js';
 import type { JsonRecord } from '../json.js';
-import { StateMachine } from '../../core/state_machine/state_machine.js';
+import { StateMachine } from '../../loop/state_machine/state_machine.js';
 import type { RawIssue, RulePredicate } from './_types.js';
 import { pyContains, pyEq, pyRepr, pySorted, pyStr, pyTruthy } from './_py.js';
 import { getPath } from './_path.js';

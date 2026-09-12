@@ -31,9 +31,9 @@ import { Graph } from '../../../src/model/graph/graph.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
+import { ToolPipeline } from '../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
 
 /** 装配测试注册表：出厂池种子 + agent 执行体（最小登记路径）。 */
 function agent_registries(): GraphRegistries {

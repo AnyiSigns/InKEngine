@@ -13,7 +13,7 @@ import {
   LLMServerError,
   LLMTimeoutError,
   classify_llm_error,
-} from '../../../src/kernel/llm/errors.js';
+} from '../../../src/model/llm/errors.js';
 
 describe('LLM 错误规范化（对象级不变量）', () => {
   it('detail redacted in message and detail', () => {

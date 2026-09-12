@@ -10,8 +10,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Runtime, AssemblyRecipe } from '../../../src/kernel/runtime/index.js';
-import type { Host } from '../../../src/kernel/runtime/index.js';
+import { Runtime, AssemblyRecipe } from '../../../src/loop/runtime/index.js';
+import type { Host } from '../../../src/loop/runtime/index.js';
 import {
   TYPE_LLM_DECIDER,
   TYPE_TOOL_PIPELINE,

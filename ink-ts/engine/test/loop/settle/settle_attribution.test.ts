@@ -15,15 +15,15 @@ import {
   attribution_plan,
   derive_traversals,
   run_verdict,
-} from '../../../src/kernel/settle/attribution.js';
-import { node_identity } from '../../../src/kernel/settle/types.js';
+} from '../../../src/loop/settle/attribution.js';
+import { node_identity } from '../../../src/model/settle/types.js';
 import {
   TRACE_FAILED,
   TRACE_SKIPPED,
   TRACE_SUCCESS,
   UPDATE_FAIL,
   UPDATE_SUCCESS,
-} from '../../../src/kernel/settle/_constants.js';
+} from '../../../src/model/settle/_constants.js';
 import { edgeKey, linearGraph, makeCtx, stepsOf } from './helpers.js';
 
 describe('settle 轨迹回放与归因', () => {

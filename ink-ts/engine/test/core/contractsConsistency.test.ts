@@ -17,8 +17,8 @@ import {
   GUARDED_PREFIXES,
   PATCH_KINDS,
 } from '../../src/model/contracts/generated/index.js';
-import { assert_endpoint_contract } from '../../src/core/declarative_tools/endpoint_types.js';
-import { EndpointType } from '../../src/core/declarative_tools/index.js';
+import { assert_endpoint_contract } from '../../src/loop/tools/declarative_tools/endpoint_types.js';
+import { EndpointType } from '../../src/loop/tools/declarative_tools/index.js';
 import { assert_patch_kinds_contract } from '../../src/kernel/self_proposal/self_proposal.js';
 import { PatchKind } from '../../src/kernel/self_proposal/index.js';
 import {

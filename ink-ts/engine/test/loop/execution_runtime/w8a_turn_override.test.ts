@@ -16,15 +16,15 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
-import { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import { ToolPipeline } from '../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
+import { ToolSpec } from '../../../src/model/llm/tools.js';
 import { GateResult, REVIEW } from '../../../src/gate/permissions/permissions.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
-import { ToolCallDelta } from '../../../src/kernel/llm/messages.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
+import { ToolCallDelta } from '../../../src/model/llm/messages.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import { make_engine_turn_runner } from '../../../src/core/execution_runtime/engine_turn_runner.js';
-import type { RoundModelOverride, ScopeTurnContext } from '../../../src/core/execution_runtime/runtime_types.js';
+import { make_engine_turn_runner } from '../../../src/loop/execution_runtime/engine_turn_runner.js';
+import type { RoundModelOverride, ScopeTurnContext } from '../../../src/loop/execution_runtime/runtime_types.js';
 
 /** 逐次返回脚本帧的 fake llm（每次 astream 消费一条；可发工具调用增量）。 */
 class ScriptedLLM implements AsyncLLM {

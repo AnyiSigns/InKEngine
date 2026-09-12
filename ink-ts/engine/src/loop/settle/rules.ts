@@ -22,7 +22,7 @@ import {
   PROPOSAL_FAIL_RATE,
   PROPOSAL_MIN_FAILS,
   PROPOSAL_RATE_MIN_N,
-} from './_constants.js';
+} from '../../model/settle/_constants.js';
 
 // ── 失败归因分类（error 事件 message 分类器）──
 // 纯关键词分类（无 LLM）；命中多类按优先级 permission>validation>

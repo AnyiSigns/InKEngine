@@ -15,11 +15,11 @@
  * spawn_start/spawn_end（数据驱动路径由节点自身发展示形态事件，
  * emit_events=False 跳过——防重复）。
  */
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { SpawnFailure, SpawnResult, type SpawnSpec, collect_spawn_specs, instance_entry_state, instance_thread_id } from '../../kernel/spawn/spawn.js';
 import { fan_out } from '../../core/fanout/fanout.js';
-import { tail_checkpoint } from '../../kernel/recovery/index.js';
+import { tail_checkpoint } from '../../loop/recovery/index.js';
 import { subgraph_flowback_overlay } from '../../core/state/schema.js';
 import type { NodeContext } from './_internals.js';
 import type { _NodeContextImpl } from './_node_context.js';

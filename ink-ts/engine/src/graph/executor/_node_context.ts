@@ -14,16 +14,16 @@
  */
 
 import { SpawnSpec } from '../../kernel/spawn/spawn.js';
-import { InterruptSignal } from '../../kernel/interrupt/interrupt_types.js';
-import { interrupt_key_matches } from '../../kernel/interrupt/interrupt.js';
-import { EngineEvent, type EngineTransport } from '../../core/events/events.js';
+import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
+import { interrupt_key_matches } from '../../loop/interrupt/interrupt.js';
+import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import { strip_sensitive } from '../../gate/security/security.js';
 import { isRecord, type JsonRecord } from '../../model/json.js';
 import { GraphDefinitionError } from '../../model/errors.js';
-import { TraceStep } from '../../kernel/settle/index.js';
+import { TraceStep } from '../../loop/settle/index.js';
 import type { Graph } from '../../model/graph/graph.js';
-import type { ResumeMap } from '../../kernel/recovery/recovery_types.js';
-import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
+import type { ResumeMap } from '../../loop/recovery/recovery_types.js';
+import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { EngineBase } from './_engine_base.js';
 import type { NodeContext } from './_internals.js';
 import { run_agent_scope as _run_agent_scope } from './run_subgraph.js';

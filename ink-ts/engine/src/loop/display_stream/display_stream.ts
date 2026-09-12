@@ -16,7 +16,7 @@
  * 回合入口注入（与 messages 会话级累积同步），收尾合并到展示流前段。
  */
 
-import type { EngineEvent, EngineTransport } from '../../core/events/events.js';
+import type { EngineEvent, EngineTransport } from '../../dock/ports/events.js';
 
 /** 展示消息条目（JSON 持久化形态：与前端归约 InkMessage 同构简化）。 */
 export type DisplayMessage = Record<string, unknown>;

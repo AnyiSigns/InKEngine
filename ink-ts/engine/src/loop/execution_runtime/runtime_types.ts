@@ -11,18 +11,18 @@
  */
 
 import type { ChannelCommit } from '../../model/channels/channel_spec.js';
-import type { EntitySpec } from '../entities/entities.js';
+import type { EntitySpec } from '../../core/entities/entities.js';
 import type { ScopePriorPattern } from '../../model/scopes/scope_priors.js';
-import type { ExecutionTrail, TrailCost, TrailHop, TrailOutcome } from '../org_archive/execution_trail.js';
+import type { ExecutionTrail, TrailCost, TrailHop, TrailOutcome } from '../../core/org_archive/execution_trail.js';
 import type { ChannelDirectory } from '../../model/channels/channel_directory.js';
 import type { GuardrailConfig } from './guardrails.js';
 import type { TransitionApprovalSeam } from './channel_gate.js';
 import type { WhiteboardAuditEntry, WhiteboardBlock, WhiteboardGrants } from '../whiteboard/index.js';
 import type { AuthorizedBlock } from '../context/block_source.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import type { InterruptState } from '../interrupt/interrupt_types.js';
 import type { RunPhase } from './run_checkpoint.js';
-import type { RoutingDecision } from './routing_next.js';
+import type { RoutingDecision } from '../route/routing_next.js';
 import type { Whiteboard } from '../whiteboard/board.js';
 
 /** 回合级模型覆写（request 级覆写 > 作用域资产 model > 会话缺省；provider/

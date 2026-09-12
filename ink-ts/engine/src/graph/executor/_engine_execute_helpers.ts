@@ -9,10 +9,10 @@
  * - 通用异常 → 重试到 max_node_retries 后按 error_on_exception 终止或跳过；
  *   事件/checkpoint 只落脱敏消息，细节进日志（trace_id 关联）。
  */
-import { InterruptSignal, InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { InterruptSignal, InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { strip_sensitive } from '../../gate/security/security.js';
-import { current_node_context } from '../../kernel/llm/guard.js';
+import { current_node_context } from '../../loop/llm/guard.js';
 import type { Graph } from '../../model/graph/graph.js';
 import type { _NodeContextImpl } from './_node_context.js';
 import { EngineMultipath } from './_engine_multipath.js';

@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { RoundSteps } from '../../../src/kernel/round_steps/index.js';
+import { RoundSteps } from '../../../src/loop/round_steps/index.js';
 
 function stepsOf(rs: RoundSteps): ReturnType<RoundSteps['steps']> {
   return rs.steps();

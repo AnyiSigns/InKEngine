@@ -5,7 +5,7 @@
  * 仍在管线 send 外层吞异常，本文件只做纯观察归类。
  */
 
-import type { EngineEvent } from '../../core/events/events.js';
+import type { EngineEvent } from '../../dock/ports/events.js';
 import { SIGNAL_PITFALL } from '../../core/knowledge_signals/_types.js';
 import { ExecutionSignal, SignalClassifier } from '../../core/knowledge_signals/signals.js';
 import { COLLAB_TOOL_NAME, _MAX_INCUBATING } from './_types.js';

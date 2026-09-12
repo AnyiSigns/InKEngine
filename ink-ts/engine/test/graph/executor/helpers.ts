@@ -6,14 +6,14 @@
  * 内存恢复/续流/编辑重放语义验证；演示图与 make_engine 对应 conftest 的
  * demo_linear/conditional/loop_graph 与 DemoBudgetPolicy。
  */
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { ChainLink, CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import type { Storage } from '../../../src/dock/ports/storage.js';
 import { Engine } from '../../../src/graph/executor/index.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
-import type { EngineTransport } from '../../../src/core/events/events.js';
-import { CollectorTransport } from '../../../src/core/events/events.js';
+import type { EngineTransport } from '../../../src/dock/ports/events.js';
+import { CollectorTransport } from '../../../src/dock/ports/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import type { BudgetPolicy } from '../../../src/gate/budget/budget_types.js';
 import { BudgetExceededError } from '../../../src/gate/budget/budget.js';

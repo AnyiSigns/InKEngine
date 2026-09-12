@@ -14,9 +14,9 @@
  * responses/anthropic 两协议缺口。
  */
 
-import { LLMConfigError } from '../../kernel/llm/errors.js';
-import type { LLMConfig } from '../../kernel/llm/base.js';
-import type { Attachment, Message } from '../../kernel/llm/messages.js';
+import { LLMConfigError } from '../../model/llm/errors.js';
+import type { LLMConfig } from '../../dock/ports/llm.js';
+import type { Attachment, Message } from '../../model/llm/messages.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

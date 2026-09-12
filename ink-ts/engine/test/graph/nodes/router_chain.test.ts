@@ -27,9 +27,9 @@ import { Engine } from '../../../src/graph/executor/index.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { MemoryStorage } from '../executor/helpers.js';
-import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
-import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
+import { ToolPipeline } from '../../../src/loop/tools/tool_pipeline/tool_pipeline.js';
+import type { AsyncLLM, LLMChunk } from '../../../src/model/llm/_guard_types.js';
+import type { Message } from '../../../src/model/llm/messages.js';
 
 /** 按调用序回放正文的 stub 模型（router/llm_decider 共用同一 seam）。 */
 function scriptedLLM(replies: readonly string[]): { llm: AsyncLLM; holder: { calls: number } } {

@@ -8,8 +8,8 @@
  * （now=0、id 固定串）供纯逻辑复现。
  */
 
-import type { ContextSource } from '../context/context_types.js';
-import type { Clock } from '../context/context_types.js';
+import type { ContextSource } from '../../loop/context/context_types.js';
+import type { Clock } from '../../loop/context/context_types.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import type { Json, JsonRecord } from '../../model/json.js';
 import type { Path } from '../../gate/patch/types.js';

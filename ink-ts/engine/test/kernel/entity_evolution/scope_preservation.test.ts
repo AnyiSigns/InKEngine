@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { EntityRegistry, EntitySpec } from '../../../src/core/entities/entities.js';
 import { ExecutionSignal } from '../../../src/core/knowledge_signals/signals.js';
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import type { EvolutionRecord, EvolutionWriter } from '../../../src/kernel/evolution_writer/_types.js';
 import {
   COLLAB_TOOL_NAME,

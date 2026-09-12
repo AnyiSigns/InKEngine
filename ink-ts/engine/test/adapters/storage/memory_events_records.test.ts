@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { EngineEvent } from '../../../src/core/events/events.js';
+import { EngineEvent } from '../../../src/dock/ports/events.js';
 import { StorageError } from '../../../src/model/errors.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import { MemoryStorage } from '../../../src/adapters/storage/memory.js';

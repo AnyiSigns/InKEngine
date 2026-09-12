@@ -10,13 +10,13 @@
  * 参考实现同口径。
  */
 
-import type { EngineEvent } from '../../../src/core/events/events.js';
-import { AsyncLLM, LLMChunk, LLMConfig, LLMResult } from '../../../src/kernel/llm/base.js';
-import type { LLMParams } from '../../../src/kernel/llm/base.js';
-import type { Message } from '../../../src/kernel/llm/messages.js';
-import { CachingLLM } from '../../../src/kernel/llm/cache.js';
-import type { CachingLLMOptions } from '../../../src/kernel/llm/cache.js';
-import type { ToolSpec } from '../../../src/kernel/llm/tools.js';
+import type { EngineEvent } from '../../../src/dock/ports/events.js';
+import { AsyncLLM, LLMChunk, LLMConfig, LLMResult } from '../../../src/dock/ports/llm.js';
+import type { LLMParams } from '../../../src/dock/ports/llm.js';
+import type { Message } from '../../../src/model/llm/messages.js';
+import { CachingLLM } from '../../../src/loop/llm/cache.js';
+import type { CachingLLMOptions } from '../../../src/loop/llm/cache.js';
+import type { ToolSpec } from '../../../src/model/llm/tools.js';
 import { strip_sensitive } from '../../../src/gate/security/security.js';
 import type {
   ChainLink,

@@ -20,15 +20,15 @@
  *   ./retry_once.ts。
  */
 
-import { AsyncLLM, REASONING_EFFORTS } from '../../kernel/llm/base.js';
-import type { LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../kernel/llm/base.js';
+import { AsyncLLM, REASONING_EFFORTS } from '../../dock/ports/llm.js';
+import type { LLMChunk, LLMConfig, LLMParams, LLMResult } from '../../dock/ports/llm.js';
 import {
   LLMEmptyStreamError,
   LLMFormatError,
-} from '../../kernel/llm/errors.js';
-import { RetryPolicy } from '../../kernel/llm/fallback.js';
-import type { Message } from '../../kernel/llm/messages.js';
-import type { ToolSpec } from '../../kernel/llm/tools.js';
+} from '../../model/llm/errors.js';
+import { RetryPolicy } from '../../loop/llm/fallback.js';
+import type { Message } from '../../model/llm/messages.js';
+import type { ToolSpec } from '../../model/llm/tools.js';
 
 import { RESPONSES_CORE_PAYLOAD_KEYS, response_tools, to_input_items } from './_responses_payload.js';
 import { assert_images_supported } from './image_gate.js';

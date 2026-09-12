@@ -7,8 +7,8 @@
  * 循环局部面（生命周期 = 一次 _execute），主循环分阶段方法（_loop_front/
  * _loop_back）读写同一实例——阶段拆分不改变任何语义。
  */
-import { Plan } from '../../core/plan/plan.js';
-import { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
+import { Plan } from '../../model/plan/plan.js';
+import { InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { SpawnSpec } from '../../kernel/spawn/spawn.js';

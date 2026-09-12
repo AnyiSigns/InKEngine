@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { LLMConfigError } from '../../../src/kernel/llm/errors.js';
-import { ToolSpec, to_openai_tools } from '../../../src/kernel/llm/tools.js';
+import { LLMConfigError } from '../../../src/model/llm/errors.js';
+import { ToolSpec, to_openai_tools } from '../../../src/model/llm/tools.js';
 
 const EMPTY_PARAMS = { type: 'object', properties: {} };
 

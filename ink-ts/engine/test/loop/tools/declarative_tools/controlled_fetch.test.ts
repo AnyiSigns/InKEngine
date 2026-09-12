@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { NetworkPolicy } from '../../../src/gate/permissions/networkPolicy.js';
+import { NetworkPolicy } from '../../../../src/gate/permissions/networkPolicy.js';
 import {
   DeclarativeToolExecutors,
   DeclarativeToolSpec,
@@ -25,9 +25,9 @@ import {
   make_controlled_fetch_executor,
   make_declarative_extractor,
   make_declarative_failure_reason,
-} from '../../../src/core/declarative_tools/index.js';
-import { HARD_MAX_FETCH_BYTES } from '../../../src/core/declarative_tools/_http_executors.js';
-import type { HttpStreamClient } from '../../../src/core/declarative_tools/index.js';
+} from '../../../../src/loop/tools/declarative_tools/index.js';
+import { HARD_MAX_FETCH_BYTES } from '../../../../src/loop/tools/declarative_tools/_http_executors.js';
+import type { HttpStreamClient } from '../../../../src/loop/tools/declarative_tools/index.js';
 
 /** collect_material 形态声明式定义（endpoint=mcp + 受控取回标记）。 */
 function controlledCollect(

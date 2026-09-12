@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canonicalJson, crc32, hashObj } from '../world/hash.js';
+import { canonicalJson, crc32, hash8, hashObj } from '../world/hash.js';
 import { makeRng } from '../world/rng.js';
 
 describe('world/hash', () => {
@@ -27,6 +27,15 @@ describe('world/hash', () => {
     expect(hashObj({ a: 1, b: [1, 2] })).toBe(hashObj({ b: [1, 2], a: 1 }));
     expect(hashObj(1)).toBe('356a192b7913b04c');
     expect(hashObj(1)).toHaveLength(16);
+  });
+
+  it('hash8 = hashObj 前 8 位（B.4 verdict 指纹唯一截断口径）', () => {
+    expect(hash8(1)).toBe('356a192b');
+    for (const v of [0, -50, 50, 'ABC', '哈'] as const) {
+      expect(hash8(v)).toBe(hashObj(v).slice(0, 8));
+      expect(hash8(v)).toHaveLength(8);
+    }
+    expect(hash8(8)).not.toBe(hash8(9));
   });
 });
 

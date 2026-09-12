@@ -3,14 +3,17 @@
  *
  * 生成器与验收器同源会产生共同盲区，因此本套件独立于生成器手构（不依赖骨架
  * 采样），覆盖五类必拒错误产物：空值 answer、类型对但语义错、旧 verdict 复用
- * （先 pass 后改 answer 的复活态）、直接复述原题、硬编码常量。硬编码常量猜中者
- * 用双生产者族构造必拒场景——单生产者族的值判定只认 deepEq，猜中不该由验收器
- * 拒（那是 held-out 与超 oracle 统计的职责），双生产者族则缺 verdict 必拒。
+ * （R2-P0-1 口径：verdict 是 "pass:"+hash8(被检值) 的指纹承诺——先 check 过 v1
+ * 再变换 x 后 submit、或把别的任务算出的指纹搬来做跨任务复用，answer 与指纹
+ * 不匹配即拒；合法路径是 submit→check 之间 x 不变，check 之后再变 x 只要不再
+ * submit 则 answer 未动、指纹仍成立）、直接复述原题、硬编码常量。硬编码常量
+ * 猜中者用双生产者族构造必拒场景——单生产者族的值判定只认 deepEq，猜中不该由
+ * 验收器拒（那是 held-out 与超 oracle 统计的职责），双生产者族则缺匹配指纹必拒。
  * runAll 在套件之上用固定 seed 的 makeRng 补刀错误产物，并回放金计划验证正确
  * 通道产物必须全收，防止"全拒通关"的假绿。
  */
 
-import { initState, runPlan, sampleValue } from '../world/operators.js';
+import { initState, runPlan, sampleValue, verdictPass } from '../world/operators.js';
 import { deepEq } from '../world/types.js';
 import { hashObj } from '../world/hash.js';
 import { makeRng, type Rng } from '../world/rng.js';
@@ -119,7 +122,12 @@ function replay(task: Task): State {
   return runPlan(task.plan_hidden, initState(task.x, task.spec))!;
 }
 
-/** 必拒错误产物清单：五类错误各自至少一条，四族全覆盖。 */
+/** 旧 verdict 复用攻击态：取金计划回放（verdict=pass:{gold answer 指纹}），再篡改 answer。*/
+function staleVerdict(task: Task, newAnswer: number | string): State {
+  return { ...replay(task), answer: newAnswer };
+}
+
+/** 必拒错误产物清单：五类错误各自至少一条，四族全覆盖；两生产者族 verdict 携带被检值指纹。 */
 export const WRONG_ARTIFACTS: readonly AdversarialCase[] = [
   // value：单生产者，只认 answer 与 expected 深等
   { label: 'value/空 answer', task: VALUE_INT, state: initState(VALUE_INT.x) },
@@ -128,16 +136,17 @@ export const WRONG_ARTIFACTS: readonly AdversarialCase[] = [
   { label: 'value/直接复述原题', task: VALUE_INT, state: { ...initState(VALUE_INT.x), answer: VALUE_INT.instruction } },
   { label: 'value/硬编码常量猜错', task: VALUE_INT, state: { ...initState(VALUE_INT.x), answer: 0 } },
   { label: 'value/Str 语义错', task: VALUE_STR, state: { ...initState(VALUE_STR.x), answer: 'a' } },
-  // verify：双生产者，answer 深等与 verdict=pass 同时成立
+  // verify：双生产者，answer 深等 expected 且 verdict 必须是 pass:{hash8(answer)}
   { label: 'verify/空 answer', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), verdict: 'pass' } },
-  { label: 'verify/类型对语义错（值不对）', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 9, verdict: 'pass' } },
+  { label: 'verify/类型对语义错（值不对）', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 9, verdict: verdictPass(9) } },
   { label: 'verify/verdict 缺失', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8 } },
-  { label: 'verify/verdict 非 pass', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8, verdict: 'fail' } },
-  { label: 'verify/旧 verdict 复用（复活态）', task: VERIFY_INT, state: { ...replay(VERIFY_INT), answer: 7 } },
+  { label: 'verify/verdict 是裸 "pass" 不带 answer 指纹', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8, verdict: 'pass' } },
+  { label: 'verify/旧 verdict 复用（复活态：answer 改 7，verdict 仍是 8 的指纹）', task: VERIFY_INT, state: staleVerdict(VERIFY_INT, 7) },
+  { label: 'verify/answer 对但 verdict 指纹漂移（9 的指纹配 answer 8）', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8, verdict: verdictPass(9) } },
   { label: 'verify/直接复述原题', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: VERIFY_INT.instruction, verdict: 'pass' } },
   { label: 'verify/硬编码常量猜中但 verdict 伪造缺位', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8 } },
   { label: 'verify/verdict 大小写绕过', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8, verdict: 'PASS' } },
-  { label: 'verify/Str 旧 verdict 复用', task: VERIFY_STR, state: { ...replay(VERIFY_STR), answer: 'abc' } },
+  { label: 'verify/Str 旧 verdict 复用（answer 改为原值 abc，verdict 是 ABC 的指纹）', task: VERIFY_STR, state: staleVerdict(VERIFY_STR, 'abc') },
   // goal：目标谓词多解可接受，但不符合或跨类型即拒
   { label: 'goal/空 answer', task: GOAL_INT, state: initState(GOAL_INT.x) },
   { label: 'goal/不满足目标谓词（临界值）', task: GOAL_INT, state: { ...initState(GOAL_INT.x), answer: 20 } },
@@ -147,14 +156,20 @@ export const WRONG_ARTIFACTS: readonly AdversarialCase[] = [
   { label: 'goal/跨类型答案', task: GOAL_INT, state: { ...initState(GOAL_INT.x), answer: 'abc' } },
   { label: 'goal/len 越界', task: GOAL_STR, state: { ...initState(GOAL_STR.x), answer: 'abcdefgh' } },
   { label: 'goal/len 非字符串', task: GOAL_STR, state: { ...initState(GOAL_STR.x), answer: 42 } },
-  // goal_verify：answer 满足目标与 verdict=pass 同时成立
+  // goal_verify：answer 满足目标且 verdict=pass:{hash8(answer)} 同时成立
   { label: 'goal_verify/空 answer', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x), verdict: 'pass' } },
   { label: 'goal_verify/answer 达标但 verdict 缺失', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x), answer: 24 } },
   { label: 'goal_verify/answer 达标但 verdict 非 pass', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x), answer: 24, verdict: 'fail' } },
-  { label: 'goal_verify/复活态：answer 改后不达标', task: GOAL_VERIFY_INT, state: { ...replay(GOAL_VERIFY_INT), answer: 10 } },
+  // R2-P0-1 关键封堵：先 check 得 pass(gold)，后改值再 submit 得达标 answer，旧指纹必须判拒
+  { label: 'goal_verify/先 check 后改值：answer 改 10（目标不达+verdict 漂移）', task: GOAL_VERIFY_INT, state: staleVerdict(GOAL_VERIFY_INT, 10) },
+  { label: 'goal_verify/先 check 后改值：answer 改 100（仍达标 gt20，仅 verdict 指纹漂移）', task: GOAL_VERIFY_INT, state: staleVerdict(GOAL_VERIFY_INT, 100) },
+  { label: 'goal_verify/answer 达标但 verdict 用别的值指纹', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x, GOAL_VERIFY_INT.spec), answer: 24, verdict: verdictPass(23) } },
+  // 跨任务搬运：另一任务 check_* 合法产出的 pass 指纹（8 的指纹）配本任务达标 answer，仍须拒
+  { label: 'goal_verify/跨任务搬运他题 verdict 指纹', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x, GOAL_VERIFY_INT.spec), answer: 24, verdict: replay(VERIFY_INT).verdict } },
   { label: 'goal_verify/硬编码常量猜中但 verdict 伪造缺位', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x), answer: 24 } },
   { label: 'goal_verify/直接复述原题 + verdict 复活', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x), answer: GOAL_VERIFY_INT.instruction, verdict: 'pass' } },
-  { label: 'goal_verify/Str 复活态', task: GOAL_VERIFY_STR, state: { ...replay(GOAL_VERIFY_STR), answer: 'abcdefgh' } },
+  // Str：answer 落在 len[1,5]（'ab' 达标）但 verdict 是旧值 'ABC' 的指纹 → 漂移必拒
+  { label: 'goal_verify/Str 复活态：answer 换达标值 verdict 仍旧指纹', task: GOAL_VERIFY_STR, state: staleVerdict(GOAL_VERIFY_STR, 'ab') },
 ];
 
 /** 正确通道产物：金计划回放或公开目标下的合法多解，必须全部被收。 */
@@ -168,6 +183,10 @@ const CORRECT_ARTIFACTS: readonly AdversarialCase[] = [
   { label: 'goal/Str 回放', task: GOAL_STR, state: replay(GOAL_STR) },
   { label: 'goal_verify/双生产者齐备', task: GOAL_VERIFY_INT, state: replay(GOAL_VERIFY_INT) },
   { label: 'goal_verify/Str 双生产者齐备', task: GOAL_VERIFY_STR, state: replay(GOAL_VERIFY_STR) },
+  // 公开目标多解的任一达标 answer + 同步提交后的 check_* verdict（合法：submit→check 之间 x 不变）
+  { label: 'goal_verify/多解任一 + 当次值的自指纹 verdict', task: GOAL_VERIFY_INT, state: { ...initState(GOAL_VERIFY_INT.x, GOAL_VERIFY_INT.spec), answer: 27, verdict: verdictPass(27) } },
+  // check 之后只动 x、不再 submit：answer 未动，绑定成立（验收绑 answer 不绑 x）
+  { label: 'goal_verify/金计划后再变换 x 不重提交（answer 未动）仍成立', task: GOAL_VERIFY_INT, state: runPlan(['add3'], replay(GOAL_VERIFY_INT))! },
 ];
 
 /** 造一个必不满足目标谓词的值：parity 取反相、gt 取临界值、len 用类型不符的 -1。 */
@@ -208,6 +227,7 @@ function fuzzWrongState(rng: Rng, task: Task): State {
     }
     case 'goal_verify': {
       const goal = task.spec.goal as Goal;
+      // 旧协议旗标（裸 "pass" 等）在新口径下本就是无效指纹；与不匹配 answer 的 verdict 组合必拒。
       const bad = rng.choice([null, 'fail', 'PASS', 'pass ', '']);
       if (goal.kind === 'gt') {
         return { ...st, answer: rng.randint(goal.target + 1, 50), verdict: bad };

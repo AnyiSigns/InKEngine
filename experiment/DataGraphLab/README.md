@@ -40,6 +40,11 @@ npm run golden:check       # 断言二者与参考实现逐字一致（文档漂
 
 ## 待决（先登记后扩展）
 
+- R2-P0 计划同步已落地（verdict 指纹绑定 / 恒等签名丢弃 / goal 适格池 + follow 极小性
+  守卫）：实测 `SKELETONS` 4201→4199（丢 `[neg,neg]`、`[reverse,reverse]`），heldout
+  830→829，goal 域不适格 211→210（注册表 422→420 键，改为 goalEligible 派生薄层）；
+  判定式对计划伪代码的四处语义修正（[add3,sub1] 恒等举例、epool 漏 goal_verify、
+  probe_hit 弱化式、has_shortcut 缺长度比较）待规划者复核回写计划。
 - `conformance/gates/` 与 `runs/` 为 T3 规格指定的门禁落点，本文件登记，随 Phase 0
   实现落地（当前仅规格 `docs/gates.md`，未实现脚本）。
 - 其余 helper（`apply_op`/`init_state`/`candidates`/`accept`/`plan_bfs`/`featurize`/

@@ -9,7 +9,7 @@
  */
 
 import { t, type TypeName } from './types.js';
-import { crc32 } from './hash.js';
+import { crc32, hash8 } from './hash.js';
 import type { Rng } from './rng.js';
 
 export const ENTRY = 'entry';
@@ -104,6 +104,16 @@ export function emod(a: number, m: number): number {
   return ((a % m) + m) % m;
 }
 
+/**
+ * check_* 通过时的 verdict 唯一写法：`"pass:"+hash8(被检值)`。verdict 指纹绑定被检值，
+ * 使 `accept` 能把独立检查器结论钉在当次交付产物上——check 之后 x 再变，旧指纹与
+ * 新 answer 不匹配即拒（堵 `goal_verify` 族"先 check 后改值再 submit"的旧 verdict 复用）。
+ * 口径来自 B.2/B.4，world 与 verify 两侧共用此函数，禁止别处拼接 "pass:" 字面量。
+ */
+export function verdictPass(v: unknown): string {
+  return 'pass:' + hash8(v);
+}
+
 /** 单节点访问计数（candidates / 骨架枚举 / 搜索共用）。 */
 export function histCount(hist: readonly string[], nid: string): number {
   let n = 0;
@@ -190,8 +200,10 @@ function asciiLower(s: string): string {
 
 /**
  * 执行单步（B.2 唯一真源）：契约闸 `requiresOk` 通过后按表变换，成功把 `nid`
- * 追加进 `hist`，失败返回 null = 死路。`check_*` 读公开 `spec` 写 `verdict`，
- * pass 判定之外一律写 "fail"——验收只认 "pass"，错误产物由 acceptor 拒绝。
+ * 追加进 `hist`，失败返回 null = 死路。`check_*` 读公开 `spec` 写 `verdict`：
+ * 通过写 `verdictPass(x)`（"pass:"+hash8 指纹绑定被检值），不通过写 "fail"——
+ * B.2 只规定通过侧的指纹，失败侧沿用非 pass 前缀的固定标记即可：验收器只认
+ * `pass:`+当前 answer 指纹，任何失败/伪造串都判拒，无需在失败值里再携带信息。
  */
 export function applyOp(graph: Graph, nid: string, st: State): State | null {
   const node = graph.nodes[nid];
@@ -243,10 +255,16 @@ export function applyOp(graph: Graph, nid: string, st: State): State | null {
       next = { answer: x };
       break;
     case 'check_parity':
-      next = { verdict: emod(x as number, 2) === (spec.parity as number) ? 'pass' : 'fail' };
+      next = {
+        verdict:
+          emod(x as number, 2) === (spec.parity as number) ? verdictPass(x) : 'fail',
+      };
       break;
     case 'check_len':
-      next = { verdict: (x as string).length === (spec.length as number) ? 'pass' : 'fail' };
+      next = {
+        verdict:
+          (x as string).length === (spec.length as number) ? verdictPass(x) : 'fail',
+      };
       break;
     case 'noop':
       next = { x };

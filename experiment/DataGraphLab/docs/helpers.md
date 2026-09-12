@@ -24,6 +24,7 @@
 | `canonicalJson` | `canonicalJson(o: unknown): string` | `world/hash.ts` | 已落地 | 键排序、数字格式固定、-0 归一、CJK 直出 |
 | `crc32` | `crc32(s: string): number` | `world/hash.ts` | 已落地 | IEEE 0xEDB88320，与 zlib.crc32 一致 |
 | `hashObj` | `hashObj(o: unknown): string` | `world/hash.ts` | 已落地 | sha1(canonicalJson)[:16] |
+| `hash8` | `hash8(o: unknown): string` | `world/hash.ts` | 已落地 | hashObj[:8]；B.4 verdict 指纹唯一截断口径 |
 | `OPS` | `readonly Contract[]` | `world/operators.ts` | 已落地 | B.2 契约表真源，表序即基础顺序 |
 | `NODES_BASE` | `readonly string[]` | `world/operators.ts` | 已落地 | [entry, ...OPS, exit]，槽位依赖此序 |
 | `ROUTING` | `readonly string[]` | `world/operators.ts` | 已落地 | 去 entry 排序，22 项 |
@@ -33,6 +34,7 @@
 | `requiresTypes` | `requiresTypes(c): TypeName[]` | `world/operators.ts` | 已落地 | 并集去重、剔除 "any" |
 | `requiresOk` | `requiresOk(c, state): boolean` | `world/operators.ts` | 已落地 | 字段存在 + 类型命中 + when |
 | `emod` | `emod(a, m): number` | `world/operators.ts` | 已落地 | 非负取模，禁裸 % |
+| `verdictPass` | `verdictPass(v: unknown): string` | `world/operators.ts` | 已落地 | check_* 通过写 "pass:"+hash8(v)；accept 据此绑定 answer 指纹（R2-P0-1） |
 | `histCount` | `histCount(hist, nid): number` | `world/operators.ts` | 已落地 | 访问计数唯一口径 |
 | `HIST_SLOTS` | `number` | `controller/slots.ts` | 已落地 | 历史固定槽位容量 = 32 |
 | `buildNodeSlots` | `buildNodeSlots(nodes, capacity): Map<string, number>` | `controller/slots.ts` | 已落地 | 追加式稳定槽位，零碰撞 |
@@ -53,8 +55,9 @@
 | `PROBE_INT / PROBE_STR` | `readonly (number|string)[]` | `gen/skeletons.ts` | 已落地 | Int 全域 101 点；Str 固定十串 |
 | `enumerateSkeletons` | `enumerateSkeletons(maxDepth?): Skel[]` | `gen/skeletons.ts` | 已落地 | 只取 kind=op，终算子不入池；前缀增量探针向量，勿逐骨架重放 |
 | `signature` | `signature(root, skeleton): Sig` | `gen/skeletons.ts` | 已落地 | Int 全域探针可证正确；Str 固定探针 |
-| `dedupeBySignature` | `dedupeBySignature(skels): Skel[]` | `gen/skeletons.ts` | 已落地 | 同签名留最短、同长取字典序首 |
-| `SKELETONS` | `readonly Skel[]` | `gen/skeletons.ts` | 已落地 | 模块级一次性计算，去冗余后全量骨架池 |
+| `dedupeBySignature` | `dedupeBySignature(skels): Skel[]` | `gen/skeletons.ts` | 已落地 | 同签名留最短、同长取字典序首；纯函数，恒等过滤只在 SKELETONS 构造层 |
+| `isIdentity` | `isIdentity(root, skeleton): boolean` | `gen/skeletons.ts` | 已落地 | 全探针值不变判恒等（[neg,neg]/[reverse,reverse] 真）；SKELETONS 不含恒等签名（R2-P0-3，其 0-op 解任务必抬 G2.2） |
+| `SKELETONS` | `readonly Skel[]` | `gen/skeletons.ts` | 已落地 | 模块级一次性计算：去冗余后、恒等签名丢弃后的全量骨架池 |
 | `_skelId` | `_skelId(sk): string` | `gen/skeletons.ts` | 已落地 | hashObj([root, plan])，composition_id 口径 |
 | `_stratum / STRATA` | `_stratum(sk): StratumKey; STRATA: ReadonlyMap` | `gen/splits.ts` | 已落地 | 分层键 = 深度 × 是否含 cond |
 | `codepointCompare` | `codepointCompare(a, b): number` | `gen/splits.ts` | 已落地 | 码点序唯一口径；localeCompare 依赖 locale，禁用于确定性排序 |
@@ -62,16 +65,19 @@
 | `HELDOUT_SKELETONS / VAL_SKELETONS` | `ReadonlySet<string>` | `gen/splits.ts` | 已落地 | composition_id 注册表，与 train 零重叠 |
 | `splitOf` | `splitOf(sk): Split` | `gen/splits.ts` | 已落地 | train/val/heldout 归属，切分只看骨架 |
 | `sampleGoal` | `sampleGoal(rng, root): Goal` | `gen/generator.ts` | 已落地 | Int parity/gt，Str len；40% 合取强制多步规划 |
-| `goalProbeHit` | `goalProbeHit(root, plan, goal): boolean` | `gen/generator.ts` | 已落地 | Int 全域精确剪枝；Str 只提示不剪枝 |
-| `INT_GOAL_POOL / STR_GOAL_POOL` | `readonly Goal[]` | `gen/producibility.ts` | 已落地 | sampleGoal 采样空间全集（30/6），可产域判定用 |
+| `goalProbeHit` | `goalProbeHit(root, plan, goal): boolean` | `gen/producibility.ts` | 已落地 | 单目标可达性探针；Int instance_goal 精确剪枝，Str 只提示；经 generator.ts 公开 |
+| `GOAL_PROBE_GOALS` | `readonly Goal[]` | `gen/producibility.ts` | 已落地 | 适格性判定池（sampleGoal 四单体采样器全集 7 项，按 root 型别子集使用） |
+| `goalEligible` | `goalEligible(root, skeleton): boolean` | `gen/producibility.ts` | 已落地 | 族适格性（R2-P0-2）：存在「初始不达标∧终值达标」对；长度不变/str_len 收尾/值单调类判不适格，goal 域两族采样只走适格池；Int 全域精确 |
+| `isGoalDomain` | `isGoalDomain(family): boolean` | `gen/producibility.ts` | 已落地 | goal 与 goal_verify 同池采目标，适格性对两族一致（伪代码字面 fam!="goal" 漏掉 goal_verify，落地按语义补齐） |
 | `coverageKey` | `coverageKey(style, family, compositionId): string` | `gen/producibility.ts` | 已落地 | `style:family:composition_id` 稳定键 |
 | `hasOneStepSolution` | `hasOneStepSolution(task, graph): boolean` | `gen/producibility.ts` | 已落地 | 关死单步 echo/submit 捷径；O(|candidates|) apply+accept；经 generator.ts 公开 |
-| `UNPRODUCIBLE_HELDOUT` | `ReadonlySet<string>` | `gen/producibility.ts` | 已落地 | heldout goal 族已知不可产域，模块加载时确定性判定（Int 全域精确、Str 有界保守）；follow 零键 |
+| `hasShortcut` | `hasShortcut(task, graph): boolean` | `gen/producibility.ts` | 已落地 | follow 极小性守卫（R2-P0-3）：单算子+收尾提交过验收且严格短于金计划 → 非最小，换 witness |
+| `UNPRODUCIBLE_HELDOUT` | `ReadonlySet<string>` | `gen/producibility.ts` | 已落地 | heldout 不适格注册表，goal 两族键由 goalEligible 派生（薄层视图，无第二套判定）；follow 判入册仅兜底、按构造恒空 |
 | `instanceFollow / instanceGoal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 已落地 | public spec + hidden gold；回放穿 accept 才返回 |
 | `STYLES / instanceTask` | `STYLES: Record<Style, Family[]>; instanceTask(...)` | `gen/generator.ts` | 已落地 | follow→value/verify；goal→goal/goal_verify |
-| `makeTask` | `makeTask(seed, style?, family?, split?, skeleton?): Task | null` | `gen/generator.ts` | 已落地 | 同 seed 完全确定；可钉骨架/族/切分 |
-| `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；配额不足抛错不静默 |
-| `makeCoverageSplitInfo` | `makeCoverageSplitInfo(split, seed?, skeletons?): {tasks; unproducible; unproducibleCount}` | `gen/generator.ts` | 已落地 | follow 全域 + goal 可产域每骨架每 (style,family) 恰 1 条；注册表成员记为 known-unproducible 带出计数；可产域产不出/注册表含 follow 键均抛错；骨架池可注入 |
+| `makeTask` | `makeTask(seed, style?, family?, split?, skeleton?): Task | null` | `gen/generator.ts` | 已落地 | 同 seed 完全确定；可钉骨架/族/切分；goal 域族抽样只走适格池，钉入不适格骨架即返回 null |
+| `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；goal 域族只走适格池（R2-P0-2），适格池空/配额不足抛错不静默；follow 产出经 hasShortcut 极小性守卫 |
+| `makeCoverageSplitInfo` | `makeCoverageSplitInfo(split, seed?, skeletons?): {tasks; unproducible; unproducibleCount; ineligible; ineligibleCount}` | `gen/generator.ts` | 已落地 | follow 全域 + goal 适格池每骨架每 (style,family) 恰 1 条；goal 域族覆盖声明缩到适格池，ineligible 清单与计数显式上报（R2-P0-2 不静默）；适格池产不出/注册表含 follow 键均抛错；骨架池可注入 |
 | `makeCoverageSplit` | `makeCoverageSplit(split, seed?): Task[]` | `gen/generator.ts` | 已落地 | makeCoverageSplitInfo 的任务列表口径（C.1 签名保持） |
 | `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装；entry/exit kind=structural（无契约，不参与契约/动作分类） |
 | `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 已落地 | entry 禁入；exit 恒在；访问上限唯一实现 |
@@ -95,13 +101,13 @@
 |---|---|---|---|---|
 | `sample_value` | `sampleValue(rng, root): number | string` | `world/operators.ts` | 已落地 | Int 全域 -50..50；Str 长度 1..8 的 a-h |
 | `init_state` | `initState(x, spec?): State` | `world/operators.ts` | 已落地 | {x, answer:null, verdict:null, hist:[], spec:{}} |
-| `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已落地 | 契约闸+变换+hist 追加；null=死路 |
-| `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已落地 | 顺序回放，不写 expected |
+| `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已落地 | 契约闸+变换+hist 追加；null=死路；check_* 通过写 verdictPass(x)="pass:"+hash8(x)，不通过写 "fail" |
+| `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已落地 | 顺序回放，不写 expected；submit→check 间 x 不变 ⇒ verdict 与 answer 指纹恒一致 |
 | `obs_snapshot` | `obsSnapshot(st): object` | `world/operators.ts` | 已落地 | 只投影 x/answer/verdict/hist |
-| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；只看 public+产物 |
+| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；两生产者族 verdict 判定 = verdictPass(answer)（旧 verdict 复用因指纹漂移必拒，R2-P0-1） |
 | `CHANNEL` | `Readonly<Record<Family, readonly string[]>>` | `verify/acceptor.ts` | 已落地 | 通道表唯一真源；value/goal 单生产者，verify/goal_verify 双生产者 |
 | `acceptChannelled` | `acceptChannelled(task, st): Verdict` | `verify/acceptor.ts` | 已落地 | 只读本族通道字段；缺失即 reason=missing:<field> |
-| `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/旧 verdict 复用/复述原题/硬编码常量 |
+| `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/复述原题/硬编码常量+旧 verdict 复用新口径（先 check 后改值再 submit、跨任务搬运指纹、裸 "pass" 旗标——answer 达标也必拒） |
 | `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |

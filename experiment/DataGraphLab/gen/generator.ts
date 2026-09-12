@@ -1,12 +1,13 @@
 /**
  * 生成器核心（C.1 全文）：分层实例化 → public spec + hidden gold。
  *
- * 骨架枚举/签名去冗余在 gen/skeletons.ts（SKELETONS），分层与切分在
- * gen/splits.ts（STRATA/_splitMaps/splitOf），可产域注册表在
- * gen/producibility.ts（UNPRODUCIBLE_HELDOUT/hasOneStepSolution），本文件负责
+ * 骨架枚举/签名去冗余/恒等丢弃在 gen/skeletons.ts（SKELETONS/isIdentity），分层与
+ * 切分在 gen/splits.ts（STRATA/_splitMaps/splitOf），判定层在 gen/producibility.ts
+ * （goalEligible/hasShortcut/hasOneStepSolution/UNPRODUCIBLE_HELDOUT），本文件负责
  * 采样与收尾：按 (深度 × 是否含 cond) 分层等概率采样（层间/层内各一次 choice），
- * 按族给骨架补 submit(+check_*)，follow 族指令 = 计划线性渲染（含终算子义项），
- * goal 族指令只描述目标谓词（gold = 传入骨架本身，多解可接受）。
+ * 按族给骨架补 submit(+check_*)，follow 族指令 = 计划线性渲染（含终算子义项）+
+ * 极小性守卫换 witness，goal 族指令只描述目标谓词（gold = 传入骨架本身，多解可
+ * 接受）；goal 域族的一切采样走适格池（R2-P0-2）。
  *
  * 确定性纪律：随机一律 makeRng(seed)、哈希一律 hashObj/crc32（G0.1 同 seed
  * 跨进程逐字相同）；所有 `expected` 由回放求出，不由人手写；任何任务生成后
@@ -24,12 +25,16 @@ import {
   type StratumKey,
 } from './splits.js';
 import {
+  _commit,
   coverageKey,
+  goalEligible,
+  goalProbeHit,
   hasOneStepSolution,
+  hasShortcut,
+  isGoalDomain,
   UNPRODUCIBLE_HELDOUT,
 } from './producibility.js';
-import { emod, initState, runPlan, sampleValue } from '../world/operators.js';
-import { t } from '../world/types.js';
+import { initState, runPlan, sampleValue } from '../world/operators.js';
 import { goalOk, type Goal } from '../world/goal.js';
 import { renderGoal, renderRecipe } from '../world/render.js';
 import { hashObj } from '../world/hash.js';
@@ -38,7 +43,7 @@ import { GRAPH } from '../runner/graph.js';
 import { accept } from '../verify/acceptor.js';
 import type { Family, Root, Split, Style, Task } from '../schema.js';
 
-/** 重导出骨架层公开符号：appendix D 将 SKELETONS/signature/枚举/去冗余挂在 gen/generator。 */
+/** 重导出骨架层公开符号：appendix D 将 SKELETONS/signature/枚举/去冗余/恒等判定挂在 gen/generator。 */
 export {
   MAX_DEPTH,
   PROBE_INT,
@@ -47,6 +52,7 @@ export {
   enumerateSkeletons,
   signature,
   dedupeBySignature,
+  isIdentity,
   compareSkel,
 } from './skeletons.js';
 export type { Skel, Sig } from './skeletons.js';
@@ -63,8 +69,16 @@ export {
 } from './splits.js';
 export type { StratumKey } from './splits.js';
 
-/** 重导出可产域符号：注册表与单步守卫的公开端口（实现见 gen/producibility.ts）。 */
-export { coverageKey, hasOneStepSolution, UNPRODUCIBLE_HELDOUT } from './producibility.js';
+/** 重导出判定层符号：注册表、捷径守卫与适格性判定的公开端口（实现见 gen/producibility.ts）。 */
+export {
+  coverageKey,
+  goalEligible,
+  goalProbeHit,
+  GOAL_PROBE_GOALS,
+  hasOneStepSolution,
+  hasShortcut,
+  UNPRODUCIBLE_HELDOUT,
+} from './producibility.js';
 
 /** C.1 `_skel_id` 与 STRATA 的分层键 / 层级数据（保持真源在持有方，本处 re-export）。 */
 export { _skelId };
@@ -90,39 +104,11 @@ export function sampleGoal(rng: Rng, root: Root): Goal {
   return g;
 }
 
-/** C.1 `goal_probe_hit`：可达性探针。Int 用全域探针 ⇒ 判定精确；Str 只是提示不剪枝。 */
-export function goalProbeHit(root: Root, plan: readonly string[], goal: Goal): boolean {
-  const probes: readonly (number | string)[] = root === 'Int' ? PROBE_INT : PROBE_STR;
-  for (const probe of probes) {
-    const st = runPlan(plan, initState(probe));
-    if (st !== null && goalOk(st.x, { goal })) return true;
-  }
-  return false;
-}
+// 注：goalProbeHit / _commit / goalEligible / hasOneStepSolution / hasShortcut 均在
+// gen/producibility.ts 实现，本文件按 import/re-export 取用（唯一口径，别处不复制）。
 
-/** 终算子收尾唯一入口（C.1）：verify/goal_verify 依终值类型选 check_* 并写入 spec。 */
-function _commit(
-  family: Family,
-  skeleton: readonly string[],
-  expected: number | string,
-): { plan: string[]; spec: Record<string, unknown> } | null {
-  const plan = [...skeleton, 'submit'];
-  let spec: Record<string, unknown> = {};
-  if (family === 'verify' || family === 'goal_verify') {
-    if (t(expected) === 'Int') {
-      spec = { parity: emod(expected as number, 2) };
-      plan.push('check_parity');
-    } else if (t(expected) === 'Str') {
-      spec = { length: (expected as string).length };
-      plan.push('check_len');
-    } else {
-      return null;
-    }
-  }
-  return { plan, spec };
-}
-
-/** 配方族实例化（C.1）：指令 = 计划线性渲染；回放穿 accept 才返回。 */
+/** 配方族实例化（C.1）：指令 = 计划线性渲染；follow 族极小性守卫（has_shortcut，R2-P0-3）
+ *  命中即换 witness；回放穿 accept 才返回。 */
 export function instanceFollow(rng: Rng, root: Root, skeleton: readonly string[], family: Family): Task | null {
   for (let i = 0; i < 200; i++) {
     const x = sampleValue(rng, root);
@@ -144,6 +130,7 @@ export function instanceFollow(rng: Rng, root: Root, skeleton: readonly string[]
       composition_id: _skelId({ root, plan: skeleton }),
       split: splitOf({ root, plan: skeleton }),
     };
+    if (hasShortcut(task, GRAPH)) continue;
     const st2 = runPlan(plan, initState(x, spec));
     if (st2 !== null && accept(task, st2)) return task;
   }
@@ -222,7 +209,7 @@ function _stratifiedChoice(rng: Rng, pool: readonly Skel[]): Skel {
   return rng.choice(by.get(rng.choice(keys))!);
 }
 
-/** C.1 `make_task`：同 seed 完全确定；可钉 skeleton/family/split。 */
+/** C.1 `make_task`：同 seed 完全确定；可钉 skeleton/family/split。goal 域族只走适格池（R2-P0-2）。 */
 export function makeTask(
   seed: number,
   style: Style = 'follow',
@@ -235,6 +222,7 @@ export function makeTask(
   for (let i = 0; i < 200; i++) {
     const sk = skeleton ?? _stratifiedChoice(rng, pool);
     const fam = family ?? rng.choice(STYLES[style]);
+    if (isGoalDomain(fam) && !goalEligible(sk.root, sk.plan)) continue;
     const task = instanceTask(rng, sk.root, sk.plan, fam, style);
     if (task !== null && (split === undefined || task.split === split)) return task;
   }
@@ -245,6 +233,8 @@ export function makeTask(
  * C.1 `make_split`：确定性配额——每 (style, family) 生成 per_family 条，轮转顺序
  * 固定；骨架不够则同骨架多实例化（上限 maxPerSkeleton），仍不够报错不静默降级。
  * 只用于统计集/val，「每骨架都被考核」由 makeCoverageSplit 保证，二者不可混用。
+ * goal 域族（goal/goal_verify）只走适格池（R2-P0-2）：长度不变类等不适格骨架
+ * 产不出 goal 任务，留在池里只会空烧采样预算。
  */
 export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkeleton = 4): Task[] {
   const rng = makeRng(seed);
@@ -253,8 +243,14 @@ export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkele
   for (const style of ['follow', 'goal'] as const) {
     for (const fam of STYLES[style]) {
       let n = 0;
+      const epool = isGoalDomain(fam)
+        ? pool.filter((sk) => goalEligible(sk.root, sk.plan))
+        : pool;
+      if (epool.length === 0) {
+        throw new Error(`${split}/${style}/${fam}: eligible pool empty`);
+      }
       for (let rep = 0; rep < maxPerSkeleton; rep++) {
-        for (const sk of pool) {
+        for (const sk of epool) {
           if (n >= perFamily) break;
           const task = instanceTask(rng, sk.root, sk.plan, fam, style);
           if (task !== null && task.split === split) {
@@ -272,20 +268,26 @@ export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkele
   return out;
 }
 
-/** 覆盖构造结果：tasks = 恰 1 条/（可产骨架 × style × family）；unproducible = 注册表命中键。 */
+/**
+ * 覆盖构造结果：tasks = 恰 1 条/（适格池骨架 × style × family）；unproducible =
+ * goal 域族适格性筛除的键（与注册表同口径）；ineligible = 被筛除的骨架 id 清单
+ * （R2-P0-2 显式上报，不静默）。
+ */
 export interface CoverageSplitInfo {
   readonly tasks: Task[];
   readonly unproducible: readonly string[];
   readonly unproducibleCount: number;
+  readonly ineligible: readonly string[];
+  readonly ineligibleCount: number;
 }
 
 /**
- * C.1 `make_coverage_split` 的可判定版：每个 (该切分骨架 × style × family) 恰 1 条；
- * 只允许同骨架重试（50 次），禁止跨骨架顶替。goal 两族存在结构性不可产域
- * （gen/producibility.ts），注册表成员记为 known-unproducible 带出计数、不进覆盖
- * 断言；可产域任一骨架产不出仍抛错（覆盖声明在可产域上成立）。follow 族按
- * 构造全域可产，注册表一旦出现 follow 键即判定被破坏，当场抛错。骨架池默认
- * 取 `_pool(split)`，可注入（小子集冒烟/构造抛错分支）。
+ * C.1 `make_coverage_split` 的可判定版：每个 (该切分**适格池**骨架 × style × family)
+ * 恰 1 条；只允许同骨架重试（50 次），禁止跨骨架顶替。goal 域族覆盖声明缩到
+ * 适格池（R2-P0-2）：goalEligible 不适格的骨架记为 known-unproducible 带出计数与
+ * 清单（显式化，不静默），可产域任一骨架产不出仍抛错（覆盖声明在适格域上成立）。
+ * follow 族按构造全域适格且可产，注册表一旦出现 follow 键即判定被破坏，当场抛错。
+ * 骨架池默认取 `_pool(split)`，可注入（小子集冒烟/构造抛错分支）。
  */
 export function makeCoverageSplitInfo(
   split: Split,
@@ -303,13 +305,15 @@ export function makeCoverageSplitInfo(
   );
   const out: Task[] = [];
   const unproducible: string[] = [];
+  const ineligible = new Set<string>();
   for (const style of ['follow', 'goal'] as const) {
     for (const fam of STYLES[style]) {
       for (const sk of pool) {
         const cid = _skelId(sk);
         const key = coverageKey(style, fam, cid);
-        if (UNPRODUCIBLE_HELDOUT.has(key)) {
+        if (isGoalDomain(fam) && !goalEligible(sk.root, sk.plan)) {
           unproducible.push(key);
+          ineligible.add(cid);
           continue;
         }
         let task: Task | null = null;
@@ -327,7 +331,14 @@ export function makeCoverageSplitInfo(
       }
     }
   }
-  return { tasks: out, unproducible, unproducibleCount: unproducible.length };
+  const ineligibleIds = [...ineligible].sort(codepointCompare);
+  return {
+    tasks: out,
+    unproducible,
+    unproducibleCount: unproducible.length,
+    ineligible: ineligibleIds,
+    ineligibleCount: ineligibleIds.length,
+  };
 }
 
 /** C.1 `make_coverage_split` 签名保持：覆盖集任务列表（计数走 makeCoverageSplitInfo）。 */

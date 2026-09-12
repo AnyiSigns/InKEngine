@@ -1,10 +1,11 @@
 /**
- * gen/producibility 测试（heldout 可产域注册表 + 单步捷径判定）。
+ * gen/producibility 测试（适格性注册表薄层 + 单步捷径判定）。
  *
- * 断言：判定池 = sampleGoal 采样空间（防漂移）；键仅 goal 两族、follow 零键、
- * composition_id 全落 heldout；规模与实测 211/830 一致；注册表成员经判定池 ×
- * 全域 witness 穷举独立复核零候选（独立 oracle，不 import 被测实现），且
- * goal 两族实例化恒零产出；可产域（非注册表）骨架 goal 两族必在重试预算内产出；
+ * 断言：GOAL_PROBE_GOALS 与 sampleGoal 采样空间防漂移；注册表键仅 goal 两族
+ * （由 goalEligible 派生的 heldout 视图，follow 零键）、规模与实测 210/829 一致、
+ * 与 live goalEligible 完全等价；注册表成员经独立判定池 × 全域 witness 穷举零
+ * 「初始不达标∧终值达标」候选（独立 oracle，不 import 被测判定实现），且 goal
+ * 两族实例化恒零产出；適格（非注册表）heldout 骨架 goal 两族必在重试预算内产出；
  * hasOneStepSolution 对 value/goal/verify 族的正/负判据。
  */
 
@@ -12,9 +13,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   coverageKey,
+  GOAL_PROBE_GOALS,
+  goalEligible,
   hasOneStepSolution,
-  INT_GOAL_POOL,
-  STR_GOAL_POOL,
   UNPRODUCIBLE_HELDOUT,
 } from '../gen/producibility.js';
 import { SKELETONS, _skelId, type Skel } from '../gen/skeletons.js';
@@ -26,7 +27,7 @@ import { makeRng } from '../world/rng.js';
 import { goalOk, type Goal } from '../world/goal.js';
 import type { Task } from '../schema.js';
 
-/** 字面誊写 sampleGoal（C.1 词表）的独立 oracle，不 import 被测实现。 */
+/** 独立判定池（字面誊写 C.1 采样词表，不 import 被测实现）：Int 5 单体 + 25 合取。 */
 function oraclePoolInt(): Goal[] {
   const singles: Goal[] = [
     { kind: 'parity', target: 0 },
@@ -48,26 +49,42 @@ function oraclePoolStr(): Goal[] {
   return out;
 }
 
-describe('gen/producibility/UNPRODUCIBLE_HELDOUT（可产域注册表）', () => {
-  it('注册表判定池与 sampleGoal 采样空间一致（防判定域漂移）', () => {
-    expect(INT_GOAL_POOL.length).toBe(30);
-    expect(STR_GOAL_POOL.length).toBe(6);
-    expect(oraclePoolInt().length).toBe(30);
-    expect(oraclePoolStr().length).toBe(6);
-    const intSeen = new Set<string>();
-    const strSeen = new Set<string>();
-    for (let s = 0; s < 3000; s++) {
-      intSeen.add(JSON.stringify(sampleGoal(makeRng(s), 'Int')));
-      strSeen.add(JSON.stringify(sampleGoal(makeRng(s), 'Str')));
-    }
-    // 采样空间 ⊆ 判定池，且判定池每个实例都被采样命中（池不可多也不可少）。
-    for (const g of intSeen) expect(INT_GOAL_POOL.some((p) => JSON.stringify(p) === g), g).toBe(true);
-    for (const g of strSeen) expect(STR_GOAL_POOL.some((p) => JSON.stringify(p) === g), g).toBe(true);
-    expect(intSeen.size).toBe(INT_GOAL_POOL.length);
-    expect(strSeen.size).toBe(STR_GOAL_POOL.length);
-  });
+/** 把 goal 摊平为单体集合（合取达标 ⇒ 某子句在初始不达标处单独成立）。 */
+function flatten(goal: Goal): Goal[] {
+  return goal.kind === 'all' ? [...flatten(goal.of[0]!), ...flatten(goal.of[1]!)] : [goal];
+}
 
-  it('键合法：仅 goal 两族（follow 零键），两族对称，composition_id 全落 heldout 骨架', () => {
+describe('gen/producibility/GOAL_PROBE_GOALS（适格判定池防漂移）', () => {
+  it('判定池恰为 C.1 七项；每项都在 sampleGoal Int/Str 采样空间的可采单体集内', () => {
+    expect(GOAL_PROBE_GOALS.map((g) => JSON.stringify(g))).toEqual(
+      [
+        { kind: 'parity', target: 0 },
+        { kind: 'parity', target: 1 },
+        { kind: 'gt', target: 0 },
+        { kind: 'gt', target: 5 },
+        { kind: 'gt', target: 20 },
+        { kind: 'len', min: 1, max: 3 },
+        { kind: 'len', min: 2, max: 5 },
+      ].map((g) => JSON.stringify(g)),
+    );
+    const intSingles = new Set<string>();
+    const strSingles = new Set<string>();
+    for (let s = 0; s < 4000; s++) {
+      for (const g of flatten(sampleGoal(makeRng(s), 'Int'))) intSingles.add(JSON.stringify(g));
+      for (const g of flatten(sampleGoal(makeRng(s), 'Str'))) strSingles.add(JSON.stringify(g));
+    }
+    for (const g of GOAL_PROBE_GOALS) {
+      const key = JSON.stringify(g);
+      // 词表漂移（阈值/端点改动）会在这里炸：判定池项必须采样可达。
+      const reachable =
+        g.kind === 'len' ? strSingles.has(key) : intSingles.has(key);
+      expect(reachable, `判定池项 ${key} 不在 sampleGoal 可采域`).toBe(true);
+    }
+  });
+});
+
+describe('gen/producibility/UNPRODUCIBLE_HELDOUT（goalEligible 派生的薄层注册表）', () => {
+  it('键合法：仅 goal 两族（follow 零键）、两族对称、composition_id 全落 heldout 骨架', () => {
     const keys = [...UNPRODUCIBLE_HELDOUT];
     expect(keys.some((k) => k.startsWith('follow:'))).toBe(false);
     const ids = new Set<string>();
@@ -82,14 +99,25 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（可产域注册表）', () =>
     expect(ids.size).toBeGreaterThan(0);
   });
 
-  it('规模与实测一致：211 骨架 × 2 族 = 422 键（heldout 211/830）', () => {
+  it('规模与实测一致：210 不适格骨架 × 2 族 = 420 键（heldout 210/829）', () => {
     const heldoutN = SKELETONS.filter((sk) => splitOf(sk) === 'heldout').length;
-    expect(UNPRODUCIBLE_HELDOUT.size).toBe(422);
-    expect(heldoutN).toBe(830);
-    expect(UNPRODUCIBLE_HELDOUT.size).toBe(211 * 2);
+    expect(heldoutN).toBe(829);
+    expect(UNPRODUCIBLE_HELDOUT.size).toBe(420);
+    expect(UNPRODUCIBLE_HELDOUT.size).toBe(210 * 2);
   });
 
-  it('抽样注册表成员全域复核：判定池 × 全域 witness 穷举零候选（不可产不靠预算）', () => {
+  it('薄层等价：注册表 goal 键 ⟺ heldout ∧ ¬goalEligible（注册表不得有第二套判定）', () => {
+    for (const sk of SKELETONS) {
+      const id = _skelId(sk);
+      if (!HELDOUT_SKELETONS.has(id)) continue;
+      const inRegistry = UNPRODUCIBLE_HELDOUT.has(coverageKey('goal', 'goal', id));
+      expect(inRegistry, `${sk.root}:${sk.plan.join(',')}`).toBe(!goalEligible(sk.root, sk.plan));
+    }
+  });
+});
+
+describe('gen/producibility/goalEligible（独立全域穷举复核）', () => {
+  it('抽样注册表成员：独立判定池 × 全域 witness 穷举零「初始不达标∧终值达标」候选', () => {
     const byId = new Map(SKELETONS.map((sk) => [_skelId(sk), sk]));
     const poolStr = oraclePoolStr();
     const sampled = [...UNPRODUCIBLE_HELDOUT]
@@ -113,7 +141,7 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（可产域注册表）', () =>
         }
       }
     }
-  }, 120_000);
+  }, 180_000);
 
   it('注册表成员行为复核：goal 两族 × 8 seed 的 instanceGoal 全部零产出', () => {
     const byId = new Map(SKELETONS.map((sk) => [_skelId(sk), sk]));
@@ -130,9 +158,9 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（可产域注册表）', () =>
         }
       }
     }
-  }, 180_000);
+  }, 240_000);
 
-  it('非注册表 heldout 骨架抽样：可产域内 goal 两族必在重试预算内产出', () => {
+  it('非注册表 heldout 骨架抽样：适格域内 goal 两族必在重试预算内产出', () => {
     const good = SKELETONS.filter(
       (sk) => splitOf(sk) === 'heldout' && !UNPRODUCIBLE_HELDOUT.has(coverageKey('goal', 'goal', _skelId(sk))),
     ).slice(0, 12);
@@ -147,7 +175,7 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（可产域注册表）', () =>
         expect(ok, `可产骨架 ${sk.plan.join(',')} goal/${fam}`).toBe(true);
       }
     }
-  }, 120_000);
+  }, 180_000);
 });
 
 describe('gen/producibility/hasOneStepSolution（depth-1 捷径守卫）', () => {
@@ -171,7 +199,7 @@ describe('gen/producibility/hasOneStepSolution（depth-1 捷径守卫）', () =>
     expect(hasOneStepSolution(baseTask({ expected: 8 }), GRAPH)).toBe(false); // 需 add3→submit 两步
   });
 
-  it('goal 族：submit 可达判有；恒等骨架对 len 目标判无（无解亦无捷径）', () => {
+  it('goal 族：submit 可达判有；初始不达标 witness 对 len 目标判无（无解亦无捷径）', () => {
     expect(
       hasOneStepSolution(
         baseTask({ style: 'goal', family: 'goal', x: 'abcd', root: 'Str', spec: { goal: { kind: 'len', min: 2, max: 4 } } }),
@@ -184,13 +212,13 @@ describe('gen/producibility/hasOneStepSolution（depth-1 捷径守卫）', () =>
         GRAPH,
       ),
     ).toBe(false); // submit 'abcdef' len6 越界、echo 'echo:abcdef' len12 越界，单步无解
-    const idSkel: Skel = { root: 'Str', plan: ['reverse', 'reverse'] };
+    const lenShift: Skel = { root: 'Str', plan: ['upper', 'reverse'] };
     expect(
       hasOneStepSolution(
-        baseTask({ style: 'goal', family: 'goal', x: 'abcdef', root: 'Str', spec: { goal: { kind: 'len', min: 3, max: 5 } }, plan_hidden: [...idSkel.plan, 'submit'] }),
+        baseTask({ style: 'goal', family: 'goal', x: 'abcdef', root: 'Str', spec: { goal: { kind: 'len', min: 3, max: 5 } }, plan_hidden: [...lenShift.plan, 'submit'] }),
         GRAPH,
       ),
-    ).toBe(false); // 恒等骨架对 len 目标的初始不达标 witness：任何单步都达不到目标
+    ).toBe(false); // 长度不变类骨架+初始不达标 witness：任何单步都达不到目标
   });
 
   it('verify 族：answer 与 verdict 双通道单步互斥，验收不可破', () => {

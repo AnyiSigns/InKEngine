@@ -12,8 +12,9 @@ import {
   requiresTypes,
   runPlan,
   sampleValue,
+  verdictPass,
 } from '../world/operators.js';
-import { crc32 } from '../world/hash.js';
+import { crc32, hashObj } from '../world/hash.js';
 import { makeRng } from '../world/rng.js';
 import type { State } from '../world/operators.js';
 
@@ -29,6 +30,26 @@ describe('world/operators/emod', () => {
     }
     expect(emod(-1, 7)).toBe(6);
     expect(emod(10, 7)).toBe(3);
+  });
+});
+
+describe('world/operators/verdictPass（R2-P0-1 verdict 绑定被检值）', () => {
+  it('写法 = "pass:"+hash8(值)，hash8 取 hashObj 前 8 位', () => {
+    expect(verdictPass(8)).toBe('pass:' + hashObj(8).slice(0, 8));
+    expect(verdictPass('ABC')).toBe('pass:' + hashObj('ABC').slice(0, 8));
+  });
+
+  it('不同值指纹不同；同值恒定（Int 与 Str 不串味）', () => {
+    expect(verdictPass(8)).not.toBe(verdictPass(9));
+    expect(verdictPass('AB')).not.toBe(verdictPass('ab'));
+    expect(verdictPass(8)).toBe(verdictPass(8));
+  });
+
+  it('check_* 通过写当次值指纹，不通过写非 pass 前缀的固定 "fail"', () => {
+    expect(applyOp(GRAPH_BASE, 'check_parity', initState(4, { parity: 0 }))!.verdict).toBe(verdictPass(4));
+    expect(applyOp(GRAPH_BASE, 'check_parity', initState(3, { parity: 1 }))!.verdict).toBe(verdictPass(3));
+    expect(applyOp(GRAPH_BASE, 'check_parity', initState(3, { parity: 0 }))!.verdict).toBe('fail');
+    expect(applyOp(GRAPH_BASE, 'check_len', initState('abc', { length: 4 }))!.verdict).toBe('fail');
   });
 });
 
@@ -109,9 +130,9 @@ describe('world/operators/applyOp（B.2 变换表）', () => {
     { op: 'cond_long', x: 'abcd', expected: { x: 'ABCD' } },
     { op: 'cond_long', x: 'abc', expected: { x: 'abc?' } },
     { op: 'submit', x: 'abc', expected: { answer: 'abc' } },
-    { op: 'check_parity', x: 4, spec: { parity: 0 }, expected: { verdict: 'pass' } },
+    { op: 'check_parity', x: 4, spec: { parity: 0 }, expected: { verdict: verdictPass(4) } },
     { op: 'check_parity', x: 3, spec: { parity: 0 }, expected: { verdict: 'fail' } },
-    { op: 'check_len', x: 'abc', spec: { length: 3 }, expected: { verdict: 'pass' } },
+    { op: 'check_len', x: 'abc', spec: { length: 3 }, expected: { verdict: verdictPass('abc') } },
     { op: 'check_len', x: 'ab', spec: { length: 3 }, expected: { verdict: 'fail' } },
     { op: 'noop', x: 7, expected: { x: 7 } },
     { op: 'fake_add', x: 3, expected: { x: 5 } },
@@ -178,10 +199,11 @@ describe('world/operators/runPlan（B.1/C.1）', () => {
     expect(runPlan(['upper', 'add3'], initState('abc'))).toBeNull();
   });
 
-  it('verify 族回放：submit + check_* 双生产者就绪', () => {
+  it('verify 族回放：submit + check_* 双生产者就绪，verdict 携带 answer 指纹', () => {
     const end = runPlan(['mul2', 'submit', 'check_parity'], initState(4, { parity: 0 }))!;
     expect(end.answer).toBe(8);
-    expect(end.verdict).toBe('pass');
+    // 合法顺序 submit→check 之间 x 不变，pass 指纹绑定被检值 = answer 指纹。
+    expect(end.verdict).toBe(verdictPass(8));
   });
 });
 

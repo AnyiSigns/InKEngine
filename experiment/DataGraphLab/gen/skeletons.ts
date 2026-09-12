@@ -23,7 +23,7 @@ import {
   type Contract,
   type State,
 } from '../world/operators.js';
-import { t, type TypeName } from '../world/types.js';
+import { t, deepEq, type TypeName } from '../world/types.js';
 import { canonicalJson, hashObj } from '../world/hash.js';
 import type { Root } from '../schema.js';
 
@@ -168,8 +168,27 @@ export function dedupeBySignature(skels: readonly Skel[]): Skel[] {
   return [...best.values()].sort(compareSkel);
 }
 
-/** 去冗余后的全量骨架池（模块级一次性计算，H.1 量级 10^4）。 */
-export const SKELETONS: readonly Skel[] = dedupeWithSigs(enumerateWithSigs(MAX_DEPTH));
+/**
+ * C.1 `is_identity`：恒等签名——全部探针回放后 `x` 不变（如 [neg,neg]、[reverse,reverse]）。
+ * 不提供任何组合信息，且其任务存在 0-op 解（直接 submit 即等于起点），故在 SKELETONS
+ * 构造时丢弃：否则 follow 极小性守卫（has_shortcut）会对这类骨架的每个 witness 判捷径，
+ * 且无信息骨架混入 held-out 徒增覆盖声明噪声。（注：计划 C.1 把 [add3,sub1] 举例为恒等，
+ * 但 add3∘sub1 = x+2 非恒等——同文件 dedupe 用例自证其为独立签名类；以“全探针值不变”
+ * 的判定式为准。）
+ */
+export function isIdentity(root: Root, skeleton: readonly string[]): boolean {
+  const probes: readonly (number | string)[] = root === 'Int' ? PROBE_INT : PROBE_STR;
+  for (const probe of probes) {
+    const st = runPlan(skeleton, initState(probe));
+    if (st === null || !deepEq(st.x, probe)) return false;
+  }
+  return true;
+}
+
+/** 去冗余后的全量骨架池（模块级一次性计算，H.1 量级 10^4）；恒等签名不入池。 */
+export const SKELETONS: readonly Skel[] = dedupeWithSigs(enumerateWithSigs(MAX_DEPTH)).filter(
+  (sk) => !isIdentity(sk.root, sk.plan),
+);
 
 /** C.1 `_skel_id`：骨架的稳定指纹（composition_id 口径，切分只看它）。 */
 export function _skelId(sk: Skel): string {

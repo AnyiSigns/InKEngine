@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import { CHANNEL, accept, acceptChannelled } from '../verify/acceptor.js';
 import { runSandboxed } from '../verify/sandbox.js';
-import { initState } from '../world/operators.js';
-import { hashObj } from '../world/hash.js';
+import { initState, verdictPass } from '../world/operators.js';
+import { goalOk } from '../world/goal.js';
+import { hash8, hashObj } from '../world/hash.js';
 import type { State } from '../world/operators.js';
+import type { Goal } from '../world/goal.js';
 import type { Task } from '../schema.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -87,23 +89,30 @@ describe('verify/accept B.4 配方族 value', () => {
   });
 });
 
-describe('verify/accept B.4 配方族 verify（双生产者）', () => {
-  it('answer 正确 + verdict=pass 才接受', () => {
-    expect(accept(verifyTask, withAnswer(4, 8, { verdict: 'pass' }))).toBe(true);
+describe('verify/accept B.4 配方族 verify（双生产者，verdict=pass:answer 指纹）', () => {
+  it('answer 正确 + verdict=pass:{hash8(answer)} 才接受', () => {
+    expect(accept(verifyTask, withAnswer(4, 8, { verdict: verdictPass(8) }))).toBe(true);
   });
 
-  it('verdict 缺失或非 pass 一律拒', () => {
+  it('verdict 缺失或非指纹（含裸 pass/fail/PASS）一律拒', () => {
     expect(accept(verifyTask, withAnswer(4, 8))).toBe(false);
     expect(accept(verifyTask, withAnswer(4, 8, { verdict: 'fail' }))).toBe(false);
     expect(accept(verifyTask, withAnswer(4, 8, { verdict: 'PASS' }))).toBe(false);
+    // 旧口径的裸 "pass" 旗标在新口径下不再被接受（必须绑定 answer 指纹）。
+    expect(accept(verifyTask, withAnswer(4, 8, { verdict: 'pass' }))).toBe(false);
   });
 
-  it('旧 verdict 复用：answer 改错后即使 verdict=pass 也拒', () => {
-    expect(accept(verifyTask, withAnswer(4, 7, { verdict: 'pass' }))).toBe(false);
+  it('指纹漂移：answer 对但 verdict 是别的值的指纹 → 拒', () => {
+    expect(accept(verifyTask, withAnswer(4, 8, { verdict: verdictPass(9) }))).toBe(false);
   });
 
-  it('value 族不受 verdict 牵制：answer 正确即接受', () => {
+  it('旧 verdict 复用：answer 改错后即使携带原 answer 指纹也拒（answer 已不等于该指纹）', () => {
+    expect(accept(verifyTask, withAnswer(4, 7, { verdict: verdictPass(8) }))).toBe(false);
+  });
+
+  it('value 族不受 verdict 牵制：answer 正确即接受（verdict 可为任意脏值）', () => {
     expect(accept(valueTask, withAnswer(4, 8, { verdict: 'fail' }))).toBe(true);
+    expect(accept(valueTask, withAnswer(4, 8, { verdict: 'pass' }))).toBe(true);
   });
 });
 
@@ -134,18 +143,27 @@ describe('verify/accept B.4 目标族 goal（多解可接受）', () => {
   });
 });
 
-describe('verify/accept B.4 目标族 goal_verify（双生产者）', () => {
-  it('answer 满足目标 + verdict=pass 才接受', () => {
-    expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: 'pass' }))).toBe(true);
+describe('verify/accept B.4 目标族 goal_verify（双生产者 + R2-P0-1 指纹绑定）', () => {
+  it('answer 满足目标 + verdict=pass:{hash8(answer)} 才接受', () => {
+    expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: verdictPass(24) }))).toBe(true);
   });
 
-  it('verdict 缺失或非 pass 一律拒', () => {
+  it('verdict 缺失或非当次值指纹一律拒', () => {
     expect(accept(goalVerifyTask, withAnswer(9, 24))).toBe(false);
     expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: 'fail' }))).toBe(false);
+    expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: 'pass' }))).toBe(false);
+    expect(accept(goalVerifyTask, withAnswer(9, 24, { verdict: verdictPass(21) }))).toBe(false);
   });
 
-  it('复活态：answer 改后不达标即使 verdict=pass 也拒', () => {
-    expect(accept(goalVerifyTask, withAnswer(9, 10, { verdict: 'pass' }))).toBe(false);
+  it('复活态：answer 改后不达标即使携带旧 answer 指纹也拒', () => {
+    expect(accept(goalVerifyTask, withAnswer(9, 10, { verdict: verdictPass(24) }))).toBe(false);
+  });
+
+  it('关键封堵：answer 被换成另一达标值（100>20）而 verdict 仍是旧值指纹 → 必拒', () => {
+    // 先 check 过 24 得 pass:{hash8(24)}，再改值后 submit 答 100（仍满足 gt20）——
+    // 目标判定成立、通道齐备，唯一拒因就是 verdict↔answer 绑定（旧 "pass" 旗标口径会放行）。
+    expect(goalOk(100, (goalVerifyTask.spec as { goal: Goal }))).toBe(true);
+    expect(accept(goalVerifyTask, withAnswer(9, 100, { verdict: verdictPass(24) }))).toBe(false);
   });
 });
 
@@ -166,11 +184,11 @@ describe('verify/acceptChannelled（C.2 通道收口）', () => {
 
   it('通道齐备后交给 accept：正确通过、错误拒绝', () => {
     expect(acceptChannelled(valueTask, withAnswer(4, 8))).toEqual({ passed: true, reason: 'accepted' });
-    expect(acceptChannelled(verifyTask, withAnswer(4, 8, { verdict: 'pass' }))).toEqual({ passed: true, reason: 'accepted' });
+    expect(acceptChannelled(verifyTask, withAnswer(4, 8, { verdict: verdictPass(8) }))).toEqual({ passed: true, reason: 'accepted' });
     expect(acceptChannelled(goalTask, withAnswer(9, 21))).toEqual({ passed: true, reason: 'accepted' });
-    expect(acceptChannelled(goalVerifyTask, withAnswer(9, 24, { verdict: 'pass' }))).toEqual({ passed: true, reason: 'accepted' });
+    expect(acceptChannelled(goalVerifyTask, withAnswer(9, 24, { verdict: verdictPass(24) }))).toEqual({ passed: true, reason: 'accepted' });
     expect(acceptChannelled(valueTask, withAnswer(4, 9))).toEqual({ passed: false, reason: 'rejected' });
-    expect(acceptChannelled(verifyTask, withAnswer(4, 7, { verdict: 'pass' }))).toEqual({ passed: false, reason: 'rejected' });
+    expect(acceptChannelled(verifyTask, withAnswer(4, 7, { verdict: verdictPass(8) }))).toEqual({ passed: false, reason: 'rejected' });
   });
 });
 

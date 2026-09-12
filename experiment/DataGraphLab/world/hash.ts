@@ -78,3 +78,8 @@ export function hashObj(o: unknown): string {
   const s = canonicalJson(o);
   return createHash('sha1').update(s, 'utf8').digest('hex').slice(0, 16);
 }
+
+/** hash8 = hashObj 前 8 位（B.4 verdict 指纹唯一口径；check_* 与 acceptor 共用，禁各自截断）。 */
+export function hash8(o: unknown): string {
+  return hashObj(o).slice(0, 8);
+}

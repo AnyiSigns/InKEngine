@@ -10,7 +10,7 @@ import { PermissionGate } from '../permissions/permissions.js';
 import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../registry/index.js';
 import type { InterruptPolicy } from '../approval/approval.js';
 import { register_perception_nodes } from '../../model/perception/perception.js';
-import { default_engine_pool_seed } from '../../core/nodes/index.js';
+import { default_engine_pool_seed } from '../../graph/nodes/index.js';
 import { RuntimeNodeRegistrar } from './_runtime_node_registry.js';
 import { EventTypeRegistry } from '../../model/event_types/registry.js';
 import {
@@ -42,7 +42,7 @@ import {
 } from '../../core/declarative_tools/index.js';
 import { EntityEvolutionPipeline } from '../entity_evolution/index.js';
 import { GuardedStorage, SelfApplicationPipeline } from '../self_application/index.js';
-import { GraphRegistries } from '../../core/registry/registry.js';
+import { GraphRegistries } from '../../graph/registry/registry.js';
 import { ProposalValidator } from '../self_proposal/index.js';
 import { MetaTuner, TurnMetrics } from '../tuning/index.js';
 import { KnowledgeSetRetriever, RetrieverRegistry } from '../../core/retrieval/index.js';

@@ -16,21 +16,21 @@
 
 import { NodeContract } from '../../model/contracts/contracts.js';
 import { GraphDefinitionError } from '../../model/errors.js';
-import type { NodeFactory } from '../../core/registry/registry_types.js';
+import type { NodeFactory } from '../../graph/registry/registry_types.js';
 import {
   has_engine_executor,
   register_engine_edge_conditions,
   register_engine_node_type,
-} from '../../core/nodes/index.js';
-import { derive_instance_contract } from '../../core/nodes/instance_contract.js';
-import type { EnginePoolSeed } from '../../core/nodes/index.js';
+} from '../../graph/nodes/index.js';
+import { derive_instance_contract } from '../../graph/nodes/instance_contract.js';
+import type { EnginePoolSeed } from '../../graph/nodes/index.js';
 import {
   NodeRegistryStore,
   node_registry_collection,
   type NodeRegistration,
   type NodeRegistrationInit,
   type NodeRegistrationProvenance,
-} from '../../core/node_registry/index.js';
+} from '../../graph/node_registry/index.js';
 import type { Storage } from '../../core/storage/storage.js';
 import type { AssemblyRecipe } from './_types.js';
 import { RuntimeSelfLearning } from './_runtime_self_learning.js';

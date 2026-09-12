@@ -25,7 +25,7 @@ import {
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
 import { TunableParams } from '../../../src/kernel/tuning/index.js';
 import { DEFAULT_NAMESPACE } from '../../../src/kernel/memory_extract/index.js';
-import { MemoryStorage } from '../executor/helpers.js';
+import { MemoryStorage } from '../../graph/executor/helpers.js';
 import type { EvolutionGate } from '../../../src/kernel/evolution/index.js';
 
 /** 假 LLM（引擎重建/stop 关停路径可复用）。 */

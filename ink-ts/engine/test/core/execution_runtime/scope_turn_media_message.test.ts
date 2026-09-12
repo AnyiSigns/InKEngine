@@ -16,15 +16,15 @@ import type { AsyncLLM, LLMChunk } from '../../../src/kernel/llm/_guard_types.js
 import type { Message } from '../../../src/kernel/llm/messages.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
-import { Engine } from '../../../src/kernel/executor/index.js';
+import { Engine } from '../../../src/graph/executor/index.js';
 import { EntitySpec } from '../../../src/core/entities/entities.js';
-import { GraphRegistries } from '../../../src/core/registry/registry.js';
+import { GraphRegistries } from '../../../src/graph/registry/registry.js';
 import {
   bind_engine_node_seams,
   default_engine_pool_seed,
   register_engine_node_types,
-} from '../../../src/core/nodes/index.js';
-import { _build_agent_scope_graph } from '../../../src/core/nodes/agent.js';
+} from '../../../src/graph/nodes/index.js';
+import { _build_agent_scope_graph } from '../../../src/graph/nodes/agent.js';
 import {
   build_turn_input_with_media,
   turn_image_to_attachment,

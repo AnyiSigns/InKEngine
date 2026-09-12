@@ -25,7 +25,7 @@ import { InterruptSignal } from '../../../src/kernel/interrupt/interrupt_types.j
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { ToolPipeline } from '../../../src/kernel/tool_pipeline/tool_pipeline.js';
 import type { Executor, ToolResult } from '../../../src/kernel/tool_pipeline/_types.js';
-import { STATE_ROUND_POSE } from '../../../src/core/nodes/constants.js';
+import { STATE_ROUND_POSE } from '../../../src/graph/nodes/constants.js';
 
 /** FileSandbox 的纯逻辑假体（sandbox 模块未移植时的占位）：根前缀解析 +
  *  越界拒绝（SandboxViolation），操作域声明对齐 FS 操作；真实路径解析

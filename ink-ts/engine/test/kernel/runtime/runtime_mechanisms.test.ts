@@ -17,7 +17,7 @@ import { EnvironmentSpec, RuntimeKind } from '../../../src/core/environments/ind
 import { DefaultInterruptPolicy } from '../../../src/kernel/approval/approval.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/kernel/self_tools/index.js';
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
-import { MemoryStorage } from '../executor/helpers.js';
+import { MemoryStorage } from '../../graph/executor/helpers.js';
 
 /** Host 五件套 mock（最小装配面：内存存储 + 直过审批策略）。 */
 class FakeHost {

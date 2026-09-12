@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { NodeTypeRegistry } from '../../../src/core/registry/registry.js';
+import { NodeTypeRegistry } from '../../../src/graph/registry/registry.js';
 import type { NodeContract } from '../../../src/model/contracts/contracts.js';
 import {
   EXPORT_ALLOW,

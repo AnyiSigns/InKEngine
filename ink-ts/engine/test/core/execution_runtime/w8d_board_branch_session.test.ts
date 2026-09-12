@@ -38,7 +38,7 @@ import type {
 import { exec_checkpoint_thread } from '../../../src/core/execution_runtime/run_checkpoint.js';
 import { default_whiteboard_grants } from '../../../src/core/whiteboard/index.js';
 import type { WhiteboardBlock } from '../../../src/core/whiteboard/index.js';
-import { MemoryStorage } from '../../kernel/executor/helpers.js';
+import { MemoryStorage } from '../../graph/executor/helpers.js';
 
 function entity(id: string): EntitySpec {
   return new EntitySpec({ id, role: id, persona: `${id} 作用域`, model: null });

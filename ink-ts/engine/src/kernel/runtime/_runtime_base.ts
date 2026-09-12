@@ -11,7 +11,7 @@
  */
 
 import type { AsyncLLM } from '../llm/_guard_types.js';
-import type { GraphRegistries } from '../../core/registry/registry.js';
+import type { GraphRegistries } from '../../graph/registry/registry.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import type {
   HarnessRegistry,
@@ -163,7 +163,7 @@ export abstract class RuntimeBase {
   /** 已降级策略边去重键（进程内在内存集；复审钩子幂等 upsert）。 */
   _pg_downgraded: ReadonlySet<string> = new Set();
   /** 声明式结点类型注册表 store（A3 决策 4：boot 种子 + 持久登记 + 恢复）。 */
-  node_registry_store: import('../../core/node_registry/index.js').NodeRegistryStore | null = null;
+  node_registry_store: import('../../graph/node_registry/index.js').NodeRegistryStore | null = null;
   _round_knowledge_hits: Set<string> = new Set();
   tool_index: ToolVectorIndex | null = null;
   tool_selector: ToolSelector | null = null;

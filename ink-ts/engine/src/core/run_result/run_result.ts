@@ -20,7 +20,7 @@ import type { StateSchema } from '../state/schema.js';
 import type { BudgetManager } from '../../kernel/budget/budget.js';
 import type { EngineTransport } from '../events/events.js';
 import type { InterruptState } from '../../kernel/interrupt/interrupt_types.js';
-import type { GraphRegistries } from '../registry/registry.js';
+import type { GraphRegistries } from '../../graph/registry/registry.js';
 import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
 import type { TurnMetrics } from '../../kernel/tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../kernel/settle/index.js';

@@ -7,7 +7,7 @@
  * （版本号/契约面/跨包 API），新增孤儿不被豁免。
  *
  * 扫描范围：
- * - 定义抽取：engine/src/core 与 engine/src/model 下所有 .ts 的顶层 `export function|class|enum|const`；
+ * - 定义抽取：engine/src/core、engine/src/model 与 engine/src/graph 下所有 .ts 的顶层 `export function|class|enum|const`；
  * - 消费索引：engine/src、engine/test、hosts/lib/src、hosts/lib/test、hosts/cli/src、hosts/cli/test、
  *   hosts/web/src、hosts/web/test、renderer/src、renderer/test（token 计数，注释/字符串也会计入，宽松侧）。
  *
@@ -86,7 +86,7 @@ function collect(ctx: SelfCheckContext): { defs: Def[]; counts: Map<string, numb
       const relPath = relative(base, file).split(sep).join('/');
       const text = readFileSync(file, 'utf8');
       addTokens(text);
-      if (relPath.startsWith('engine/src/core/') || relPath.startsWith('engine/src/model/')) {
+      if (relPath.startsWith('engine/src/core/') || relPath.startsWith('engine/src/model/') || relPath.startsWith('engine/src/graph/')) {
         DEF_RE.lastIndex = 0;
         let m: RegExpExecArray | null;
         while ((m = DEF_RE.exec(text)) !== null) {
@@ -145,7 +145,7 @@ export async function runGateSymbols(ctx: SelfCheckContext): Promise<GateResult>
   return {
     key: 'symbols',
     label: '符号引用计数',
-    command: 'engine/src/core 与 engine/src/model 顶层导出孤儿扫描',
+    command: 'engine/src/core、engine/src/model 与 engine/src/graph 顶层导出孤儿扫描',
     passed,
     seconds,
     summary,

@@ -13,17 +13,17 @@
  * 传递，不跨子引擎泄漏——scope 轮次本来就是独立收口的执行单元）。
  */
 
-import { GraphRegistries } from '../registry/registry.js';
+import { GraphRegistries } from '../../graph/registry/registry.js';
 import { Graph } from '../../model/graph/graph.js';
 import { RunOptions } from '../run_result/run_result.js';
-import { Engine } from '../../kernel/executor/index.js';
+import { Engine } from '../../graph/executor/index.js';
 import { EntitySpec } from '../entities/entities.js';
 import type { AsyncLLM } from '../../kernel/llm/_guard_types.js';
 import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
-import { register_engine_node_types, bind_engine_node_seams, default_engine_pool_seed } from '../nodes/index.js';
-import { _build_agent_scope_graph } from '../nodes/agent.js';
-import { STATE_ROUND_MODEL, STATE_ROUND_POSE } from '../nodes/constants.js';
+import { register_engine_node_types, bind_engine_node_seams, default_engine_pool_seed } from '../../graph/nodes/index.js';
+import { _build_agent_scope_graph } from '../../graph/nodes/agent.js';
+import { STATE_ROUND_MODEL, STATE_ROUND_POSE } from '../../graph/nodes/constants.js';
 import { failed_turn, ok_turn, type ScopeTurnResult, type ScopeTurnRunner } from './scope_turn.js';
 import type { RoundModelOverride, ScopeTurnContext } from './runtime_types.js';
 

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { GraphDefinitionError } from '../../../src/model/errors.js';
 import { Graph } from '../../../src/model/graph/graph.js';
-import { NodeTypeRegistry } from '../../../src/core/registry/registry.js';
+import { NodeTypeRegistry } from '../../../src/graph/registry/registry.js';
 import { build_workflow_graph } from '../../../src/model/workflow/workflow.js';
 import { WorkflowEdgeSpec, WorkflowNodeSpec, WorkflowSpec } from '../../../src/model/workflow/workflow_types.js';
 

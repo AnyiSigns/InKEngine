@@ -25,7 +25,7 @@ import {
 } from '../approval/approval.js';
 import type { ToolSpec } from '../llm/tools.js';
 import { ALLOW as _ALLOW, DENY as _DENY, REVIEW as _REVIEW } from '../permissions/permissions.js';
-import { STATE_ROUND_POSE } from '../../core/nodes/constants.js';
+import { STATE_ROUND_POSE } from '../../graph/nodes/constants.js';
 import { strip_sensitive } from '../../core/security/security.js';
 import { ToolTrace } from '../../core/tool_orchestrator/_types.js';
 import {

@@ -31,7 +31,7 @@ import {
   type SettleContext,
 } from '../settle/index.js';
 import { promotion_signature_key } from '../settle/promotion.js';
-import { default_engine_seed_edges } from '../../core/nodes/index.js';
+import { default_engine_seed_edges } from '../../graph/nodes/index.js';
 import { import_seed_paths } from '../settle/index.js';
 import { _KnowledgeUsageSettleHook, _LedgerSettleHook } from './_settle.js';
 import { RuntimeContexts } from './_runtime_contexts.js';

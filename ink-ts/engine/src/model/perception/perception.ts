@@ -25,7 +25,7 @@
 
 import { isRecord } from '../json.js';
 import { NodeContract } from '../contracts/contracts.js';
-import { NodeTypeRegistry } from '../../core/registry/registry.js';
+import { NodeTypeRegistry } from '../../graph/registry/registry.js';
 import { FIELD_NUMBER, FIELD_STRING, SchemaField, SchemaSpec } from '../schema/schemaValidator.js';
 
 // 感知结点类型名（不透明字符串，注册表不解释含义）

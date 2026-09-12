@@ -9,7 +9,7 @@
  * 未注入按确定值 0，测试可经 set_entity_evolution_now 冻结/推进）。
  */
 
-import { sha256_hex } from '../builder/_sha256.js';
+import { sha256_hex } from '../../graph/builder/_sha256.js';
 import type { EntitySpec } from '../../core/entities/entities.js';
 import type { EngineEvent } from '../../core/events/events.js';
 import { SOURCE_MODEL, SOURCE_RANK, SOURCE_USER } from '../../core/knowledge_signals/_types.js';

@@ -7,7 +7,7 @@ import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import {
   GraphRegistries,
   NodeTypeRegistry,
-} from '../../../src/core/registry/registry.js';
+} from '../../../src/graph/registry/registry.js';
 
 /** 节点注册表：write 类型工厂（登记图定义解析所需；执行语义留引擎）。 */
 export function _registry(): GraphRegistries {

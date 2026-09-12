@@ -32,7 +32,8 @@ import { runtime_contract } from '../src/kernel/runtime/contract.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENGINE = join(HERE, '..');
-const KERNEL_SRC = join(ENGINE, 'src', 'kernel');
+/** 0-IO 扫描目录（P3a 起 = kernel + graph：builder/executor 迁入 graph 后覆盖等价）。 */
+const MECH_SRC_DIRS = ['kernel', 'graph'].map((d) => join(ENGINE, 'src', d));
 
 /** gate 同步白名单：core/kernel 允许的 node 内置模块（镜像 gate config）。 */
 const CORE_ALLOWED_NODE = new Set(['node:async_hooks']);
@@ -53,8 +54,8 @@ interface IoViolation {
   label: string;
 }
 
-/** 递归收集 kernel 下全部 .ts 文件（含子目录）。 */
-function kernelTsFiles(): string[] {
+/** 递归收集机制层目录下全部 .ts 文件（含子目录）。 */
+function mechTsFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir)) {
@@ -66,7 +67,7 @@ function kernelTsFiles(): string[] {
       }
     }
   };
-  walk(KERNEL_SRC);
+  for (const root of MECH_SRC_DIRS) walk(root);
   return out;
 }
 
@@ -128,10 +129,10 @@ function verify_contracts(): string[] {
   return errors;
 }
 
-/** 0-IO：kernel 机制层禁 node 内置/第三方/IO 全局原语。 */
+/** 0-IO：kernel/graph（P3a 后含迁入 builder/executor 的机制件）禁 node 内置/第三方/IO 全局原语。 */
 function verify_zero_io(): string[] {
   const errors: string[] = [];
-  const files = kernelTsFiles();
+  const files = mechTsFiles();
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
     const rel = file.slice(ENGINE.length + 1).replace(/\\/g, '/');
@@ -178,7 +179,7 @@ function run(): number {
 
   if (failures.length === 0) {
     console.log(
-      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel 机制层零自持 IO`,
+      `verify:mechanisms PASS —— 契约 ${ALL_MECHANISM_CONTRACTS.length} 项密封/闭包完整，kernel/graph 机制层零自持 IO`,
     );
     return 0;
   }
@@ -188,3 +189,4 @@ function run(): number {
 }
 
 process.exit(run());
+;

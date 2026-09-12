@@ -30,7 +30,7 @@ import { Graph } from '../../model/graph/graph.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
 import { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import { Plan } from '../../core/plan/plan.js';
-import { GraphRegistries } from '../../core/registry/registry.js';
+import { GraphRegistries } from '../../graph/registry/registry.js';
 import { Rule } from '../../model/rules/index.js';
 import {
   SchemaSpec,

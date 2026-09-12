@@ -13,8 +13,8 @@ import { describe, expect, it } from 'vitest';
 
 import { AssemblyCandidate, AssemblyRequest } from '../../../src/kernel/multipath/types.js';
 import { PathAssemblyFlags } from '../../../src/model/contracts/contracts.js';
-import { NodeTypeRegistry } from '../../../src/core/registry/registry.js';
-import { Engine } from '../../../src/kernel/executor/index.js';
+import { NodeTypeRegistry } from '../../../src/graph/registry/registry.js';
+import { Engine } from '../../../src/graph/executor/index.js';
 import { Graph } from '../../../src/model/graph/graph.js';
 import { RunOptions } from '../../../src/core/run_result/run_result.js';
 import { BudgetRemaining } from '../../../src/kernel/budget/budget_types.js';
@@ -30,7 +30,7 @@ import {
   _multipath_depth_reset,
   _multipath_depth_set,
 } from '../../../src/kernel/multipath/_runner_base.js';
-import { _execute } from '../executor/helpers.js';
+import { _execute } from '../../graph/executor/helpers.js';
 import { DOMAIN, DUMMY_NOW, ENTRY, field, spec } from './helpers.js';
 
 /** 组装请求便捷构造（目标 answer，档位/域与 Python make_request 同形）。 */

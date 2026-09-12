@@ -69,12 +69,12 @@ export {
   register_route_edge_condition,
   register_route_edge_conditions,
   route_condition_name,
-} from '../core/nodes/index.js';
+} from '../graph/nodes/index.js';
 export type {
   EngineNodeSeams,
   EngineNodeTypeSeed,
   EnginePoolSeed,
-} from '../core/nodes/index.js';
+} from '../graph/nodes/index.js';
 
 // ── event_types：事件类型注册表 + 演化事件规格 ──
 

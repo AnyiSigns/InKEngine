@@ -95,19 +95,19 @@ export {
   register_route_edge_condition,
   register_route_edge_conditions,
   route_condition_name,
-} from '../core/nodes/index.js';
+} from '../graph/nodes/index.js';
 export type {
   EngineNodeSeams,
   EngineNodeTypeSeed,
   EnginePoolSeed,
-} from '../core/nodes/index.js';
+} from '../graph/nodes/index.js';
 
 // 补丁链（Patch/Path/PatchOp/AssembleMode 数据面 + 链操作）
 export * from '../kernel/patch/patchChain.js';
 
 // 执行器入口（Engine/run_subgraph/节点上下文协议）
-export { Engine, run_subgraph } from '../kernel/executor/index.js';
-export type { EngineBase, ExecuteOptions, NodeContext } from '../kernel/executor/index.js';
+export { Engine, run_subgraph } from '../graph/executor/index.js';
+export type { EngineBase, ExecuteOptions, NodeContext } from '../graph/executor/index.js';
 
 // 单轮运行结果（RunOptions/RunResult 等）
 export * from '../core/run_result/run_result.js';

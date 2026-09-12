@@ -31,7 +31,7 @@ import type {
 import { exec_checkpoint_thread } from '../../../src/core/execution_runtime/run_checkpoint.js';
 import { InterruptState } from '../../../src/kernel/interrupt/interrupt_types.js';
 import { validate_chain } from '../../../src/core/storage/storage.js';
-import { MemoryStorage } from '../../kernel/executor/helpers.js';
+import { MemoryStorage } from '../../graph/executor/helpers.js';
 
 function entity(id: string, persona: string): EntitySpec {
   return new EntitySpec({ id, role: id, persona, model: null });

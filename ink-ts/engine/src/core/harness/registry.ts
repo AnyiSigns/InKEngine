@@ -24,7 +24,7 @@ import { Graph } from '../../model/graph/graph.js';
 import type { ToolSpec } from '../../kernel/llm/tools.js';
 import type { NetworkPolicy } from '../../kernel/permissions/networkPolicy.js';
 import { Plan } from '../plan/plan.js';
-import { GraphRegistries } from '../registry/registry.js';
+import { GraphRegistries } from '../../graph/registry/registry.js';
 import { StateSchema } from '../state/schema.js';
 import { DEFAULT_MAX_RESULT_CHARS } from '../../kernel/tool_pipeline/tool_pipeline.js';
 import type { ToolPipeline } from '../../kernel/tool_pipeline/tool_pipeline.js';

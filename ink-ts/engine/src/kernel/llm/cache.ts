@@ -30,7 +30,7 @@
  * clock 注入面获得确定性。序列化助手拆入 _cache_serialize.ts（≤350 行纪律）。
  */
 
-import { sha256_hex } from '../builder/_sha256.js';
+import { sha256_hex } from '../../graph/builder/_sha256.js';
 import type { Storage } from '../../core/storage/storage.js';
 
 import type { LLMParams, LLMResult } from './base.js';

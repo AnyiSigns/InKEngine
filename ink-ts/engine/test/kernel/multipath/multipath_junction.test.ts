@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { EdgeEvidenceStore } from '../../../src/core/edge_evidence/index.js';
 import { EVENT_AUDIT_JUNCTION } from '../../../src/model/event_types/eventTypeSpecs.js';
 import { GraphDefinitionError } from '../../../src/model/errors.js';
-import { NodeTypeRegistry } from '../../../src/core/registry/registry.js';
+import { NodeTypeRegistry } from '../../../src/graph/registry/registry.js';
 import {
   ChainEvidence,
   EdgeRef,

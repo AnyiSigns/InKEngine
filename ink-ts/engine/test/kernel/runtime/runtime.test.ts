@@ -41,7 +41,7 @@ import { self_tool_specs, make_self_executor, operation_of } from '../../../src/
 import type { SelfToolContext } from '../../../src/kernel/self_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/kernel/tuning/index.js';
 import { SettleContext } from '../../../src/kernel/settle/index.js';
-import { MemoryStorage } from '../executor/helpers.js';
+import { MemoryStorage } from '../../graph/executor/helpers.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
 import { CheckpointRecord } from '../../../src/core/storage/storage_records.js';

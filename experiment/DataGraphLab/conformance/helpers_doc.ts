@@ -53,7 +53,7 @@ const CORE: readonly HelperRow[] = [
   { name: 'PROBE_INT / PROBE_STR', signature: 'readonly (number|string)[]', file: 'gen/skeletons.ts', status: '已落地', note: 'Int 全域 101 点；Str 固定十串' },
   { name: 'enumerateSkeletons', signature: 'enumerateSkeletons(maxDepth?): Skel[]', file: 'gen/skeletons.ts', status: '已落地', note: '只取 kind=op，终算子不入池；前缀增量探针向量，勿逐骨架重放' },
   { name: 'signature', signature: 'signature(root, skeleton): Sig', file: 'gen/skeletons.ts', status: '已落地', note: 'Int 全域探针可证正确；Str 固定探针' },
-  { name: 'dedupeBySignature', signature: 'dedupeBySignature(skels): Skel[]', file: 'gen/skeletons.ts', status: '已落地', note: '同签名留最短、同长取字典序首；纯函数，恒等过滤只在 SKELETONS 构造层' },
+  { name: 'dedupeBySignature', signature: 'dedupeBySignature(skels): Skel[]', file: 'gen/skeletons.ts', status: '已落地', note: '同签名留最短、同长取字典序首；纯函数，不含恒等过滤（构造层序：去冗余后恒等过滤，恒等过滤只在 SKELETONS 构造层）' },
   { name: 'isIdentity', signature: 'isIdentity(root, skeleton): boolean', file: 'gen/skeletons.ts', status: '已落地', note: '全探针值不变判恒等（[neg,neg]/[reverse,reverse] 真）；SKELETONS 不含恒等签名（R2-P0-3，其 0-op 解任务必抬 G2.2）' },
   { name: 'SKELETONS', signature: 'readonly Skel[]', file: 'gen/skeletons.ts', status: '已落地', note: '模块级一次性计算：去冗余后、恒等签名丢弃后的全量骨架池' },
   { name: '_skelId', signature: '_skelId(sk): string', file: 'gen/skeletons.ts', status: '已落地', note: 'hashObj([root, plan])，composition_id 口径' },

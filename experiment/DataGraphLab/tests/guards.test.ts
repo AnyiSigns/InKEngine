@@ -1,8 +1,8 @@
 /**
  * 生成侧守卫直测（R2-P0-1/2/3 新公开的三件套：isIdentity / goalEligible / hasShortcut）。
  *
- * isIdentity：恒等=全探针值不变的正/负直测，SKELETONS 不含恒等（去冗余前丢弃），
- * 原始枚举仍含恒等（只在骨架构造层过滤）；goalEligible：正/负直测——长度不变类
+ * isIdentity：恒等=全探针值不变的正/负直测，SKELETONS 不含恒等（构造层序：去冗余后
+ * 恒等过滤）；原始枚举仍含恒等（过滤只发生在 SKELETONS 构造层）；goalEligible：正/负直测——长度不变类
  * Str 骨架对 len 目标判不适格，值单调下移类 Int 骨架对 parity/gt 判不适格；
  * hasShortcut：mod7 开头 x∈0..6 场景构造 + 收尾提交长度判定；instance_follow/
  * makeSplit/覆盖集的产物必须无单步捷径（极小性守卫落地自证）。
@@ -62,7 +62,8 @@ describe('gen/guards/isIdentity（R2-P0-3 恒等签名判定）', () => {
 
   it('负例：普通/近似恒等/域内循环都不算恒等', () => {
     // add3∘sub1 = x+2——计划 C.1 注释把它举例为恒等，与 B.2 变换表矛盾；判定式
-    // （全探针值不变）为准，探针 x=10 → 12 ≠ 10 即假（详见汇报「待规划者决策」）。
+    // （全探针值不变）为准，探针 x=10 → 12 ≠ 10 即假（该口径差异登记于
+    // `experiment/DataGraphLab/README.md`「待决」节，等规划者复核后回写计划）。
     expect(isIdentity('Int', ['add3', 'sub1'])).toBe(false);
     expect(isIdentity('Int', ['sub1', 'add3'])).toBe(false);
     // mod7∘mod7 只在 [0,6] 上不变，探针 7 → 0 ≠ 7 即假。
@@ -73,7 +74,7 @@ describe('gen/guards/isIdentity（R2-P0-3 恒等签名判定）', () => {
     expect(isIdentity('Str', ['reverse'])).toBe(false); // 'ab'→'ba' 变值
   });
 
-  it('恒等签名不入 SKELETONS，但原始枚举仍含恒等（只在骨架构造层丢弃）', () => {
+  it('恒等签名不入 SKELETONS，但原始枚举仍含恒等（恒等过滤只发生在 SKELETONS 构造层，去冗余后执行）', () => {
     expect(SKELETONS.some((sk) => isIdentity(sk.root, sk.plan))).toBe(false);
     const raw = enumerateSkeletons();
     expect(raw.some((sk) => sk.root === 'Int' && sk.plan.join(',') === 'neg,neg')).toBe(true);

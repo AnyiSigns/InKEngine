@@ -55,7 +55,7 @@
 | `PROBE_INT / PROBE_STR` | `readonly (number|string)[]` | `gen/skeletons.ts` | 已落地 | Int 全域 101 点；Str 固定十串 |
 | `enumerateSkeletons` | `enumerateSkeletons(maxDepth?): Skel[]` | `gen/skeletons.ts` | 已落地 | 只取 kind=op，终算子不入池；前缀增量探针向量，勿逐骨架重放 |
 | `signature` | `signature(root, skeleton): Sig` | `gen/skeletons.ts` | 已落地 | Int 全域探针可证正确；Str 固定探针 |
-| `dedupeBySignature` | `dedupeBySignature(skels): Skel[]` | `gen/skeletons.ts` | 已落地 | 同签名留最短、同长取字典序首；纯函数，恒等过滤只在 SKELETONS 构造层 |
+| `dedupeBySignature` | `dedupeBySignature(skels): Skel[]` | `gen/skeletons.ts` | 已落地 | 同签名留最短、同长取字典序首；纯函数，不含恒等过滤（构造层序：去冗余后恒等过滤，恒等过滤只在 SKELETONS 构造层） |
 | `isIdentity` | `isIdentity(root, skeleton): boolean` | `gen/skeletons.ts` | 已落地 | 全探针值不变判恒等（[neg,neg]/[reverse,reverse] 真）；SKELETONS 不含恒等签名（R2-P0-3，其 0-op 解任务必抬 G2.2） |
 | `SKELETONS` | `readonly Skel[]` | `gen/skeletons.ts` | 已落地 | 模块级一次性计算：去冗余后、恒等签名丢弃后的全量骨架池 |
 | `_skelId` | `_skelId(sk): string` | `gen/skeletons.ts` | 已落地 | hashObj([root, plan])，composition_id 口径 |

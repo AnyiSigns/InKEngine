@@ -7,7 +7,9 @@
   "include": [
     "schema.ts",
     "world/**/*.ts",
+    "gen/**/*.ts",
     "verify/**/*.ts",
+    "runner/**/*.ts",
     "controller/**/*.ts",
     "conformance/**/*.ts",
     "tests/**/*.ts",

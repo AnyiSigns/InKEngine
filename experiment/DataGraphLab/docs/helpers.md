@@ -49,6 +49,28 @@
 | `renderGoal` | `renderGoal(rng, goal): string` | `world/render.ts` | 已落地 | 只描述目标，绝不出现算子义项 |
 | `goalOk` | `goalOk(value, spec): boolean` | `world/goal.ts` | 已落地 | parity/gt/len/all；类型守卫不抛异常 |
 | `validateLexicon` | `validateLexicon(): string[]` | `world/lexicon_audit.ts` | 已落地 | 覆盖/包含/歧义/goal 泄漏四项自检 |
+| `MAX_DEPTH` | `number` | `gen/skeletons.ts` | 已落地 | C.1 深度上限 = 5（不含终算子） |
+| `PROBE_INT / PROBE_STR` | `readonly (number|string)[]` | `gen/skeletons.ts` | 已落地 | Int 全域 101 点；Str 固定十串 |
+| `enumerateSkeletons` | `enumerateSkeletons(maxDepth?): Skel[]` | `gen/skeletons.ts` | 已落地 | 只取 kind=op，终算子不入池；前缀增量探针向量，勿逐骨架重放 |
+| `signature` | `signature(root, skeleton): Sig` | `gen/skeletons.ts` | 已落地 | Int 全域探针可证正确；Str 固定探针 |
+| `dedupeBySignature` | `dedupeBySignature(skels): Skel[]` | `gen/skeletons.ts` | 已落地 | 同签名留最短、同长取字典序首 |
+| `SKELETONS` | `readonly Skel[]` | `gen/skeletons.ts` | 已落地 | 模块级一次性计算，去冗余后全量骨架池 |
+| `_skelId` | `_skelId(sk): string` | `gen/skeletons.ts` | 已落地 | hashObj([root, plan])，composition_id 口径 |
+| `_stratum / STRATA` | `_stratum(sk): StratumKey; STRATA: ReadonlyMap` | `gen/splits.ts` | 已落地 | 分层键 = 深度 × 是否含 cond |
+| `_splitMaps` | `_splitMaps(strata?): {heldout; val}` | `gen/splits.ts` | 已落地 | 每层 heldout≈20%/val≈5%、保底 ≥1；层内 <2 报错 |
+| `HELDOUT_SKELETONS / VAL_SKELETONS` | `ReadonlySet<string>` | `gen/splits.ts` | 已落地 | composition_id 注册表，与 train 零重叠 |
+| `splitOf` | `splitOf(sk): Split` | `gen/splits.ts` | 已落地 | train/val/heldout 归属，切分只看骨架 |
+| `sampleGoal` | `sampleGoal(rng, root): Goal` | `gen/generator.ts` | 已落地 | Int parity/gt，Str len；40% 合取强制多步规划 |
+| `goalProbeHit` | `goalProbeHit(root, plan, goal): boolean` | `gen/generator.ts` | 已落地 | Int 全域精确剪枝；Str 只提示不剪枝 |
+| `hasOneStepSolution` | `hasOneStepSolution(task, graph): boolean` | `gen/generator.ts` | 已落地 | 关死单步 echo/submit 捷径；O(|candidates|) apply+accept |
+| `instanceFollow / instanceGoal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 已落地 | public spec + hidden gold；回放穿 accept 才返回 |
+| `STYLES / instanceTask` | `STYLES: Record<Style, Family[]>; instanceTask(...)` | `gen/generator.ts` | 已落地 | follow→value/verify；goal→goal/goal_verify |
+| `makeTask` | `makeTask(seed, style?, family?, split?, skeleton?): Task | null` | `gen/generator.ts` | 已落地 | 同 seed 完全确定；可钉骨架/族/切分 |
+| `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；配额不足抛错不静默 |
+| `makeCoverageSplit` | `makeCoverageSplit(split, seed?): Task[]` | `gen/generator.ts` | 已落地 | 每骨架每 (style,family) 恰 1 条；产不出即报错 |
+| `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装，含 entry/exit 结构节点 |
+| `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 已落地 | entry 禁入；exit 恒在；访问上限唯一实现 |
+| `MAX_STEPS` | `number` | `runner/graph.ts` | 已落地 | C.7/E.14 唯一口径 = 12 |
 
 ## T2 其余 helper（随各自 Phase 0 文件补齐）
 
@@ -59,14 +81,6 @@
 | `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已落地 | 契约闸+变换+hist 追加；null=死路 |
 | `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已落地 | 顺序回放，不写 expected |
 | `obs_snapshot` | `obsSnapshot(st): object` | `world/operators.ts` | 已落地 | 只投影 x/answer/verdict/hist |
-| `enumerate_skeletons` | `enumerateSkeletons(maxDepth): Skel[]` | `gen/generator.ts` | 待 Phase 0 | 只取 kind=op，终算子不入池 |
-| `signature` | `signature(root, skeleton): Sig` | `gen/generator.ts` | 待 Phase 0 | Int 全域探针；Str 固定探针 |
-| `dedupe_by_signature` | `dedupeBySignature(skels): Skel[]` | `gen/generator.ts` | 待 Phase 0 | 同签名留最短 |
-| `SKELETONS/STRATA/split_of` | `SKELETONS; STRATA; splitOf(sk)` | `gen/splits.ts` | 待 Phase 0 | 按骨架分层切 train/val/heldout |
-| `instance_follow/instance_goal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 待 Phase 0 | public spec + hidden gold plan |
-| `has_one_step_solution` | `hasOneStepSolution(task, graph): boolean` | `gen/generator.ts` | 待 Phase 0 | 关死单步 echo/submit 捷径 |
-| `make_task/make_split/make_coverage_split` | `makeTask(...); makeSplit(...); makeCoverageSplit(...)` | `gen/generator.ts` | 待 Phase 0 | 确定性配额；配额不足抛错 |
-| `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 待 Phase 0 | entry 禁入；访问上限唯一实现 |
 | `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；只看 public+产物 |
 | `CHANNEL` | `Readonly<Record<Family, readonly string[]>>` | `verify/acceptor.ts` | 已落地 | 通道表唯一真源；value/goal 单生产者，verify/goal_verify 双生产者 |
 | `acceptChannelled` | `acceptChannelled(task, st): Verdict` | `verify/acceptor.ts` | 已落地 | 只读本族通道字段；缺失即 reason=missing:<field> |

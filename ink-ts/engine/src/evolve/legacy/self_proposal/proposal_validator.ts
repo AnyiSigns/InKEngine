@@ -24,7 +24,7 @@ import { GraphDefinitionError } from '../../../model/errors.js';
 import { isRecord } from '../../../model/json.js';
 import { DeclarativeToolSpec, EndpointType } from '../../../loop/tools/declarative_tools/index.js';
 import { EntitySpec } from '../../../core/entities/entities.js';
-import { EnvironmentSpec } from '../../../core/environments/spec.js';
+import { EnvironmentSpec } from '../../../model/environments/spec.js';
 import { EventTypeSpec } from '../../../model/event_types/eventTypeSpec.js';
 import { Graph } from '../../../model/graph/graph.js';
 import { HarnessDefinition } from '../../../core/harness/index.js';

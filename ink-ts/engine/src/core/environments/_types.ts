@@ -8,7 +8,7 @@
  */
 import type { ProcessResult } from '../../gate/sandbox/index.js';
 
-import type { EnvironmentHandle, EnvironmentSpec } from './spec.js';
+import type { EnvironmentHandle, EnvironmentSpec } from '../../model/environments/spec.js';
 
 /** 环境审计落库的最小契约：put_record 单方法面。 */
 export interface EnvAuditStorage {

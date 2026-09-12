@@ -35,9 +35,9 @@ import type {
   SandboxSeam,
   TraceSink,
 } from '../../loop/tools/tool_pipeline/_types.js';
-import { _keyword_match } from './builder.js';
-import { DEFAULT_ROUTE_THRESHOLD, HarnessDefinition } from './definition.js';
-import type { CapabilityMatcher } from './definition.js';
+import { _keyword_match } from '../../model/harness/builder.js';
+import { DEFAULT_ROUTE_THRESHOLD, HarnessDefinition } from '../../model/harness/definition.js';
+import type { CapabilityMatcher } from '../../model/harness/definition.js';
 
 export type { CapabilityMatcher };
 

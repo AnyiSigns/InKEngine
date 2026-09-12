@@ -12,7 +12,7 @@ import type { CompressionPolicy } from '../context/context_compression.js';
 import type { EngineTransport } from '../../dock/ports/events.js';
 import type { HarnessDefinition } from '../../core/harness/index.js';
 import type { EntitySpec } from '../../core/entities/entities.js';
-import type { EnvironmentSpec } from '../../core/environments/spec.js';
+import type { EnvironmentSpec } from '../../model/environments/spec.js';
 import type { EventTypeSpec } from '../../model/event_types/eventTypeSpec.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import type { EnginePoolSeed } from '../../graph/nodes/index.js';

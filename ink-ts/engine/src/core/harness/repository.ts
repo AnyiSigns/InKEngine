@@ -32,7 +32,7 @@ import {
   HARNESS_COLLECTION,
   HarnessDefinition,
   harness_collection,
-} from './definition.js';
+} from '../../model/harness/definition.js';
 
 /** 仓库存储最小契约：records 通道读/写 + 全量列举（宿主 Storage 全量实现
  *  天然满足；seam 化免去测试侧实现完整 Storage 大接口）。 */

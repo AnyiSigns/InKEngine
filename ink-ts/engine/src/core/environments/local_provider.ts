@@ -30,10 +30,10 @@ import {
   ENV_STATUS_INSTALLING,
   ENV_STATUS_READY,
   DEFAULT_ENVS_DIR,
-} from './constants.js';
-import { displayInstallCmd, parseInstallCmd } from './install_cmd.js';
-import { pyRepr } from './_repr.js';
-import { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from './spec.js';
+} from '../../model/environments/constants.js';
+import { displayInstallCmd, parseInstallCmd } from '../../model/environments/install_cmd.js';
+import { pyRepr } from '../../model/environments/_repr.js';
+import { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from '../../model/environments/spec.js';
 import type { EnvAuditStorage } from './_types.js';
 
 /** 工具查找 seam（shutil.which 镜像：PATH 可寻返回路径；不可寻返回 null）。 */

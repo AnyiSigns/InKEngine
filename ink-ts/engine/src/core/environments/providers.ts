@@ -20,9 +20,9 @@ import {
   DEFAULT_ENVS_DIR,
   ENV_STATUS_DESTROYED,
   ENV_STATUS_READY,
-} from './constants.js';
+} from '../../model/environments/constants.js';
 import { LocalProvider } from './local_provider.js';
-import { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from './spec.js';
+import { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from '../../model/environments/spec.js';
 import type { EnvironmentProvider } from './_types.js';
 
 /** 浏览器端形态提供器（iframe 桥，无安装/运行概念；run 显式拒绝）。 */

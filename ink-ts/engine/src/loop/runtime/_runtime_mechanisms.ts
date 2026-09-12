@@ -15,9 +15,9 @@ import type { InterruptPolicy as HostPolicyLike } from '../../gate/approval/appr
 import { emit_audit } from '../../gate/audit_log/audit_log.js';
 import { EdgeEvidenceStore, RecordsEdgeEvidenceStorage } from '../../evolve/observe/usage_evidence/index.js';
 import { EnvironmentProviders } from '../../core/environments/providers.js';
-import type { EnvironmentSpec } from '../../core/environments/spec.js';
-import { EnvironmentHandle } from '../../core/environments/spec.js';
-import { ENV_STATUS_READY } from '../../core/environments/constants.js';
+import type { EnvironmentSpec } from '../../model/environments/spec.js';
+import { EnvironmentHandle } from '../../model/environments/spec.js';
+import { ENV_STATUS_READY } from '../../model/environments/constants.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import {
   EdgeEvidenceSettleHook,

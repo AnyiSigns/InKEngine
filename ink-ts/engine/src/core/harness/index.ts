@@ -12,14 +12,14 @@ export {
   HARNESS_COLLECTION,
   HARNESS_COLLECTION_PREFIX,
   harness_collection,
-} from './definition.js';
-export { HarnessDefinition } from './definition.js';
+} from '../../model/harness/definition.js';
+export { HarnessDefinition } from '../../model/harness/definition.js';
 export type {
   CapabilityMatcher,
   HarnessDefinitionInit,
-} from './definition.js';
-export { build_minimal_harness, _keyword_match } from './builder.js';
-export type { BuildMinimalHarnessOptions } from './builder.js';
+} from '../../model/harness/definition.js';
+export { build_minimal_harness, _keyword_match } from '../../model/harness/builder.js';
+export type { BuildMinimalHarnessOptions } from '../../model/harness/builder.js';
 export { HarnessRegistry } from './registry.js';
 export type { HarnessRegistryOptions, HarnessBuildPipelineOptions } from './registry.js';
 export { HarnessRepository, HarnessVersion } from './repository.js';

@@ -1,9 +1,9 @@
 {
-  "measuredOn": "2026-09-12",
+  "measuredOn": "2026-09-13",
   "engine": {
     "srcDirs": {
       "core": 7,
-      "model": 19,
+      "model": 21,
       "kernel": 3,
       "graph": 5,
       "gate": 10,

@@ -12,13 +12,13 @@ import {
   EnvironmentSpec,
   RuntimeKind,
 } from '../../../src/core/environments/index.js';
-import type { InstallCmd } from '../../../src/core/environments/install_cmd.js';
+import type { InstallCmd } from '../../../src/model/environments/install_cmd.js';
 import {
   displayInstallCmd,
   parseInstallCmd,
   validateInstallCmd,
-} from '../../../src/core/environments/install_cmd.js';
-import { shlex_split } from '../../../src/core/environments/_shlex.js';
+} from '../../../src/model/environments/install_cmd.js';
+import { shlex_split } from '../../../src/model/environments/_shlex.js';
 
 describe('EnvironmentSpec 序列化', () => {
   it('to_dict/from_dict 往返还原（值相等）', () => {

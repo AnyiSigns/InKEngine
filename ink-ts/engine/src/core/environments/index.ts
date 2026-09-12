@@ -11,11 +11,11 @@ export {
   ENV_STATUS_FAILED,
   ENV_STATUS_INSTALLING,
   ENV_STATUS_READY,
-} from './constants.js';
+} from '../../model/environments/constants.js';
 export { LocalProvider } from './local_provider.js';
 export type { LocalProviderOptions, Mkdirs, ToolLookup } from './local_provider.js';
 export { ContainerProvider, EnvironmentProviders, WebBridgeProvider } from './providers.js';
-export { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from './spec.js';
-export type { RuntimeKindValue } from './spec.js';
-export type { InstallCmd, InstallCmdMap } from './install_cmd.js';
+export { EnvironmentHandle, EnvironmentSpec, RuntimeKind } from '../../model/environments/spec.js';
+export type { RuntimeKindValue } from '../../model/environments/spec.js';
+export type { InstallCmd, InstallCmdMap } from '../../model/environments/install_cmd.js';
 export type { EnvAuditStorage, EnvironmentProvider } from './_types.js';

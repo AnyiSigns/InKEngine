@@ -8,7 +8,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
     "golden": "tsx conformance/gen_golden.ts",
-    "golden:check": "tsx conformance/gen_golden.ts --check"
+    "golden:check": "tsx conformance/gen_golden.ts --check",
+    "gate": "tsx conformance/gates/harness.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

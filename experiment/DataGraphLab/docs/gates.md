@@ -86,7 +86,8 @@ interface GateResult {
 - **算法**：
   1. 断言 `expected`/`spec`/`plan_hidden`/`plan_hash`/`seed` 不在 `obs_snapshot` 与
      主臂 `featurize_*` 的输入（`struct` 诊断 arch 的单例外单独标注）；
-  2. train/held-out 的 `composition_id`（骨架）集合交集为空；指令模板指纹无重叠；
+  2. train/held-out 的 `composition_id`（骨架）集合交集为空；指令模板指纹（follow
+     族、数字掩码后）无重叠——goal 族模板跨骨架复用是多解设计语义，不计泄漏；
   3. 抽样把 oracle 标签回放穿验收，冲突标签进 quarantine。
 - **输出 metrics**：`feature_leak_count`、`skeleton_overlap_count`、`template_overlap_count`、
   `label_conflict_count`、`quarantined_count`。
@@ -138,8 +139,9 @@ interface GateResult {
 
 ## 附：fixture 复用与非目标
 
-- G0.1/G0.3/G0.5 读取 `conformance/fixtures.json` 的冻结值复算；文档示例同源
-  （`docs/helpers.md` 亦由 `conformance/gen_golden.ts` 生成）。
+- G0.1 读取 `conformance/fixtures.json` 的冻结值复算（G0.3 的真值在
+  `verify/adversarial.ts` 套件本体、G0.5 的分层在 `gen/splits.ts` 的 `STRATA`，
+  不经 fixture）；文档示例同源（`docs/helpers.md` 亦由 `conformance/gen_golden.ts` 生成）。
 - `npm run golden:check` 保证 fixture 与文档未漂移；门禁脚本不得内联期望数字。
 - 本文件只覆盖 Phase 0 门禁；G1.x/G2.x/G4.x 沿用同一 `GateResult` 形状，在各自阶段
   补 `g1x_*`/`g2x_*`/`g4x_*`，阈值与口径以 `1789174413324-datagraphlab-data-engine-sft-controller.md`

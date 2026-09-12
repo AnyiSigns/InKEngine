@@ -67,7 +67,12 @@
 | `has_one_step_solution` | `hasOneStepSolution(task, graph): boolean` | `gen/generator.ts` | 待 Phase 0 | 关死单步 echo/submit 捷径 |
 | `make_task/make_split/make_coverage_split` | `makeTask(...); makeSplit(...); makeCoverageSplit(...)` | `gen/generator.ts` | 待 Phase 0 | 确定性配额；配额不足抛错 |
 | `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 待 Phase 0 | entry 禁入；访问上限唯一实现 |
-| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 待 Phase 0 | 通道收口；只看 public+产物 |
+| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；只看 public+产物 |
+| `CHANNEL` | `Readonly<Record<Family, readonly string[]>>` | `verify/acceptor.ts` | 已落地 | 通道表唯一真源；value/goal 单生产者，verify/goal_verify 双生产者 |
+| `acceptChannelled` | `acceptChannelled(task, st): Verdict` | `verify/acceptor.ts` | 已落地 | 只读本族通道字段；缺失即 reason=missing:<field> |
+| `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/旧 verdict 复用/复述原题/硬编码常量 |
+| `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
+| `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
 | `state_digest / plan_bfs` | `stateDigest(st): string; planBfs(task, graph): string[] | null` | `teacher/search.ts` | 待 Phase 0 | BFS 最短解；不进训练集 |
 | `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=596; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
 | `Policy.forward/backward/act/save/load` | `Policy` | `controller/policy.ts` | 待 Phase 0 | pointer 打分；数值梯度校验 |

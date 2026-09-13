@@ -1,4 +1,4 @@
-# kernel/permissions — 声明式权限门禁（契约文档）
+# gate/permissions — 声明式权限门禁（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -20,13 +20,13 @@
 
 ## 对外契约面
 
-公共面「权限与沙箱安全类型」组：`src/index.ts` `export * from
-'./kernel/permissions/permissions.js'`——12 名全部上公共面（逐名核对）：
+公共面「权限与沙箱安全类型」组：`dock/index.ts:180`（经 `src/index.ts` re-export
+收口出面）`export * from '../gate/permissions/permissions.js'`——12 名全部上公共面（逐名核对）：
 `ALLOW` `DENY` `REVIEW` `PermissionRule` `parse_permission` `network_matches`
 `rule_matches` `GateResult` `PermissionGate` `ToolGateConfig` `NetworkPolicy`
 `NetworkPolicySandbox`（后二经 `permissions.ts` 尾部转出，`networkPolicy.ts`
 无独立公共面入口）。机制契约 `permissions_contract` 经
-`kernel/registry/contracts.ts` 入全量注册表（34 机制）。
+`dock/registry/contracts.ts` 入全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -46,21 +46,21 @@
 
 机制契约 effects 空、depends 空——判定全部纯函数，无时间/随机 seam、零
 日志。模块级 fnmatch 编译缓存有界（512、最旧即弃，防不可信高基数 pattern
-撑爆）。`SandboxViolation`（core/errors）由 `NetworkPolicySandbox` 抛出，
+撑爆）。`SandboxViolation`（model/errors）由 `NetworkPolicySandbox` 抛出，
 供 `ToolPipeline` 沙箱环节 catch 收口为拒绝结果；review 档只标记、挂起
-委托宿主/门禁桥（`core/declarative_tools/_gates.ts`）。
+委托宿主/门禁桥（`loop/tools/declarative_tools/_gates.ts`）。
 
 ## 装配与消费
 
-- 引擎级门禁：`kernel/runtime/_runtime_boot`（`recipe.tool_gate.
+- 引擎级门禁：`loop/runtime/_runtime_boot`（`recipe.tool_gate.
   to_gate()`，未配置 = 缺省 `new PermissionGate()`）——与 hosts/lib
   `recipe.ts` 的 `tool_gate` 配置字段（`ToolGateConfig` 经公共面构造）对齐。
-- 端点级：`core/declarative_tools/pipeline.ts`（`options.gate ?? new
+- 端点级：`loop/tools/declarative_tools/pipeline.ts`（`options.gate ?? new
   PermissionGate()`）+ `_gates.ts` 把端点 `network_policy` 装配为
   `NetworkPolicySandbox`（review 档桥接审批）。
-- 判定原语消费：`kernel/tool_pipeline`（ALLOW/DENY/REVIEW/GateResult）、
-  `kernel/tool_vetting`（`parse_permission` 校验清单权限声明）、
-  `core/declarative_tools/declarative_spec.ts`（声明解析）。
+- 判定原语消费：`loop/tools/tool_pipeline`（ALLOW/DENY/REVIEW/GateResult）、
+  `gate/tool_vetting`（`parse_permission` 校验清单权限声明）、
+  `loop/tools/declarative_tools/declarative_spec.ts`（声明解析）。
 
 ## 不变式与门禁
 
@@ -79,7 +79,7 @@
 
 ## 测试
 
-镜像测试 `test/kernel/permissions/permissions.test.ts`（4 组）：权限解析
+镜像测试 `test/gate/permissions/permissions.test.ts`（4 组）：权限解析
 （`parse_permission`）、分域匹配（filesystem/network/自定义域）、三路判定
 （allow/review/deny × default_policy/review_tier）、网络白名单
 （`*.domain` 后缀语义）。
@@ -88,14 +88,14 @@
 
 1. 主文件头注释称「SandboxViolation 暂无 TS 类映射，按既有移植口径以
    `new Error` 表达（待 core.exceptions 其余领域异常移植后收敛）」——同目录
-   `networkPolicy.ts` 已 import 并抛 core/errors 的 `SandboxViolation`，注释
+   `networkPolicy.ts` 已 import 并抛 model/errors 的 `SandboxViolation`，注释
    与同目录现实不符（陈旧）；且 `parse_permission`/`ToolGateConfig` 的校验
    错误实际为裸 `new Error`（Python ValueError 映射），未接 EngineError 族。
 2. 模块头注释列举 filesystem 动作「read|write|delete」，域动作表
    `DOMAIN_ACTIONS` 另含 `edit`（与 `tool_pipeline` 的 edit 决议对齐）——
    注释列举不全。
 3. 本文件自带私有 `pyRepr`（字符串版）；pyRepr/pyTruthy 家族在
-   core/py_repr.ts（自认单源）与 builder/self_tools/self_proposal/
+   model/py_repr.ts（自认单源）与 builder/self_tools/self_proposal/
    tool_vetting/approval/audit_log 多处拷贝并存，迁移未落地。
 4. `NetworkPolicySandbox.validate` 在 review 档白名单未命中时直接返回
    target 放行——依赖门禁桥「已强制转审批」的前置协作（`_gates.ts`），

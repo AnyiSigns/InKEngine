@@ -11,7 +11,7 @@
  *
  * depends：growth 组合复用 knowledge_gate（落位闸门，new KnowledgeGate 或
  * 注入实例）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

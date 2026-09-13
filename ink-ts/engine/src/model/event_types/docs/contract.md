@@ -1,4 +1,4 @@
-# core/event_types — 事件类型注册与声明（契约文档）
+# model/event_types — 事件类型注册与声明（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -35,9 +35,9 @@
 
 ## 装配与消费
 
-- `kernel/runtime`（_runtime_boot/_runtime_base/_runtime_engine/_types）装配 `EventTypeRegistry` 并持 `EventTypeSpec` 形态；`adapters/boot` 以 `EventTypeSpec` 建 boot 种子。
-- 审计常量消费：`kernel/settle`（review/promotion）、`kernel/multipath`（junction 审计）、`core/edge_evidence`（policy_edge_review_audit）。`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除（W7-B）。
-- `kernel/self_proposal/proposal_validator.ts` 以 `EventTypeSpec` 校验提案声明。
+- `loop/runtime`（_runtime_boot/_runtime_base/_runtime_engine/_types）装配 `EventTypeRegistry` 并持 `EventTypeSpec` 形态；`adapters/boot` 以 `EventTypeSpec` 建 boot 种子。
+- 审计常量消费：`loop/turn_settle`（review/promotion）、`kernel/multipath`（junction 审计）、`evolve/observe/usage_evidence`（policy_edge_review_audit）。`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除（W7-B）。
+- `evolve/legacy/self_proposal/proposal_validator.ts` 以 `EventTypeSpec` 校验提案声明。
 - 错误语义：重复注册/配额超限/未注册注销 → `GraphDefinitionError`；load 脏记录跳过（on_skip 留痕）不阻断启动；classify 不抛错（宽松语义）。
 
 ## 不变式与门禁
@@ -49,7 +49,7 @@
 
 ## 测试
 
-`test/core/event_types/eventTypes.test.ts` 镜像一件：Spec 往返/极简声明/非法声明拒绝、注册门禁（按注册序/重复拒绝/配额参数化/未注册注销拒绝）、classify（未注册宽松折叠/schema 通过/schema 违规宽松标记/renderer 缺失折叠/system_events 合成）、随集持久化 seam（save→load 往返/脏记录跳过/超配额 on_skip/畸形上报/无存储静默）、审计事件注册（3 类可往返/重复拒绝/负载按 schema 校验）。
+`test/model/event_types/eventTypes.test.ts` 镜像一件：Spec 往返/极简声明/非法声明拒绝、注册门禁（按注册序/重复拒绝/配额参数化/未注册注销拒绝）、classify（未注册宽松折叠/schema 通过/schema 违规宽松标记/renderer 缺失折叠/system_events 合成）、随集持久化 seam（save→load 往返/脏记录跳过/超配额 on_skip/畸形上报/无存储静默）、审计事件注册（3 类可往返/重复拒绝/负载按 schema 校验）。
 
 ## 疑点与不一致
 

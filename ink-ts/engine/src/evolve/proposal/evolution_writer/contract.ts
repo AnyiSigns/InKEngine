@@ -9,7 +9,7 @@
  *
  * depends：evolution_writer 组合 audit_log（emit_audit 审计留痕）与 patch
  * （内容型 PatchChain 落补丁链）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

@@ -1,4 +1,4 @@
-# core/events — 事件协议与传输 seam（契约文档）
+# model/events — 事件协议与传输 seam（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -30,9 +30,9 @@
 
 ## 装配与消费
 
-- 生产：`kernel/executor` 节点上下文 `emit` 产出事件流。
-- 持流消费/记录：`kernel/runtime`、`kernel/display`（展示聚合）、`kernel/recovery`、`kernel/multipath`、`kernel/growth`、`kernel/entity_evolution`、`kernel/self_application/guarded_storage`、`core/run_result`。
-- 持久化/回放：`adapters/storage`（EngineEvent 落执行日志，sqlite 以 `parse_event_lenient` 逐条恢复）；`core/storage/storage_constants.ts` 引 `PROTOCOL_VERSION`。
+- 生产：`graph/executor` 节点上下文 `emit` 产出事件流。
+- 持流消费/记录：`loop/runtime`、`loop/display_stream`（展示聚合）、`loop/recovery`、`kernel/multipath`、`evolve/legacy/growth`、`evolve/legacy/entity_evolution`、`evolve/proposal/guarded_storage`、`core/run_result`。
+- 持久化/回放：`adapters/storage`（EngineEvent 落执行日志，sqlite 以 `parse_event_lenient` 逐条恢复）；`model/storage/storage_constants.ts` 引 `PROTOCOL_VERSION`。
 - 宿主：`hosts/cli`（run/events_hub/engine_attach）与 `hosts/lib`（transport/host/bridge 等）经公共面接 `EngineEvent`/`EngineTransport`。
 - 错误语义：协议版本不符在 `from_dict` 传输入口拒绝（不静默解析错位结构）；`parse_event_lenient` 逐条容错——旧版本/结构损坏单条跳过返回 null，不中断整段重放。
 
@@ -44,11 +44,11 @@
 
 ## 测试
 
-`test/core/events/events.test.ts` 镜像一件：序列化往返（全部字段含 `parent_step_id`）、默认 parent_step_id 与旧事件增量兼容、协议版本不符拒绝、JSON 线格式中文原样可读、收集器传输原样保留、to_json 不可序列化负载字符串化降级、`parse_event_lenient` 逐条容错。
+`test/model/events/events.test.ts` 镜像一件：序列化往返（全部字段含 `parent_step_id`）、默认 parent_step_id 与旧事件增量兼容、协议版本不符拒绝、JSON 线格式中文原样可读、收集器传输原样保留、to_json 不可序列化负载字符串化降级、`parse_event_lenient` 逐条容错。
 
 ## 疑点与不一致
 
-- 文件头注释自述 `ProtocolVersionError`「暂居本模块——收敛至 errors.ts（EngineError 继承面）待办」：现状仍在本模块、直接继承 `Error`，未接入 `EngineError` 族（grep 核对 `core/errors.ts` 无该类），收敛动作未见落地。
+- 文件头注释自述 `ProtocolVersionError`「暂居本模块——收敛至 errors.ts（EngineError 继承面）待办」：现状仍在本模块、直接继承 `Error`，未接入 `EngineError` 族（grep 核对 `model/errors.ts` 无该类），收敛动作未见落地。
 - `EngineEvent.from_dict` 字段级校验强度不一致：`type`（存在性）、`graph_path`（可迭代性）、`trace_id`/`thread_id`（typeof 判别）有判别；`step_id`/`parent_step_id`/`round_id`/`node`/`seq` 仅 `?? null` 后直接 `as` 断言；`payload` 仅按 Python 真值（`isTruthy`）判别后 `as JsonRecord`——真值非 dict 的 payload（如非零数字、非空串）会原样进入内存形态，类型标注 `JsonRecord` 与运行时校验强度不符。
 - 防御性拷贝不一致：`EngineEvent` 构造器与 `to_dict` 对 `payload` 均按引用直传（`graph_path` 有拷贝），外部改动会穿透事件实例——与 `state_machine` `StateTransition.meta` 的构造/读取双拷贝纪律不一致。
 - `to_json` 降级路径按 `default=str` 口径将 `undefined` 渲染为字面量字符串 `"None"`（`pyStr`），TS 消费方收到 Python 风格字面量；注释自述镜像 Python，TS 侧对 `"None"` 的处理约定未见显式说明。

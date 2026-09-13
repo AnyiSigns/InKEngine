@@ -10,7 +10,7 @@
  *
  * depends 为空：knowledge_gate 不直接依赖任何其它机制件（schema/规则/样例
  * 均属 core 域）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

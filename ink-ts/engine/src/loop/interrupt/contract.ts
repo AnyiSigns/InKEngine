@@ -10,7 +10,7 @@
  *
  * depends 为空：interrupt 不直接依赖任何其它机制件（仅 core 错误面与
  * 同目录数据面）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

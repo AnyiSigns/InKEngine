@@ -22,7 +22,7 @@
  * stdio 生成 seam）按语义保留 core 名、adapters 名显式别名导出
  * （McpSpawnSeam），不做 export * 撞名。不导出 `_` 前缀私有文件；值面
  * 枚举与 data plane 常量收编自引擎内置数据面生成物（engine/schemas +
- * fixtures → core/contracts/generated，见下方「数据面契约」组），单一真源。
+ * fixtures → model/contracts/generated，见下方「数据面契约」组），单一真源。
  */
 
 export * from './caps.js';
@@ -328,7 +328,7 @@ export type {
 } from '../evolve/proposal/self_edit_tools/index.js';
 
 // 数据面契约（引擎内置生成物再导出：engine/schemas + fixtures →
-// core/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
+// model/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
 // 不再存在独立契约包）
 export {
   APPROVAL_LEVELS,

@@ -1,4 +1,4 @@
-# kernel/builder — 本机构建管线（契约文档）
+# graph/builder — 本机构建管线（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -28,8 +28,8 @@
 - `BuildError` 继承 GraphDefinitionError（定义期错误族）。
 - **公共面**：`src/index.ts` 无本目录导出（grep 核对零命中）——宿主经
   未来配方开关接线，当前为内部面。
-- 机制注册：`builder_contract` 入 `kernel/registry/contracts.ts`
-  ALL_MECHANISM_CONTRACTS（34 项之一）。
+- 机制注册：`builder_contract` 入 `dock/registry/contracts.ts`
+  ALL_MECHANISM_CONTRACTS（31 项之一）。
 
 ## 数据形态
 
@@ -75,7 +75,7 @@ entity_evolution 复用 `_sha256.js` 的哈希原语）。
 2. **同目录无 impl.ts / 同目录无测试**：实际布局为 builder.ts（单文件即
    实现）+ 测试镜像在 `test/kernel/builder/`，与 engine/AGENTS.md
    「contract.ts + impl.ts + *.test.ts 同目录」口径不符（registry 组代理
-   在 kernel/registry 亦发现同类口径落差）。
+   在 dock/registry 亦发现同类口径落差）。
 3. **错误面双口径**：build 命令不在白名单抛 BuildError；smoke 命令不在
    白名单返回 `SmokeResult{ok:false}`——同一 fail-closed 判定两种表达
    （抛错 vs 结果对象），代码未解释差异缘由。
@@ -83,7 +83,7 @@ entity_evolution 复用 `_sha256.js` 的哈希原语）。
    私有命名却上导出面，自述「镜像 Python `__all__`」——Python 侧即含
    `_sha256_file`，TS 侧未见收敛为公共名）。
 5. **`pyRepr`/`_pyTuple` 双实现**：`_types.ts` 的 `pyRepr` 与
-   `contracts.ts`（core/contracts）的 `pyRepr` 语义近似但各自独立实现，
+   `contracts.ts`（model/contracts）的 `pyRepr` 语义近似但各自独立实现，
    未互引（同值第二套实现的漂移风险）。
 6. **头注「状态标注」字样**：`builder.ts`/`index.ts` 头注含「机制就绪 /
    宿主接线点待定」状态语——属叙述性现状标注，与 CODING §3「注释不写

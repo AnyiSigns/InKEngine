@@ -1,11 +1,11 @@
-# kernel/approval — 挂卡审批标准辅助（契约文档）
+# gate/approval — 挂卡审批标准辅助（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
 ## 定位
 
 工具调用前挂卡审批的机制化封装（`approval.py` 移植）——宿主不得另写
-「工具调用前挂卡」实现。gate 卡形态统一由 `core/review_card` `build_gate_card`
+「工具调用前挂卡」实现。gate 卡形态统一由 `model/product_ui` `build_gate_card`
 构造（宿主只给动作描述与 payload）；挂起/重入经 `ApprovalInterruptContext`
 鸭子类型消费引擎 interrupt 原语（挂起负载随中断 checkpoint 持久化）。
 
@@ -19,8 +19,8 @@
 
 ## 对外契约面
 
-公共面「审批卡辅助」组：`src/index.ts` `export * from
-'./kernel/approval/approval.js'`——逐名核对 19 名。值（16）：`ApprovalDecision`
+公共面「审批卡辅助」组：`dock/index.ts:133`（经 `src/index.ts` re-export
+收口出面）`export * from '../gate/approval/approval.js'`——逐名核对 19 名。值（16）：`ApprovalDecision`
 `DECISION_ACCEPT` `DECISION_AUTO` `DECISION_EDIT` `DECISION_REJECT`
 `DECISION_TERMINATE` `POSE_AUTO` `POSE_DENY` `POSE_REVIEW` `VALID_DECISIONS`
 `VALID_POSES` `isApprovalPose` `normalizeApprovalPose` `DefaultInterruptPolicy`
@@ -29,7 +29,7 @@
 
 `approval_types.ts` 直有而未随 `approval.ts` 转出：`VALID_DECISION_SET`/
 `VALID_POSE_SET`（内部白名单）。机制契约 `approval_contract` 经
-`kernel/registry/contracts.ts` 入全量注册表（34 机制）。
+`dock/registry/contracts.ts` 入全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -48,21 +48,21 @@
 机制契约 effects 空、depends 空：挂起/重入经 `ctx.interrupt`/
 `ctx.get_interrupt_payload` 鸭子类型成员消费（成员式调用保留 this 绑定），
 非本注册表端口面；时钟为注入 seam（缺省确定值 0，超时判定依赖宿主注入
-真实时钟）；gate 卡构造委托 `core/review_card`；零日志（core 不落留痕）。
+真实时钟）；gate 卡构造委托 `model/product_ui`；零日志（core 不落留痕）。
 
 ## 装配与消费
 
-- `kernel/tool_pipeline`：gate `review` 判定委托 `approve_before_execute`
+- `loop/tools/tool_pipeline`：gate `review` 判定委托 `approve_before_execute`
   挂 gate 卡（action 负载经 `strip_sensitive` 脱敏、pose 经 options 传入，
   reject/terminate 收口为拒绝结果）。
-- `kernel/self_application`（apply/revert 审批分级与链尾限定）、
-  `core/controlled_evolution/controlled_applier`（演化 apply 审批）、
-  `kernel/self_tools`（`ApprovalInterruptContext` ctx 类型）、`kernel/runtime`
+- `evolve/legacy/self_application`（apply/revert 审批分级与链尾限定）、
+  `evolve/proposal/controlled_applier`（演化 apply 审批）、
+  `evolve/proposal/self_edit_tools`（`ApprovalInterruptContext` ctx 类型）、`loop/runtime`
   （`_runtime_mechanisms` 挂卡接线、`_types`/`_runtime_boot` policy 形态）。
 - hosts/lib：`host.ts` 以 `DefaultInterruptPolicy` 为基类扩展宿主审批策略
   （auto-approve 名单/超时配置），经公共面消费；测试图直用
   `approve_before_execute`。
-- 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract` depends
+- 机制契约经 `dock/registry/contracts.ts` 汇总；`runtime_contract` depends
   含 approval。
 
 ## 不变式与门禁
@@ -81,14 +81,14 @@
 
 ## 测试
 
-镜像测试 `test/kernel/approval/`：`approval.test.ts`（5 组：单动作全决议
+镜像测试 `test/gate/approval/`：`approval.test.ts`（5 组：单动作全决议
 分支 / 超时默认拒绝 fail-closed / 非法注入 fail-closed / gate 卡形态 /
 审批姿态 pose 语义）、`approval_batch.test.ts`（approve_batch 合并卡）。
 
 ## 疑点与不一致
 
 1. `approval.ts` 自带私有 `pyRepr` 拷贝（错误消息渲染）；pyRepr/pyTruthy
-   家族在 core/py_repr.ts（自认单源）与 builder/self_tools/self_proposal/
+   家族在 model/py_repr.ts（自认单源）与 builder/self_tools/self_proposal/
    tool_vetting/permissions 多处并存，单源迁移未落地。
 2. `approval_types.ts` 头注释「graph 引擎移植后由节点 ctx 满足该形状」为
    条件式措辞——现状 executor/节点 ctx 已提供 interrupt 原语、消费方以鸭子

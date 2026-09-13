@@ -1,5 +1,6 @@
 /**
- * symbols 门禁：符号引用计数最小等价（engine core 顶层导出孤儿扫描）。
+ * symbols 门禁：符号引用计数最小等价（engine（core 残部/model/graph/gate/
+ * loop/evolve）顶层导出孤儿扫描）。
  *
  * 语义随迁自 inkling/self_check symbols 门禁：顶层导出的函数/类/枚举/常量，
  * 若其标识符在整个被扫描源码树中只出现 1 次（仅定义行），即无任何消费方，
@@ -146,7 +147,7 @@ export async function runGateSymbols(ctx: SelfCheckContext): Promise<GateResult>
   return {
     key: 'symbols',
     label: '符号引用计数',
-    command: 'engine/src/core、engine/src/model、engine/src/graph、engine/src/gate 与 engine/src/loop 顶层导出孤儿扫描',
+    command: 'engine（src/core 残部、src/model、src/graph、src/gate、src/loop、src/evolve）顶层导出孤儿扫描',
     passed,
     seconds,
     summary,

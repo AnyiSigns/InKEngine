@@ -1,4 +1,4 @@
-# plan（core/plan）
+# plan（model/plan）
 
 运行时重规划原语的数据面：`__plan__` 保留键、计划清单模型（`Plan`/`PlanStep`）
 与解析校验——节点返回下一跳计划清单、引擎按清单续跑，图拓扑成为可改写数据。
@@ -10,13 +10,13 @@
   spawn 项）。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors`（`GraphDefinitionError`）、
-  `core/graph`（`Graph` + `EdgeConditionRegistryLike`）、`core/json`
-  （`isRecord`/`typeName`）、`core/workflow`（`WorkflowSpec` 等）。
-- 下游（实际 import 本目录）：`kernel/executor`（`_engine_plan`/
+- 上游（本目录实际 import）：`model/errors`（`GraphDefinitionError`）、
+  `model/graph`（`Graph` + `EdgeConditionRegistryLike`）、`model/json`
+  （`isRecord`/`typeName`）、`model/workflow`（`WorkflowSpec` 等）。
+- 下游（实际 import 本目录）：`graph/executor`（`_engine_plan`/
   `_engine_parallel`/`_engine_loop_front`/`_engine_execute`/`_loop_types`/
-  `_internals`）、`kernel/self_proposal`、`core/harness`（`registry.ts`
+  `_internals`）、`evolve/legacy/self_proposal`、`core/harness`（`registry.ts`
   解析 `default_plan`）、`core/run_result`（值引
   `DEFAULT_MAX_PLAN_STEPS`）；公共面 `src/index.ts` 无本目录导出；hosts
-  无直接 import；测试 `test/core/plan`、`test/kernel/executor`、
+  无直接 import；测试 `test/model/plan`、`test/graph/executor`、
   `test/core/run_result`。

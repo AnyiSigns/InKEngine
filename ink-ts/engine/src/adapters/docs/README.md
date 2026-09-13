@@ -24,7 +24,7 @@ L3 引擎的 IO 真实现层：kernel/core 以 seam（接口）声明副作用�
 
 ## 依赖方向
 - 上游（import）：core/kernel 的 seam 契约与数据形态——`core/storage`、
-  `core/events`、`core/errors`、`core/json`、`core/security`、
+  `core/events`、`model/errors`、`model/json`、`core/security`、
   `core/declarative_tools`、`core/event_types`、`core/harness`、
   `core/knowledge_set`、`core/schema`、`kernel/llm`、`kernel/tool_vetting`、
   `kernel/interrupt`。

@@ -1,4 +1,4 @@
-# audit_log（kernel/audit_log）
+# audit_log（gate/audit_log）
 
 干预能力审计落库统一出口（append-only，复用 `set_audit` 集合）：候选选择/
 多径开关/缓存失效/边档降级四类干预 op 与运行期审计同集合可追溯——存储 seam
@@ -9,5 +9,5 @@
 - `contract.ts` — 机制契约：id `audit_log`、effects `[storage_seam]`、depends 空。
 
 ## 依赖
-- 上游（本目录实际 import）：`dock/ports`（`PORT_STORAGE_SEAM`）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`kernel/evolution_writer`（`emit_audit` + `AuditStorage`/`MechanismExemptionScope` 类型）、`kernel/runtime`（`_runtime_mechanisms`/`_runtime_engine`）、`core/edge_evidence/intervention`、`kernel/registry/contracts`（`kernel/path_assembler/intervention`、`core/fingerprint_cache/invalidate` 消费已随组装链路退役删除，W7-B）；公共面零导出（grep `src/index.ts` 无本目录任何名）；测试 `test/kernel/audit_log`。
+- 上游（本目录实际 import）：`dock/ports`（`PORT_STORAGE_SEAM`）、`dock/registry/contract_types`。
+- 下游（实际 import 本目录）：`evolve/proposal/evolution_writer`（`emit_audit` + `AuditStorage`/`MechanismExemptionScope` 类型）、`loop/runtime`（`_runtime_mechanisms`/`_runtime_engine`）、`evolve/observe/usage_evidence/intervention`、`dock/registry/contracts`（`kernel/path_assembler/intervention`、`core/fingerprint_cache/invalidate` 消费已随组装链路退役删除，W7-B）；公共面零导出（grep `src/index.ts` 无本目录任何名）；测试 `test/gate/audit_log`。

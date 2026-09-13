@@ -1,4 +1,4 @@
-# core/nodes — 引擎内置基础节点类型区（契约文档）
+# graph/nodes — 引擎内置基础节点类型区（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -29,7 +29,7 @@ P4.2a-3 可区分实例（实例键独立 + executor 解耦 + 实例契约随 co
 
 ## 对外契约面
 
-公共面逐名核对（`src/index.ts` 从 `./core/nodes/index.js` 收敛，39 值 + 3 类型 = 42 名）：
+公共面逐名核对（`src/index.ts` 从 `./graph/nodes/index.js` 收敛，39 值 + 3 类型 = 42 名）：
 
 - 值：`CFG_OUTPUT_FIELD` `CFG_READ_FIELDS` `COND_LLM_FINISHED` `COND_LLM_PENDING` `COND_ROUTE_PREFIX` `ENGINE_DEFAULT_TOOL_ROUNDS` `ENGINE_STUB_REPLY` `ROLE_TERMINAL` `STATE_MESSAGES` `STATE_PENDING` `STATE_PLAN` `STATE_REPLY` `STATE_RESULTS` `STATE_REVIEW` `STATE_ROUND_MODEL` `STATE_ROUND_POSE` `STATE_ROUTE_TO` `STATE_STEP_ARGS` `STATE_TOOL_ROUNDS` `TYPE_LLM_DECIDER` `TYPE_LLM_MAIN` `TYPE_LLM_PLANNER` `TYPE_LLM_REVIEWER` `TYPE_ROUTER_JUDGE` `TYPE_ROUTER_PLAN_JUDGE` `TYPE_TOOL_PIPELINE` `bind_engine_node_seams` `build_read_projection` `config_read_fields` `default_engine_pool_seed` `default_engine_seed_edges` `derive_instance_contract` `has_engine_executor` `is_reserved_output_key` `parse_output_field_key` `register_engine_node_types` `register_route_edge_condition` `register_route_edge_conditions` `route_condition_name`。
 - 类型：`EngineNodeSeams` `EngineNodeTypeSeed` `EnginePoolSeed`。
@@ -78,7 +78,7 @@ seam 声明与注入点 = `EngineNodeSeams` 七成员：`llm`（`AsyncLLM | null
 
 ## 测试
 
-镜像测试 `test/core/nodes/`（13 文件）：`engine_nodes`（注册面 + 数据图直接执行 llm_decider→terminal）、`llm_decider`（思考事件/每轮推理覆盖/system 合成）、`llm_field_exec`（`output_field` 落点/`read_fields` 投影）、`llm_system`（合成规则）、`router`（执行/system 合成/契约声明）、`router_chain`（多结点路由链 + route 族注册面）、`conditional_edge_branch`（route:<key> 与 llm.pending_* 多目标 conditional）、`field_io`（归一/护栏/投影）、`instance_contract`（零漂移/产出面/需求面/护栏幂等）、`pool_seed_instances`（可区分实例清单/边先验）、`engine_type_metadata`（kind 六类/元数据表/种子携带元数据）、`agent_node`（注册面/最小递归展开/作用域 llm 接线/诚实失败）、`nodes_cold_start`（Runtime boot 池种子注册 + 冷启动组装）。
+镜像测试 `test/graph/nodes/`（13 文件）：`engine_nodes`（注册面 + 数据图直接执行 llm_decider→terminal）、`llm_decider`（思考事件/每轮推理覆盖/system 合成）、`llm_field_exec`（`output_field` 落点/`read_fields` 投影）、`llm_system`（合成规则）、`router`（执行/system 合成/契约声明）、`router_chain`（多结点路由链 + route 族注册面）、`conditional_edge_branch`（route:<key> 与 llm.pending_* 多目标 conditional）、`field_io`（归一/护栏/投影）、`instance_contract`（零漂移/产出面/需求面/护栏幂等）、`pool_seed_instances`（可区分实例清单/边先验）、`engine_type_metadata`（kind 六类/元数据表/种子携带元数据）、`agent_node`（注册面/最小递归展开/作用域 llm 接线/诚实失败）、`nodes_cold_start`（Runtime boot 池种子注册 + 冷启动组装）。
 
 ## 疑点与不一致
 

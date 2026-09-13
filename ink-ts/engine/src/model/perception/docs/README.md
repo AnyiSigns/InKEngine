@@ -1,4 +1,4 @@
-# perception/（core/perception — 视觉感知结点）
+# perception/（model/perception — 视觉感知结点）
 
 视觉感知能力的引擎侧形态（纯逻辑 + 结点登记，零 IO、不触碰种子数据）：
 感知结点 vision_perceive（截图引用 → 结构化界面描述，安全档 1 屏幕敏感域）、
@@ -12,10 +12,11 @@
   `classify_vision_export`（fail-closed：未知模型类别一律 deny）。
 
 ## 依赖
-- 上游：`core/contracts`（NodeContract）、`core/json`（isRecord）、
-  `core/registry`（NodeTypeRegistry）、`core/schema`（SchemaSpec/Field）。
-- 下游：`kernel/runtime/_runtime_boot`（装配处登记）；公共面零导出；
-  `test/core/perception/perception.test.ts`。
+- 上游：`model/contracts`（NodeContract）、`model/json`（isRecord）、
+  `model/graph`（NodeFn 类型 seam）、`model/schema`（SchemaSpec/Field）。
+  结点登记面为 `graph/registry`（NodeTypeRegistry，由装配方持引用，非本目录 import）。
+- 下游：`loop/runtime/_runtime_boot`（装配处登记）；公共面零导出；
+  `test/model/perception/perception.test.ts`。
 
 ## 备注
 - 结点执行体当前为占位实现（取截图引用产出固定形态描述：元素清单

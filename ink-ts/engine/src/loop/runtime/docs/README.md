@@ -1,4 +1,4 @@
-# runtime/（kernel/runtime）
+# runtime/（loop/runtime）
 
 引擎装配/生命周期机壳：宿主按 Host 五件套与 AssemblyRecipe 装配数据把引擎交予
 Runtime，boot/pause/resume/stop 驱动生命周期（runtime.py 移植；`Runtime` 类 =
@@ -28,5 +28,5 @@ Runtime，boot/pause/resume/stop 驱动生命周期（runtime.py 移植；`Runti
 （`_runtime_skeleton.ts`/`_runtime_rounds.ts` 已随 W7-B 组装链路退役删除。）
 
 ## 依赖
-- 上游（本目录实际 import）：`core/`（context、events、graph、json、schema、ledger、harness、entities、event_types、knowledge_set、nodes、declarative_tools、storage、registry 类型、retrieval、run_result、ui_schema、seeds、edge_evidence、memory、node_registry、tool_index、tool_orchestrator、contracts、environments、errors、perception；`assembly`/`thread_skeleton`/`fingerprint_cache` 已随 W7-B 退役删除）；`kernel/` 机制件（approval、audit_log、evolution、evolution_writer、executor、growth、entity_evolution、introspection、llm、memory_extract、permissions、self_application、self_proposal、self_tools、settle、skill_crystal、tool_pipeline、tool_vetting、tuning；`path_assembler`/`pool_governance` 已随 W7-B 退役删除）；`kernel/registry`（contract_types/ports/index）；`kernel/round_steps`（仅 type import，不入 depends）。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面「运行时装配」组）；`kernel/registry/contracts.ts`（`runtime_contract` 入全量契约清单）；`engine/scripts/verify_mechanisms.ts`（runtime_contract）；测试 `test/kernel/runtime/`（4 文件）、`test/e2e/_e2e_fixtures.ts`（`runtime_e2e.test.ts` 随组装回退 flag 退役删除，W7-B）、`test/core/nodes/nodes_cold_start.test.ts`、`test/kernel/registry/contracts_registry.test.ts`；宿主 `hosts/lib`、`hosts/cli` 经 `@ink-ts/engine` 公共面（非路径直连）。
+- 上游（本目录实际 import）：`core/`（context、events、graph、json、schema、ledger、harness、entities、event_types、knowledge_set、nodes、declarative_tools、storage、registry 类型、retrieval、run_result、ui_schema、seeds、edge_evidence、memory、node_registry、tool_index、tool_orchestrator、contracts、environments、errors、perception；`assembly`/`thread_skeleton`/`fingerprint_cache` 已随 W7-B 退役删除）；`kernel/` 机制件（approval、audit_log、evolution、evolution_writer、executor、growth、entity_evolution、introspection、llm、memory_extract、permissions、self_application、self_proposal、self_tools、settle、skill_crystal、tool_pipeline、tool_vetting、tuning；`path_assembler`/`pool_governance` 已随 W7-B 退役删除）；`dock/registry`（contract_types/ports/index）；`kernel/round_steps`（仅 type import，不入 depends）。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面「运行时装配」组）；`dock/registry/contracts.ts`（`runtime_contract` 入全量契约清单）；`engine/scripts/verify_mechanisms.ts`（runtime_contract）；测试 `test/kernel/runtime/`（4 文件）、`test/e2e/_e2e_fixtures.ts`（`runtime_e2e.test.ts` 随组装回退 flag 退役删除，W7-B）、`test/graph/nodes/nodes_cold_start.test.ts`、`test/dock/registry/contracts_registry.test.ts`；宿主 `hosts/lib`、`hosts/cli` 经 `@ink-ts/engine` 公共面（非路径直连）。

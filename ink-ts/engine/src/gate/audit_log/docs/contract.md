@@ -1,4 +1,4 @@
-# kernel/audit_log — 干预审计落库（契约文档）
+# gate/audit_log — 干预审计落库（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -25,7 +25,7 @@
 目录导出面（`audit_log.ts`）：值 `AUDIT_COLLECTION` `emit_audit`；类型
 `AuditRecord` `AuditStorage` `MechanismExemptionScope` `GuardedAuditStorage`
 `EmitAuditOptions`。机制契约 `audit_log_contract` 经
-`kernel/registry/contracts.ts` 入全量注册表（34 机制）。
+`dock/registry/contracts.ts` 入全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -46,13 +46,13 @@ put_record 契约），真实存储实现由宿主注入（受守卫存储实现
 
 ## 装配与消费
 
-- 干预面：`core/edge_evidence/intervention`、`kernel/evolution_writer`（演化写
+- 干预面：`evolve/observe/usage_evidence/intervention`、`evolve/proposal/evolution_writer`（演化写
   路径的审计留痕 + 豁免类型消费）；`kernel/path_assembler/intervention`
   （候选选择/多径开关）与 `core/fingerprint_cache/invalidate`（缓存失效）
   已随组装链路退役（W7-B）。
-- 运行期面：`kernel/runtime/_runtime_mechanisms`/`_runtime_engine`
+- 运行期面：`loop/runtime/_runtime_mechanisms`/`_runtime_engine`
   （emit_audit 接线）。
-- 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract`
+- 机制契约经 `dock/registry/contracts.ts` 汇总；`runtime_contract`
   depends 含 audit_log。hosts 经审计事件/记录行消费落库结果（bridge/path.ts
   按 kind 归并），不经公共面 import 本机制。
 
@@ -69,13 +69,13 @@ put_record 契约），真实存储实现由宿主注入（受守卫存储实现
 
 ## 测试
 
-镜像测试 `test/kernel/audit_log/audit_log.test.ts`（3 组）：emit_audit 落库
+镜像测试 `test/gate/audit_log/audit_log.test.ts`（3 组）：emit_audit 落库
 （裸存储直接写）、emit_audit 豁免通道（受守卫存储）、emit_audit 无存储与
 无副作用（跳过不抛）。
 
 ## 疑点与不一致
 
-1. 私有 `pyTruthy` 与 `core/py_repr.ts` 导出的 `pyTruthy` 重复实现（单源
+1. 私有 `pyTruthy` 与 `model/py_repr.ts` 导出的 `pyTruthy` 重复实现（单源
    已就绪未引用）——与 pyRepr 家族同类的拷贝并存。
 2. 缺省 `keyGen` 固定 `'000000000000'` → 键恒为 `op-000000000000`：确定性
    缺省下同集合多次落库共用同键，同键写入的覆盖/共存行为取决于存储实现，

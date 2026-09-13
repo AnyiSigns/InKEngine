@@ -1,7 +1,8 @@
 /**
  * 机制件注册表公共面：契约类型 + 装配密封。
  *
- * 机制件契约声明（kernel/<mechanism>/contract.ts）经本公共面取契约类型；
+ * 机制件契约声明（各机制层 <mechanism>/contract.ts，现 31 份）经本公共面
+ * 取契约类型；
  * 端口词表真源见 `engine/src/dock/ports.ts`；boot 密封与 verify 经
  * seal_mechanism_registry 校验依赖图（单向/完整/循环拒绝）并取拓扑装配序。
  */

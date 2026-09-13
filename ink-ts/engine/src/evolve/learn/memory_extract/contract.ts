@@ -10,7 +10,7 @@
  *
  * depends 为空：memory_extract 不直接依赖任何其它机制件（抽取输入 = 账本
  * 宽松读取面，SettleContext 仅 type import）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

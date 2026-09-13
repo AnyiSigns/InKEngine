@@ -1,4 +1,4 @@
-# round_steps（kernel/round_steps）
+# round_steps（loop/round_steps）
 
 回合步骤序列累积器（RoundSteps）：纯内存、零 IO，把回合内事件发射顺序录制成 `step_id` 稳定的步骤序列（thinking/plan/工具/节点/组装/回复分段/用户/记忆命中/审批卡/建议/错误），快照落库与传输由宿主承接。
 
@@ -17,12 +17,12 @@
 
 ## 依赖
 - 上游（本目录实际 import）：
-  - `core/json.ts`（`Json`/`JsonRecord` 类型、`isRecord`）
-  - `kernel/registry/contract_types.ts`（`MechanismContract` 类型，经 contract.ts）
+  - `model/json.ts`（`Json`/`JsonRecord` 类型、`isRecord`）
+  - `dock/registry/contract_types.ts`（`MechanismContract` 类型，经 contract.ts）
   - 目录内：`round_steps_types.ts` ← 各子机制；`round_steps_internals.ts` ← 六个子机制的 ctx 类型；`round_steps.ts` ← internals + 六个子机制
 - 下游（实际 import 本目录）：
-  - `src/index.ts:247`（公共面仅 `export type { StepRecord }`）
-  - `kernel/runtime/runtime.ts`、`kernel/runtime/_round_steps_recorder.ts`（均仅 type import `StepRecord`，不入 runtime depends）
-  - `kernel/registry/contracts.ts:72`（`round_steps_contract` 入 34 项全量契约清单）
-  - `test/kernel/round_steps/`（`round_steps_basic.test.ts`、`round_steps_extra.test.ts`，经 index.js 值 import `RoundSteps`）
+  - `dock/index.ts:235`（经 `src/index.ts` re-export 收口出面；公共面仅 `export type { StepRecord }`）
+  - `loop/runtime/runtime.ts`、`loop/runtime/_round_steps_recorder.ts`（均仅 type import `StepRecord`，不入 runtime depends）
+  - `dock/registry/contracts.ts:67`（`round_steps_contract` 入 31 项全量契约清单）
+  - `test/loop/round_steps/`（`round_steps_basic.test.ts`、`round_steps_extra.test.ts`，经 index.js 值 import `RoundSteps`）
   - hosts 侧无直接 import

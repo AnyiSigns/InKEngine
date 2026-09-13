@@ -1,4 +1,4 @@
-# executor（kernel/executor）
+# executor（graph/executor）
 
 执行引擎：回合主循环/嵌套子图/spawn 实例/推演分支/多径展开的状态机驱动与装配（executor.py 移植），15 层抽象继承链 + 前/后半段单循环，checkpoint 版本链与事件日志统一经注入 Storage seam 落库。
 
@@ -27,4 +27,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：core（json/errors/events/graph/graph_types/plan/state schema+reducers/storage+storage_records/run_result/security/chain_rebase/fanout/context_types/contracts；assembly+input_assembler 消费已随组装链路退役删除，W7-B）；kernel（budget/interrupt/llm guard+_guard_types/multipath/recovery/settle/simulation/spawn；候选链路类型 type import 自 `kernel/multipath/types.js`（原 path_assembler/types，W7-B 迁入）；registry/contract_types+ports 契约面）
-- 下游（实际 import 本目录）：`src/index.ts:111-112`（公共面）；`kernel/runtime/_runtime_engine.ts`（值 import `Engine`+`RunOptions`）；`kernel/registry/contracts.ts:22`（`executor_contract` 入 31 项清单）；`core/execution_runtime`（engine_turn_runner 建引擎跑回合）；`test/kernel/executor/`；hosts 经 `@ink-ts/engine` 公共面（`kernel/path_assembler/canary.ts` 试跑、`_runtime_rounds.ts` type import、`hosts/lib/test/_graphs.ts` 消费者已随组装链路退役删除，W7-B）
+- 下游（实际 import 本目录）：`src/index.ts:111-112`（公共面）；`kernel/runtime/_runtime_engine.ts`（值 import `Engine`+`RunOptions`）；`dock/registry/contracts.ts:22`（`executor_contract` 入 31 项清单）；`core/execution_runtime`（engine_turn_runner 建引擎跑回合）；`test/kernel/executor/`；hosts 经 `@ink-ts/engine` 公共面（`kernel/path_assembler/canary.ts` 试跑、`_runtime_rounds.ts` type import、`hosts/lib/test/_graphs.ts` 消费者已随组装链路退役删除，W7-B）

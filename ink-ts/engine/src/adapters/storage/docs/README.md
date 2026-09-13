@@ -53,8 +53,8 @@ core `Storage` async seam 的真实后端：memory（单进程/测试默认）�
 
 ## 依赖
 - 上游：`core/storage`（Storage 契约/CheckpointRecord/ChainLink/常量）、
-  `core/events`（EngineEvent/parse_event_lenient）、`core/errors`
-  （StorageError/CheckpointConflictError）、`core/json`（deepCopy）、
+  `core/events`（EngineEvent/parse_event_lenient）、`model/errors`
+  （StorageError/CheckpointConflictError）、`model/json`（deepCopy）、
   `core/security`（strip_sensitive）、`kernel/interrupt`（InterruptState）。
 - 下游：`src/index.ts`（adapters 工厂面 `export *`）；宿主经
   `create_storage` 装配后注入 core/kernel 的 Storage seam 消费方

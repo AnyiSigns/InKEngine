@@ -1,4 +1,4 @@
-# graph（core/graph）
+# graph（model/graph）
 
 图定义 DSL 机制件：图实例结构、声明式节点绑定、边注册与编译校验；可序列化数据形态与指纹计算（core/graph.py 移植）。
 
@@ -8,5 +8,5 @@
 - `graph_serialize.ts` — 序列化与指纹纯辅助：`graphToDict`/`loadGraphFromDict`/`graphDigest`（稳定键序 JSON、FNV-1a 64 hex）。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/contracts/contracts.ts`（`NodeContract`）、`core/errors.ts`（`EngineError`/`GraphDefinitionError`/`NodeNotFoundError`）、`core/json.ts`（`deepCopy`/`isRecord`/`typeName`）；目录内 `graph.ts` ↔ `graph_serialize.ts` 互引（`loadGraphFromDict` 以 Graph 构造器注入打破循环）。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面 `export *`）、`kernel/executor`（执行器全域文件）、`kernel/spawn`、`kernel/simulation`、`kernel/settle`、`kernel/introspection`、`kernel/self_proposal`、`kernel/multipath`、`kernel/runtime`、`core/workflow`、`core/plan`、`core/harness`、`core/nodes`（agent/llm_decider 等；`kernel/path_assembler`、`core/fingerprint` 消费已随组装链路退役删除，W7-B）；hosts 无相对 import，经 `@ink-ts/engine` 公共面消费。
+- 上游（本目录实际 import）：`model/contracts/contracts.ts`（`NodeContract`）、`model/errors.ts`（`EngineError`/`GraphDefinitionError`/`NodeNotFoundError`）、`model/json.ts`（`deepCopy`/`isRecord`/`typeName`）；目录内 `graph.ts` ↔ `graph_serialize.ts` 互引（`loadGraphFromDict` 以 Graph 构造器注入打破循环）。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面 `export *`）、`graph/executor`（执行器全域文件）、`kernel/spawn`、`kernel/simulation`、`loop/turn_settle`、`evolve/observe/inspection`、`evolve/legacy/self_proposal`、`kernel/multipath`、`loop/runtime`、`model/workflow`、`model/plan`、`core/harness`、`graph/nodes`（agent/llm_decider 等；`kernel/path_assembler`、`core/fingerprint` 消费已随组装链路退役删除，W7-B）；hosts 无相对 import，经 `@ink-ts/engine` 公共面消费。

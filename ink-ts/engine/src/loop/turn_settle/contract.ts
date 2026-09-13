@@ -9,7 +9,7 @@
  * exec_envelope）、不消费回合组装端口（不列 rounds_port；settle 是回合
  * 收尾的被触发方，入向钩子不构成端口消费）。
  *
- * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

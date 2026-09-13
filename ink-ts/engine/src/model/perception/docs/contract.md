@@ -1,4 +1,4 @@
-# core/perception — 视觉感知结点（契约文档）
+# model/perception — 视觉感知结点（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -18,7 +18,7 @@
 ## 对外契约面
 
 - `register_perception_nodes(registry: NodeTypeRegistry)`：装配处调用
-  （kernel/runtime/_runtime_boot 唯一 src 消费点）；登记后类型进结点
+  （loop/runtime/_runtime_boot 唯一 src 消费点）；登记后类型进结点
   池，路径组装器 contract_pool 可见。
 - 纯函数：`cross_validate_channels(element_result, pixel_result, {threshold?})`
   → CrossValidationResult（consistent/recheck_signal/decision/note）、
@@ -63,5 +63,5 @@ runtime 装配（图注册表构建后调用 register_perception_nodes）；截�
 
 ## 测试
 
-`test/core/perception/perception.test.ts`（契约登记/交叉验证两态/外发
+`test/model/perception/perception.test.ts`（契约登记/交叉验证两态/外发
 分级/占位执行体形态）。

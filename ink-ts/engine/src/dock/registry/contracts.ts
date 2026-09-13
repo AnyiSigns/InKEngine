@@ -1,8 +1,9 @@
 /**
  * 机制契约单一真源聚合（阶段1 verify/装配完整 + boot 密封共用）。
  *
- * 全量机制契约清单（31 项，与 engine/src/kernel/<mechanism>/contract.ts 一一
- * 对应，id = 目录名）。boot 密封（seal_mechanism_registry）与 verify 脚本
+ * 全量机制契约清单（31 项，与各机制层 `<mechanism>/contract.ts`——跨
+ * kernel/graph/gate/loop/evolve——一一对应，id = 目录名）。boot 密封
+ * （seal_mechanism_registry）与 verify 脚本
  * （依赖单向/装配完整）从此聚合取数，不再在测试/脚本侧各自拼清单——契约
  * 数量/成员变动只改本文件一处（AGENTS「数字先核实 + 工具清单同步」纪律）。
  *

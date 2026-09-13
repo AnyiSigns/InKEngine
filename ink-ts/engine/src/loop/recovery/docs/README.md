@@ -1,4 +1,4 @@
-# recovery/（kernel/recovery — 恢复/续流解析）
+# recovery/（loop/recovery — 恢复/续流解析）
 
 checkpoint 锚点解析 + 增量日志重放 + 子图锚点回溯的**纯解析函数**：
 resume 语义（断线续流/新回合续链/编辑重放）的锚点选择、输入状态覆盖、
@@ -18,11 +18,11 @@ resume 语义（断线续流/新回合续链/编辑重放）的锚点选择、�
 - `index.ts` — 导出面（与 Python `__all__` 对齐）。
 
 ## 依赖
-- 上游：`core/errors`、`core/events`（type）、`core/json`（type）、
+- 上游：`model/errors`、`core/events`（type）、`model/json`（type）、
   `core/storage`（Storage/CheckpointRecord/ChainLink）、`core/state`
   （StateSchema，type）。
 - 下游：`kernel/executor`（_engine_execute 调 resolve_resume；checkpoint/
   spawn/simulate 调 tail_checkpoint；_node_context/_internals 用 ResumeMap
   类型）、`kernel/multipath/_runner_base`（tail_checkpoint）、
-  `kernel/registry/contracts.ts`；公共面 `export * from
+  `dock/registry/contracts.ts`；公共面 `export * from
   './kernel/recovery/index.js'`；`test/kernel/recovery/`（2 文件）。

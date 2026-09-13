@@ -1,4 +1,4 @@
-# core/ui_schema — 界面描述数据原语（契约文档）
+# model/product_ui — 界面描述数据原语（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -14,12 +14,12 @@
 | 文件 | 职责 |
 | ---- | ---- |
 | `uiSchema.ts` | UIBind/UINode/UISpec 数据往返（from_dict fail-closed：kind 白名单/type 必填/props dict/children 清单递归）；UISchemaValidator.validate（root 必备 + 递归节点校验 + theme token 白名单；component 带 children 违规；违规带 `path.children[i]` 节点路径）/validate_ok；UIRenderer 接口 |
-| `uiSchemaSupport.ts` | 布局节点类型/绑定协议键/保留前缀常量 + Python 口径工具族（pyRepr/pyTupleRepr 单元素尾逗号/pyTruthy NaN 判假/pyInt 截断解析/typeNameOf/tupleHas）；注释自述统一迁移点 = core/py_repr.ts（已就绪，本文件暂不改实现） |
+| `uiSchemaSupport.ts` | 布局节点类型/绑定协议键/保留前缀常量 + Python 口径工具族（pyRepr/pyTupleRepr 单元素尾逗号/pyTruthy NaN 判假/pyInt 截断解析/typeNameOf/tupleHas）；注释自述统一迁移点 = model/py_repr.ts（已就绪，本文件暂不改实现） |
 
 ## 对外契约面
 
-- 公共面：`src/index.ts`「UI schema」组 `export * from
-  './core/ui_schema/uiSchema.js'`（全量直通——含 UIBind/UINode/UISpec/
+- 公共面：`dock/index.ts:176`「UI schema」组 `export * from
+  '../model/product_ui/uiSchema.js'`（全量直通——含 UIBind/UINode/UISpec/
   UISchemaValidator/UIRenderer 与从 Support 再导出的七常量；uiSchemaSupport
   本体不经公共面）。
 - 校验器语义：只返回违规清单不抛错（与 SchemaValidator 同构）；定义期
@@ -46,10 +46,10 @@ allowed_theme_tokens）为校验注入面。
 
 ## 装配与消费
 
-- `kernel/runtime`：_runtime_boot/_runtime_engine（boot UISpec 与补丁
+- `loop/runtime`：_runtime_boot/_runtime_engine（boot UISpec 与补丁
   应用点的 UISchemaValidator 校验）、_types（DEFAULT_BIND_CHANNELS 装配
   面类型）。
-- `kernel/self_proposal/proposal_validator`：ui 提案 payload 的
+- `evolve/legacy/self_proposal/proposal_validator`：ui 提案 payload 的
   UISchemaValidator 校验 + DEFAULT_BIND_CHANNELS 基线。
 - 渲染端（@ink-ts/renderer）运行时经 cli serve 通道消费 ui_spec 数据树，
   不静态 import 本目录。
@@ -63,9 +63,9 @@ allowed_theme_tokens）为校验注入面。
 ## 疑点与不一致
 
 1. **Support 工具族未迁移**：uiSchemaSupport.ts 注释自述「统一迁移点 =
-   core/py_repr.ts 单源（已就绪，本文件暂不改实现）」——pyRepr/pyTruthy/
+   model/py_repr.ts 单源（已就绪，本文件暂不改实现）」——pyRepr/pyTruthy/
    typeNameOf 私拷贝仍存活（与 tool_vetting/_types、builder/_types、
-   rules/_py、environments/_repr 等多处置并存；core/py_repr.ts 头注列
+   rules/_py、environments/_repr 等多处置并存；model/py_repr.ts 头注列
    名为收敛清单）；pyTruthy 的 NaN 判假差异自述为「本实现差异」。
 2. **`pyInt`/`pyRepr` 等抛裸 Error**：Support 工具族异常为裸 Error（非
    GraphDefinitionError），from_dict 校验链中若触发会以非 EngineError
@@ -79,5 +79,5 @@ allowed_theme_tokens）为校验注入面。
 
 ## 测试
 
-`test/core/ui_schema/uiSchema.test.ts`（数据往返/三层白名单/保留前缀/
+`test/model/product_ui/uiSchema.test.ts`（数据往返/三层白名单/保留前缀/
 违规路径可读性）。

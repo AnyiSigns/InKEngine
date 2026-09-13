@@ -9,7 +9,7 @@
  * 钩子，异常不阻断链演化。
  *
  * depends 为空：patch 不直接依赖任何其它机制件（仅 core json 类型面）。
- * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

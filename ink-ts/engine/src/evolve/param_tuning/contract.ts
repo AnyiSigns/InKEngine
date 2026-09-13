@@ -9,7 +9,7 @@
  * 快照经注入落库回调交给存储侧——均不是本机制直持存储端口。
  *
  * depends：tuning 组合复用 knowledge_gate（L2 参数回归闸门）。契约化归属
- * 见 engine/src/kernel/registry/contract_types.ts。
+ * 见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

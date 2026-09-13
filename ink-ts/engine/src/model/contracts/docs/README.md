@@ -32,17 +32,17 @@
   `GUARDED_PREFIXES`（GuardedStorage 守卫面）。
 
 ## 依赖
-- 上游：`core/errors`（GraphDefinitionError）、`core/json`（isRecord/
-  typeName）、`core/schema`（SchemaSpec）。
-- 下游：kernel 侧广泛消费——`kernel/runtime`（结点注册契约校验）、
+- 上游：`model/errors`（GraphDefinitionError）、`model/json`（isRecord/
+  typeName）、`model/schema`（SchemaSpec）。
+- 下游：各机制层广泛消费——`loop/runtime`（结点注册契约校验）、
   `kernel/multipath`（QualityGate + PathAssemblyFlags.multipath_enabled）、
-  `kernel/self_application`（审批分级/守卫集合）、`kernel/self_proposal`
-  （PATCH_KINDS）、`kernel/executor`（QualityGate）；core 侧
-  `node_registry`/`link_validator`/`graph`/`perception`/`nodes`；生成物经
-  `src/index.ts` 数据面契约组全仓导出（上层不再有独立契约包）。`kernel/path_assembler`
+  `evolve/legacy/self_application`（审批分级/守卫集合）、`evolve/legacy/self_proposal`
+  （PATCH_KINDS）、`graph/executor`（QualityGate）；图/注册与数据面消费：
+  `graph/node_registry`/`gate/link_validator`/`model/graph`/`model/perception`/`graph/nodes`；生成物经
+  `src/index.ts`（收口 `dock/index.ts`）数据面契约组全仓导出（上层不再有独立契约包）。`kernel/path_assembler`
   与 `core/assembly` 下游已随组装链路退役删除（W7-B）。
 
 ## 门禁与测试
 - 生成物漂移由 `node engine/scripts/verify_generated.mjs` 守护；一致性测试
   `test/core/contractsConsistency.test.ts`；形态校验测试
-  `test/core/contracts/contracts.test.ts`。
+  `test/model/contracts/contracts.test.ts`。

@@ -43,7 +43,7 @@ export function checkUtf8Valid(content: string, path: string): Violation | null 
 const IMPORT_RE = /(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]/g;
 
 /** core 区放行的外部裸包白名单（精确匹配，全字比较）：当前为空——
- *  数据面契约随引擎内置生成物入 core/contracts/generated（相对 import
+ *  数据面契约随引擎内置生成物入 model/contracts/generated（相对 import
  *  消费），core 不再依赖任何外部包层（无数据契约包）。不放行 @ink-ts/*、
  *  adapters、第三方与 node:（node 仅 coreAllowedNode 白名单例外）。 */
 const CORE_ALLOWED_PACKAGES: readonly string[] = [];

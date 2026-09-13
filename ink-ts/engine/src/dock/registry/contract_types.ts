@@ -2,7 +2,7 @@
  * 机制件契约类型（MechanismContract）——机制件装配闭集的声明面。
  *
  * 机制件不是插件（插件走 CapabilityComponent，见 PLUGINS.md §1/§3），机制件
- * 走独立 MechanismContract：契约化后归 engine/src/kernel/<mechanism>/，每件
+ * 走独立 MechanismContract：契约落各机制层目录（engine/src/<机制层>/<mechanism>/，跨 kernel/graph/gate/loop/evolve，现 31 份），每件
  * contract.ts 声明契约（effects 端口白名单 + depends 依赖图），impl.ts 为
  * 注入工厂；boot 组密封（registry.ts）校验单向依赖 + 完整 + 循环拒绝。
  *

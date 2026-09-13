@@ -1,4 +1,4 @@
-# kernel/recovery — 恢复/续流解析（契约文档）
+# loop/recovery — 恢复/续流解析（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -66,7 +66,7 @@ tail_checkpoint。宿主经公共面装配（存储后端由 adapters/storage �
 
 1. **契约违反抛裸 Error**：`resolve_resume` 内 ENG5-13 同线程断言用
    `throw new Error(...)`，而同文件锚点缺失抛 `StorageError`、版本不匹配
-   抛 `GraphVersionMismatchError`——同一函数三种错误面（core/errors 的
+   抛 `GraphVersionMismatchError`——同一函数三种错误面（model/errors 的
    EngineError 族惯例未贯彻到底），代码未说明差异缘由。
 2. **`collect_resume_anchors` 防御分支**：锚点不在链索引时构造临时
    ChainLink「沿传入记录回溯一步」——该异常状态无错误上报，静默降级

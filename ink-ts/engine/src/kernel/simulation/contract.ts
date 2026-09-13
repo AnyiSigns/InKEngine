@@ -10,7 +10,7 @@
  *
  * depends：simulation 组合 patch（PatchChain 补丁链原语，跨分支组装与
  * 留痕的数据面复用）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

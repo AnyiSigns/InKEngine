@@ -14,7 +14,7 @@
  *
  * depends：tool_pipeline 组合 approval（approve_before_execute 审批决议与
  * 挂卡）与 permissions（ALLOW/DENY/REVIEW 门禁判定常量）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

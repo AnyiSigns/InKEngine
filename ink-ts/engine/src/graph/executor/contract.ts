@@ -22,7 +22,7 @@
  * path_assembler 不列（机制已随 W7-B 组装链路退役）：多径编排的组装上下文
  * （request/candidates）经节点数据面注入，executor 不反向读组装模块级默认——
  * 候选链路类型已迁 kernel/multipath/types.ts（spawn/multipath 隔离试跑在用）。
- * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

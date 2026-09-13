@@ -26,7 +26,7 @@ harness = 用户集内的能力包（图定义数据 + 工具清单 + 能力描�
 - `index.ts` — barrel（镜像 Python `__all__`）。
 
 ## 依赖
-- 上游：`core/declarative_tools`、`core/errors`、`core/graph`、`core/json`、
+- 上游：`core/declarative_tools`、`model/errors`、`core/graph`、`model/json`、
   `core/plan`、`core/registry`、`core/state`、`kernel/evolution_writer`、
   `kernel/llm/tools`（type）、`kernel/patch`、`kernel/permissions`（type）、
   `kernel/tool_pipeline`。

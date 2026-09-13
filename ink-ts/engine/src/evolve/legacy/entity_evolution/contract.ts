@@ -11,7 +11,7 @@
  * depends：entity_evolution 组合复用两个下游机制——builder（教训指纹取
  * 其 _sha256 纯实现）与 knowledge_gate（EntityMutationGate 组合复用
  * KnowledgeGate 判定件）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

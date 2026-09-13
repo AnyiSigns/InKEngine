@@ -1,4 +1,4 @@
-# permissions（kernel/permissions）
+# permissions（gate/permissions）
 
 声明式权限门禁判定原语（默认拒绝 fail-closed）：`domain:action:pattern`
 权限串解析 + fnmatch 同语义匹配 + 分域判定（filesystem 路径边界 / network
@@ -10,5 +10,5 @@
 - `contract.ts` — 机制契约：id `permissions`、effects 空（纯判定）、depends 空。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors`（`SandboxViolation`，仅 networkPolicy.ts）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`src/index.ts` 公共面（`export *`，12 名）；`kernel/tool_pipeline`（ALLOW/DENY/REVIEW/GateResult）、`kernel/tool_vetting`（`parse_permission`）、`kernel/runtime`（`ToolGateConfig`/`PermissionGate` 装配）、`kernel/registry/contracts`；`core/declarative_tools`（`pipeline.ts` 端点 gate、`_gates.ts` NetworkPolicySandbox 桥、`declarative_spec.ts` parse_permission）；hosts/lib `recipe.ts` 经公共面构造 `ToolGateConfig`；测试 `test/kernel/permissions`。
+- 上游（本目录实际 import）：`model/errors`（`SandboxViolation`，仅 networkPolicy.ts）、`dock/registry/contract_types`。
+- 下游（实际 import 本目录）：`src/index.ts` 公共面（`export *`，12 名）；`loop/tools/tool_pipeline`（ALLOW/DENY/REVIEW/GateResult）、`gate/tool_vetting`（`parse_permission`）、`loop/runtime`（`ToolGateConfig`/`PermissionGate` 装配）、`dock/registry/contracts`；`loop/tools/declarative_tools`（`pipeline.ts` 端点 gate、`_gates.ts` NetworkPolicySandbox 桥、`declarative_spec.ts` parse_permission）；hosts/lib `recipe.ts` 经公共面构造 `ToolGateConfig`；测试 `test/gate/permissions`。

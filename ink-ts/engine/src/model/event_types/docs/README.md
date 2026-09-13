@@ -1,4 +1,4 @@
-# event_types（core/event_types）
+# event_types（model/event_types）
 
 事件类型注册表与声明族：事件信封是机制（外层字段稳定），事件类型是数据（AI 可演化）——声明式 `EventTypeSpec`、发射判定、配额门禁、随集持久化 seam。
 
@@ -9,5 +9,5 @@
 - `eventTypeSpecs.ts` — 声明族：附件/审计（3 类）/时间线（2 类）规格函数与 `register_*` 注册辅助（组装候选/指纹顶替/组装审计等声明族已随组装链路退役删除，W7-B）。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors.ts`（`GraphDefinitionError`）、`core/json.ts`（`isRecord`）、`core/schema/schemaValidator.ts`（`SchemaSpec`/`SchemaValidator`/`SchemaField`/`FIELD_NUMBER`/`FIELD_STRING`）；目录内 specs → spec/registryTypes，registry → spec/registryTypes。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面）、`kernel/runtime`（装配注册表）、`kernel/settle`（review/promotion 审计常量）、`kernel/multipath`、`kernel/self_proposal`、`adapters/boot`、`core/edge_evidence`（`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除，W7-B）。
+- 上游（本目录实际 import）：`model/errors.ts`（`GraphDefinitionError`）、`model/json.ts`（`isRecord`）、`model/schema/schemaValidator.ts`（`SchemaSpec`/`SchemaValidator`/`SchemaField`/`FIELD_NUMBER`/`FIELD_STRING`）；目录内 specs → spec/registryTypes，registry → spec/registryTypes。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面）、`loop/runtime`（装配注册表）、`loop/turn_settle`（review/promotion 审计常量）、`kernel/multipath`、`evolve/legacy/self_proposal`、`adapters/boot`、`evolve/observe/usage_evidence`（`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除，W7-B）。

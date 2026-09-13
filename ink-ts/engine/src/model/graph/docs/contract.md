@@ -1,4 +1,4 @@
-# core/graph — 图定义 DSL 与编译校验（契约文档）
+# model/graph — 图定义 DSL 与编译校验（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -17,7 +17,7 @@
 ## 对外契约面
 
 - 目录导出：`Graph`/`GraphInit`/`CompiledGraph`、`Edge`/`EdgeKind`/`EdgeCondition`、`NodeFn`/`NodeContextLike`、`NodeBinding`、`TerminateReason`（REPLY/STOP/BUDGET_EXCEEDED/ERROR/CANCELLED + `is_valid`）、`NodeTypeRegistryLike`/`EdgeConditionRegistryLike`、`SchemaSerializable`、`fnv1a64Hex`、`graphToDict`/`loadGraphFromDict`/`graphDigest`。
-- 公共面（`src/index.ts`）：`export * from './core/graph/graph.js'` + `export * from './core/graph/graph_types.js'`；`graph_serialize.ts` 未直接上公共面——其功能经 `Graph` 实例方法 `to_dict`/`from_dict`/`digest` 暴露。
+- 公共面（`src/index.ts` 收口 `export * from './dock/index.js'`，汇出行落 `dock/index.ts:51-52`）：`export * from '../model/graph/graph.js'` + `export * from '../model/graph/graph_types.js'`；`graph_serialize.ts` 未直接上公共面——其功能经 `Graph` 实例方法 `to_dict`/`from_dict`/`digest` 暴露。
 
 ## 数据形态
 
@@ -33,7 +33,7 @@
 
 ## 装配与消费
 
-- 消费方：`kernel/executor`（编译图驱动执行、`TerminateReason` 终止语义）、`kernel/runtime`、`kernel/spawn`、`kernel/simulation`、`kernel/settle`、`kernel/introspection`、`core/harness`、`core/plan`、`core/workflow`、`core/nodes`（内置节点类型建图）；`kernel/path_assembler` 与 settle 指纹钩子消费已随组装链路退役（W7-B）。
+- 消费方：`graph/executor`（编译图驱动执行、`TerminateReason` 终止语义）、`loop/runtime`、`kernel/spawn`、`kernel/simulation`、`loop/turn_settle`、`evolve/observe/inspection`、`core/harness`、`model/plan`、`model/workflow`、`graph/nodes`（内置节点类型建图）；`kernel/path_assembler` 与 settle 指纹钩子消费已随组装链路退役（W7-B）。
 - 错误语义：图定义非法（节点名冲突、空类型名/条件名、入口缺失、静态边与条件边混用、序列化缺类型声明/条件名）→ `GraphDefinitionError`；节点/出口/边目标不存在 → `NodeNotFoundError`；子图校验失败包装为父图 `GraphDefinitionError`。
 - `resolve_conditions` 按位置替换同源多条件边（不首条错替）；`compile()` 拒绝静态边与条件边混用（静态边优先会闷杀条件边）；`from_dict` 支持 `validate: true` 建图期暴露非法图。
 
@@ -46,7 +46,7 @@
 
 ## 测试
 
-`test/core/graph/` 镜像三件：
+`test/model/graph/` 镜像三件：
 - `graph.test.ts` — 编译校验（线性图、入口/边/出口/边源缺失、子图冲突与嵌套暴露、混用拒绝、kind 推断、Edge 旧形态兼容）。
 - `graph_serialize.test.ts` — to_dict/from_dict 往返、函数直挂拒绝、按名条件边解析与无注册表拒绝、kind 序列化（loop 往返保留/非法 kind 拒绝）。
 - `graph_digest.test.ts` — 指纹 name 不参与/拓扑敏感/稳定/64 位 hex 格式、resolve_conditions 按位置解析与幂等、loop 参与指纹。
@@ -58,5 +58,5 @@
 - `resolve_types` 对同名直挂函数与声明式绑定并存的情形静默跳过绑定（`if (this.nodes[name] === undefined)`），无报错，优先级规则未见显式说明。
 - `graph_serialize.ts` `schemaFromData`：`if (!isRecord(data)) return data; return data;` 两分支同值，分支无区分效果；且 `loadGraphFromDict` 侧对 schema 无 `SchemaSerializable` 校验，与 `graphToDict` 侧要求 schema 必须带 `to_dict()` 不对称（同一定义的往返不保证同构）。
 - `loadGraphFromDict` 的 exits 逐项未校验类型（`(exitsData ?? []) as string[]` 直接入集），非 string 项可进入 exits；同函数对 edges/kind/config/contract 均逐项校验。
-- `graph_types.ts` `NodeContextLike` 在 src 内无 import 引用；执行器侧另定义 `NodeContext`（`kernel/executor`，公共面导出）——两个节点上下文类型的关系未见显式说明。
+- `graph_types.ts` `NodeContextLike` 在 src 内无 import 引用；执行器侧另定义 `NodeContext`（`graph/executor`，公共面导出）——两个节点上下文类型的关系未见显式说明。
 - 指纹哈希跨语言：文件头注明 Python 参考实现用 sha256、TS 用 FNV-1a 且「跨语言字节等价不保证」——两侧指纹值不可互比（注释自述，对齐手段未见）。

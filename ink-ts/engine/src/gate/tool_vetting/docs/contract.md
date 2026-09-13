@@ -1,4 +1,4 @@
-# kernel/tool_vetting — 工具可信度闸门（契约文档）
+# gate/tool_vetting — 工具可信度闸门（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -8,7 +8,7 @@ MCP/外挂工具挂载前的可信度闸门（`tool_vetting.py` 移植）：清�
 静态审查 → 判定，附观察模式（影子运行）。安全边界 fail-closed：未知来源且
 无签名拒绝、权限声明逐项解析非法拒绝、哈希须 sha256 hex 64 字符、零权限
 声明拒绝；静态审查命中降级 review（strict 直接 rejected）；影子运行写
-虚拟化、结果恒 untrusted。与 `kernel/tool_pipeline` 分工：本机制管「挂载前
+虚拟化、结果恒 untrusted。与 `loop/tools/tool_pipeline` 分工：本机制管「挂载前
 信任」，tool_pipeline 管「运行中执行」。
 
 ## 文件与职责
@@ -30,7 +30,7 @@ MCP/外挂工具挂载前的可信度闸门（`tool_vetting.py` 移植）：清�
 `VettingVerdict`；函数 `code_files_exist`；类型 `FsSeam`/`ShadowExecutor`/
 `StaticHook`/`ToolSourceValue`。`_types.ts` 另导出 `pyRepr`（未随
 `tool_vetting.ts` 转出）。机制契约 `tool_vetting_contract` 经
-`kernel/registry/contracts.ts` 入全量注册表（34 机制）。
+`dock/registry/contracts.ts` 入全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -67,7 +67,7 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
   （source 经 `ToolSourceValue`）、`manager.ts` 持 vetting 闸门调用面
   （真实 `ToolVetting` 或测试桩）、`_fs_seam.ts` 注入 FsSeam 真实装、
   `registry.ts`/`config.ts` 用 `ToolSource` 分类。
-- 机制契约经 `kernel/registry/contracts.ts` 汇总（verify:mechanisms 三键）。
+- 机制契约经 `dock/registry/contracts.ts` 汇总（verify:mechanisms 三键）。
 
 ## 不变式与门禁
 
@@ -84,7 +84,7 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
 
 ## 测试
 
-镜像测试 `test/kernel/tool_vetting/tool_vetting.test.ts`（5 组）：清单校验
+镜像测试 `test/gate/tool_vetting/tool_vetting.test.ts`（5 组）：清单校验
 （ToolManifest）、vet 清单闸门 fail-closed、vet 静态审查命中判定、shadow_run
 观察模式（写虚拟化属真实 fs seam，验机制环）、code_files_exist 存在性前置
 钩子。
@@ -94,10 +94,10 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
 1. `VettingVerdict` 类注释（`_types.ts`「总体判定（approved/review/
    rejected）」）写 `approved`，实际值面为 `verified`/review/rejected——
    注释与代码不符。
-2. `pyRepr` 多份拷贝并存：`core/py_repr.ts` 注释自认单源（已就绪），本目录
-   `_types.ts` 与 `kernel/builder/_types`、`kernel/self_tools/_json`、
-   `kernel/self_proposal` 各持一份（grep「export function pyRepr」核验）；
-   `_types.ts` 头注释自述以 core/py_repr.ts 为迁移点但本文件实现未迁移。
+2. `pyRepr` 多份拷贝并存：`model/py_repr.ts` 注释自认单源（已就绪），本目录
+   `_types.ts` 与 `graph/builder/_types`、`evolve/proposal/self_edit_tools/_json`、
+   `evolve/legacy/self_proposal` 各持一份（grep「export function pyRepr」核验）；
+   `_types.ts` 头注释自述以 model/py_repr.ts 为迁移点但本文件实现未迁移。
 3. `_is_hex` 容忍 `0x` 前缀（对齐 Python `int(digest, 16)`）与
    `_HASH_LENGTH`=64 硬长度校验并存：`0x`+62 位 hex 可通过两道校验、
    `0x`+64 位被长度拒——两道校验口径不一致，测试未见覆盖该边界。

@@ -32,6 +32,6 @@ AssemblyRecipe 直注消费，不作为知识条目注入（boot_prompt 种子�
 
 ## 依赖
 - 上游：`core/event_types`（EventTypeSpec）、`core/harness`（HarnessDefinition）、
-  `core/json`（JsonRecord）、`core/knowledge_set`（KnowledgeEntry/SOURCE_MODEL）。
+  `model/json`（JsonRecord）、`core/knowledge_set`（KnowledgeEntry/SOURCE_MODEL）。
 - 下游：`src/index.ts`（boot 引导种子组）；`test/adapters/boot/boot.test.ts`、
   `test/e2e/`（_e2e_fixtures、runtime_e2e）。

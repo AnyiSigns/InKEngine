@@ -1,4 +1,4 @@
-# kernel/runtime — 引擎装配/生命周期机壳（契约文档）
+# loop/runtime — 引擎装配/生命周期机壳（契约文档）
 
 > **W7-B 落地状态注记**：组装链路已整链退役——`path_assembler`/`pool_governance`/
 > `thread_skeleton`/`fingerprint_cache`/`core/assembly` 机制与 `_runtime_rounds.ts`/
@@ -6,7 +6,7 @@
 > `_round_graph`/`_round_continuation`/`_recent_tops`/`_thread_skeleton` state 保留键）
 > 已删除；`_runtime_assemble` 已并入 `_runtime_boot.ts`。主线回合 = 执行运行时
 > （rounds.send → ExecutionRuntime），本档计数/文件面/回合入口已按退役后实况逐行
-> 回填。池种子（core/nodes default_engine_pool_seed）保留供 engine_turn_runner 使用。
+> 回填。池种子（graph/nodes default_engine_pool_seed）保留供 engine_turn_runner 使用。
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -51,7 +51,7 @@ self_learning→node_registry→boot）+ 叶类 `Runtime`（原 skeleton/rounds 
 
 - 生命周期：`RuntimeState` = uninitialized/running/paused/stopped；非法转换显式报错，boot/stop 幂等。
 - 装配：`AssemblyRecipe` 字段见 `_types.ts`（机制开关 edge_evidence/settle_hooks/memory_extract/skill_crystal/memory_recall 缺省全开；seed_edges_enabled 缺省关闭的保守档；`run_options` 随装配保留为配方兼容位——执行主线不逐字段消费，W7-B 注；原 thread_skeleton_enabled/auto_continue_limit/candidate_trial_enabled/anti_monopoly_enabled 开关已随机制退役）。
-- state 通道：组装时代保留键 `_round_graph`/`_recent_tops`/`_round_continuation`/`_thread_skeleton` 已随 W7-B 退役删除；checkpoint state 通道现只剩公共通道（messages/reply/pending/tool_rounds/display_* 等，`core/nodes` STATE_*；`core/nodes/field_io.ts` 保留对旧内部键名的写入护栏防历史 checkpoint 通道被 llm 实例覆写）。
+- state 通道：组装时代保留键 `_round_graph`/`_recent_tops`/`_round_continuation`/`_thread_skeleton` 已随 W7-B 退役删除；checkpoint state 通道现只剩公共通道（messages/reply/pending/tool_rounds/display_* 等，`graph/nodes` STATE_*；`graph/nodes/field_io.ts` 保留对旧内部键名的写入护栏防历史 checkpoint 通道被 llm 实例覆写）。
 - records 通道：`runtime_config` × 键 `tool_baseline`/`tool_thread_tags`/`ui_components_disabled`；`ledger`（回合账本，schema=`round_ledger/1`，键 = `thread<US>回合序号`）。
 - 常量：`BASELINE_TOOL_NAMES`（11 件）、`BASELINE_IMMUTABLE_TOOLS`（2 件）、`TAG_IMMUTABLE`/`TAG_BASELINE`、`THREAD_TAG_TTL_SECONDS`=259200、`UI_COMPONENTS_PROTECTED`（4 件）、`DEFAULT_STEP_LIMIT`=50、`ENV_INSTALL_KEY_PREFIX`=`env.install`（原 `_ASSEMBLY_SOURCE_LIMIT`/`_MEMORY_RECALL_*`/`_SKILL_PRIOR_*`/`_CANDIDATE_EVENT_LIMIT`/`_ROUND_TOP_K_DEFAULT`/`_TUNED_TOP_K_MAX` 等组装时代常量已随机制退役，W7-B）。
 
@@ -66,7 +66,7 @@ self_learning→node_registry→boot）+ 叶类 `Runtime`（原 skeleton/rounds 
 
 - 装配：`boot()` → `_assemble` 步骤 ①–⑰（首步 `seal_mechanism_registry` fail-closed；存储→GuardedStorage→注册表/种子/成长管线/harness/事件类型/实体/校验器/自指管线/界面/元工具/检索源/统一流水线/集状态恢复/常驻集/工具索引/apply 目标/调参/引擎重建——原池治理步骤已随 pool_governance 退役，W7-B）；装配失败 `_boot_cleanup` 回收后原样上抛。
 - 回合：W7-B 起本层无回合方法——主线回合 = 宿主 `rounds.send` → `core/execution_runtime`（engine_turn_runner 按作用域建图跑引擎、run 子链 checkpoint 落账；挂起决议续跑走 execution.resume）；本层持在途 run 登记/`abort_current_run`（CANCELLED 快照，续跑恢复锚点语义与中断卡一致）、决议事件留痕 seam 与 `tune_after_round` 收尾调参入口（原 `assemble_round`/`resume_round`/`resume_run` 与「组装运行期未挂载/组装无候选」错误语义已随机制退役）。
-- 下游：`src/index.ts` 公共面 → `hosts/lib`（host/recipe/boot/bridge 等取 `Runtime`/`Host`/`AssemblyRecipeInit` 等）、`hosts/cli`（engine_attach 取 `Runtime`）；`kernel/registry/contracts.ts` 与 `scripts/verify_mechanisms.ts` 取 `runtime_contract`。静态消费皆经公共面，hosts 无路径直连。
+- 下游：`src/index.ts` 公共面 → `hosts/lib`（host/recipe/boot/bridge 等取 `Runtime`/`Host`/`AssemblyRecipeInit` 等）、`hosts/cli`（engine_attach 取 `Runtime`）；`dock/registry/contracts.ts` 与 `scripts/verify_mechanisms.ts` 取 `runtime_contract`。静态消费皆经公共面，hosts 无路径直连。
 
 ## 不变式与门禁
 
@@ -92,4 +92,4 @@ self_learning→node_registry→boot）+ 叶类 `Runtime`（原 skeleton/rounds 
 
 ## 测试
 
-`test/kernel/runtime/` 镜像测试（4 文件，原组装回合/骨架/自续跑/反垄断/回灌/字段链/技能回落/池治理接线 12 文件随 W7-B 退役删除）：`runtime.test.ts`（boot 幂等/状态机/stop 排空/工具标签/账本/键源）、`runtime_mechanisms.test.ts`（边证据/环境/沉淀钩子链）、`runtime_round_steps_recorder.test.ts`（记录器）、`self_learning.test.ts`（记忆抽取/结晶/调参/evolve_offline，执行运行时直注不经组装回合）。外围：`test/e2e/_e2e_fixtures.ts`（Runtime+AssemblyRecipe 装配夹具）、`test/core/nodes/nodes_cold_start.test.ts`、`test/kernel/registry/contracts_registry.test.ts`。
+`test/kernel/runtime/` 镜像测试（4 文件，原组装回合/骨架/自续跑/反垄断/回灌/字段链/技能回落/池治理接线 12 文件随 W7-B 退役删除）：`runtime.test.ts`（boot 幂等/状态机/stop 排空/工具标签/账本/键源）、`runtime_mechanisms.test.ts`（边证据/环境/沉淀钩子链）、`runtime_round_steps_recorder.test.ts`（记录器）、`self_learning.test.ts`（记忆抽取/结晶/调参/evolve_offline，执行运行时直注不经组装回合）。外围：`test/e2e/_e2e_fixtures.ts`（Runtime+AssemblyRecipe 装配夹具）、`test/graph/nodes/nodes_cold_start.test.ts`、`test/dock/registry/contracts_registry.test.ts`。

@@ -1,4 +1,4 @@
-# builder/（kernel/builder — 本机构建管线）
+# builder/（graph/builder — 本机构建管线）
 
 白名单沙箱命令构建 + 产物内容寻址哈希 + 冒烟门禁：AI 生成/挂载的代码
 （前端 bundle/任意语言工具/服务）经沙箱构建，产物按内容哈希落盘、可回退
@@ -19,8 +19,8 @@
 - `index.ts` — 导出面（镜像 Python `__all__`）。
 
 ## 依赖
-- 上游（实际 import）：`core/errors`、`kernel/sandbox`（ProcessSandbox +
-  _path.is_absolute）、`kernel/registry`（contract_types/ports）。
+- 上游（实际 import）：`model/errors`、`kernel/sandbox`（ProcessSandbox +
+  _path.is_absolute）、`dock/registry`（contract_types/ports）。
 - 下游（实际 import 本目录）：`kernel/llm/cache.ts`、
   `kernel/entity_evolution/_util.ts`（仅 `_sha256.js` 跨域共享）；
   `test/kernel/builder/`（4 文件）。src/hosts 内无其他消费方——机制自述

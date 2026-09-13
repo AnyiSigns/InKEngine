@@ -1,24 +1,24 @@
-# kernel/patch — 内容型补丁链原语（契约文档）
+# gate/patch — 内容型补丁链原语（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
 ## 定位
 
-kernel 机制件层的最底层纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被 core 数据面多模块（state/security/storage_records/knowledge_set/harness）与 kernel 多个机制件（simulation/self_application/evolution_writer）依赖；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
+gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被数据面与残部多模块（`core/state`、`core/harness`、`core/knowledge_set`、`model/storage`）与 kernel 残部及演化/执行侧机制件（`kernel/simulation`、`evolve/legacy/self_application`、`evolve/proposal/evolution_writer`、`loop/runtime`、`loop/recovery`）依赖；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
 
 ## 文件与职责
 
 | 文件 | 职责 |
 | --- | --- |
 | `patchChain.ts` | `PatchChain` 类（`apply`/`apply_many`/`truncate` 变更、`assemble(mode,start,end)` 组装、`rebase`/`branch` 派生、`to_dict`/`from_dict` 序列化、私有 `#version` 计数 + `on_change` 钩子）；`buildMessageCompressPatches(messages,cutoff,summary)` 消息压缩链构造；内部辅助 `deepCopy`/`resolve`/`setValue`/`applyOne`/`toStrish` 等 |
-| `types.ts` | 数据形态 `Path`/`Patch`/`PatchOp`/`AssembleMode`、协议常量 `PATCH_OP_VALUES`/`ASSEMBLE_MODE_VALUES`；re-export `core/json` 的 `Json`/`JsonRecord` |
+| `types.ts` | 数据形态 `Path`/`Patch`/`PatchOp`/`AssembleMode`、协议常量 `PATCH_OP_VALUES`/`ASSEMBLE_MODE_VALUES`；re-export `model/json` 的 `Json`/`JsonRecord` |
 | `contract.ts` | 机制契约 `patch_contract: MechanismContract`（见对外契约面） |
 
 ## 对外契约面
 
-- 公共面（`src/index.ts:108`）：`export * from './kernel/patch/patchChain.js'` → `PatchChain`、`buildMessageCompressPatches`、`PatchChainSerialized`，及 patchChain re-export 的类型 `Json`/`Patch`/`PatchOp`/`Path`/`AssembleMode`。
+- 公共面（`dock/index.ts:106`，经 `src/index.ts` 收口）：`export * from '../gate/patch/patchChain.js'` → `PatchChain`、`buildMessageCompressPatches`、`PatchChainSerialized`，及 patchChain re-export 的类型 `Json`/`Patch`/`PatchOp`/`Path`/`AssembleMode`。
 - 仅直连 `types.ts` 可达（不经公共面）：`PATCH_OP_VALUES`、`ASSEMBLE_MODE_VALUES`、`JsonRecord`（`patchContract.test.ts` 即直连 import `PATCH_OP_VALUES`）。
-- 机制端口契约：`patch_contract = { id: 'patch', contract: { effects: [] }, depends: [] }`——零副作用端口、零机制间依赖；经 `kernel/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（34 项全量契约清单）。
+- 机制端口契约：`patch_contract = { id: 'patch', contract: { effects: [] }, depends: [] }`——零副作用端口、零机制间依赖；经 `dock/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（31 项全量契约清单）。
 
 ## 数据形态
 
@@ -34,19 +34,19 @@ kernel 机制件层的最底层纯内存原语：Event Sourcing 补丁链（状�
 
 ## 装配与消费
 
-- 契约装配：`kernel/registry/contracts.ts` 将 `patch_contract` 收入全量机制契约清单（机制三键校验的输入之一）。
-- 值面消费（实际 import）：core 侧 `storage/storage_records.ts`、`state/schema.ts`、`state/reducers.ts`、`security/security.ts`、`harness/repository.ts`、`knowledge_set/`（4 文件）；kernel 侧 `simulation/simulation.ts`、`self_application/set_patch_chain.ts`、`self_application/apply_flow.ts`、`evolution_writer/evolution_writer.ts`。依赖方向为 core → kernel/patch（`core/state/docs/contract.md` 已注明该机制依赖仍为零 IO 纯逻辑）。hosts 侧无直接 import。
+- 契约装配：`dock/registry/contracts.ts` 将 `patch_contract` 收入全量机制契约清单（机制三键校验的输入之一）。
+- 值面消费（实际 import）：model 侧 `storage/storage_records.ts`；core 残部 `state/schema.ts`、`state/reducers.ts`、`harness/repository.ts`、`knowledge_set/`；kernel 残部 `simulation/simulation.ts`；evolve 侧 `legacy/self_application/`、`proposal/evolution_writer/`；loop 侧 `runtime/_runtime_boot.ts`、`recovery/recovery.ts`。依赖方向为数据面/残部 → gate/patch 补丁链原语（`core/state/docs/contract.md` 已注明该机制依赖仍为零 IO 纯逻辑）。hosts 侧无直接 import。
 - 错误语义：append 目标非 list/str → `TypeError`（组装重放期）；`buildMessageCompressPatches` cutoff 越界（须 1..N）→ `RangeError`；`truncate(keep<0)` → `RangeError`；delete 路径缺失静默成功（幂等）；`on_change` 异常吞掉不阻断链演化；`from_dict` 容忍多余字段；路径中段/叶子父级非容器 → `TypeError`。
 
 ## 不变式与门禁
 
 - 机制三键：依赖单向 DAG——`depends: []`，无机制间依赖；runtime depends 闭包——patch 为其它机制复用的自足叶子，自身无再入依赖；零自持 IO——effects=[]，纯内存成立。
-- gate 规则（core/kernel 禁 `node:*`/第三方/宿主词）：三文件仅相对 import 与类型定义，无宿主词命中。
-- 目录形态差异：`engine/AGENTS.md` 所述机制件形态「contract.ts + impl.ts + *.test.ts」在本目录未按 impl.ts/同目录测试落位（实现即 `patchChain.ts`，测试在 `test/kernel/patch/`）——见疑点 7。
+- gate 规则（0-IO 条款 coreDirs ∪ layerDirs 覆盖本机制层：禁 `node:*`/第三方/宿主词）：三文件仅相对 import 与类型定义，无宿主词命中。
+- 目录形态差异：机制层契约落点口径为「`<mechanism>/contract.ts` + 实现文件同住、测试镜像 `engine/test/`」；本目录实现即 `patchChain.ts`（无 `impl.ts` 字名文件），测试在 `test/gate/patch/`——见疑点 7。
 
 ## 测试
 
-`test/kernel/patch/` 镜像测试三文件：
+`test/gate/patch/` 镜像测试三文件：
 
 - `patchChain.test.ts` — append/replace/delete 基元（自动创建容器、列表越界补 null、delete 缺键幂等、非容器 append 报错）；assemble 三模式与纯函数性；rebase/truncate/branch（共享前缀互不影响）；to_dict/from_dict 往返与深拷贝隔离；version 单调、on_change 每次变更触发且异常不阻断、branch/rebase 产物 version 从 0 起。
 - `patchCompress.test.ts` — 消息压缩链：组装结果 = 摘要 + 保留段；delete 从后向前即删除证据；cutoff=1/全长/越界抛错；rebase 压扁后链长收敛且组装不变；序列化往返。
@@ -60,4 +60,4 @@ kernel 机制件层的最底层纯内存原语：Event Sourcing 补丁链（状�
 4. `buildMessageCompressPatches` 在 src 与 hosts 内均无消费方（仅 `patchCompress.test.ts` 使用），同时在公共面导出——孤儿导出，目录内未见其装配/调用点。
 5. `Patch.value` 可选，而序列化形态 `PatchChainSerialized.patches[].value: Json` 必填；`to_dict` 对 value 为 undefined 的补丁产出 undefined 值字段，两者落差未见显式说明。
 6. types.ts ↔ patchChain.ts 相互 import（patchChain 值依赖 `ASSEMBLE_MODE_VALUES`；types 仅类型 re-export `PatchChainSerialized`）——类型侧擦除后运行期无环，但模块图上为相互引用。
-7. `engine/AGENTS.md` 描述机制件目录形态为「contract.ts + impl.ts + *.test.ts」，本目录实际为 contract.ts + types.ts + patchChain.ts，无 impl.ts、无同目录测试。
+7. 目录形态：机制层契约落点口径为「各机制层 `<mechanism>/contract.ts`、实现文件同住、测试镜像在 `engine/test/`」；本目录实际为 contract.ts + types.ts + patchChain.ts（无 `impl.ts` 字名文件，实现即 `patchChain.ts`，属各机制目录通用形态非本目录特例）。

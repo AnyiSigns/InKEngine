@@ -5,27 +5,39 @@
 
 ## 1. 分层与依赖方向
 
-- `engine/`：L3 引擎库，内部双纯层 + adapters、依赖单向 `kernel/core ← adapters`：
-  - `engine/src/kernel/`：机制件层（gate/审计/补丁链/执行器/settle/round_steps/
-    runtime 状态机等机制件经契约化后归此）。与 core 同守纯函数纪律：零框架
-    依赖、零 node 内置模块、零宿主/领域词；JSON 进 JSON 出；无 main、无全局
-    状态、无 IO。进程/存储/时间/随机数/LLM/网络等副作用一律以**接口（seam）**
-    声明在此层，机制只含纯逻辑与 seam 契约，不依赖下方 adapters。
-  - `engine/src/core/`：机制纯函数层（数据面/扩展点/装配数据留守，与 kernel
-    同受纯函数纪律与 gate 规则约束，见 §7）。零框架依赖、零 node 内置模块、
-    零宿主/领域词；JSON 进 JSON 出；无 main、无全局状态、无 IO。进程/存储/
-    时间/随机数/LLM/网络等副作用一律以**接口（seam）**声明在此层，核心机制
-    只含纯逻辑与 seam 契约，不依赖下方 adapters。
-  - `engine/src/adapters/`：机制心跳（LLM/存储/MCP）的可选 IO **真实现**，
-    仍属引擎包而非宿主——kernel/core 只给契约，适配实现按 DI 装载。llm 协议
+- `engine/`：L3 引擎库，现体七层 + 残部 + adapters；层向纪律以 gate `layer-dag`
+  矩阵为唯一口径（§7 表，P7-3 起强制），纯函数纪律作用集合 = coreDirs ∪
+  layerDirs（0-IO 条款：零框架依赖、零 node 内置、零裸包；JSON 进 JSON 出；
+  无 main、无全局状态、无 IO；副作用一律以 `dock/ports*` 端口 seam 声明、
+  机制契约落各机制层 `<mechanism>/contract.ts`）：
+  - `engine/src/model/`：数据面层——数据面契约生成物落点
+    `model/contracts/generated/` + schema/events/graph 数据面/perception/plan/
+    scopes/harness/state 形态等纯数据，零依赖首层。
+  - `engine/src/loop/`：执行主线——runtime/round_steps/tools/execution_runtime/
+    whiteboard/collab/context/recovery/interrupt/trial 等回合循环与执行运行时。
+  - `engine/src/graph/`：最小图解释器——executor/nodes（含池种子）/builder/
+    node_registry/registry，图=数据的纯解释。
+  - `engine/src/gate/`：运行期「可不可以」——approval/audit_log/budget/patch/
+    permissions/sandbox/security/tool_vetting/link_validator，审批/审计/补丁链/
+    闸门/沙箱判定。
+  - `engine/src/evolve/`：单一演化栈——learn/observe/param_tuning/proposal/
+    skill/pipeline，演化资产只经受控通道落库。
+  - `engine/src/dock/`：对外契约面——端口词表单一真源 `dock/ports.ts`、机制
+    注册面 `dock/registry/`（原 kernel/registry）与 index/caps/calls/view 公共面。
+  - `engine/src/core/`（残部）：entities/knowledge_set/state/fanout/run_result
+    与 environments/harness 留守的过渡期纯逻辑，同受 0-IO 纪律，随 P8 逐层消化。
+  - `engine/src/kernel/`（残部）：simulation/multipath/spawn 旧推演机制件，
+    随 P8 退役，新机制件禁入。
+  - `engine/src/adapters/`：机制心跳（LLM/存储/MCP/启动装配 boot）的可选 IO
+    **真实现**，仍属引擎包而非宿主——机制层只给契约，适配实现按 DI 装载。llm 协议
     适配器（openai-compatible / anthropic messages / openai responses，本地
     OpenAI 兼容端点）只发协议级 HTTP，不 import 任何厂商 SDK；storage 驱动
-    （sqlite/memory 驱动，postgres 暂不提供）实现 core/kernel 仓储契约；
+    （sqlite/memory 驱动，postgres 暂不提供）实现各机制层仓储契约；
     mcp client 同层。本层允许 node:* 与驱动必需的第三方，但不得反向依赖
-    kernel/core 私有文件。
+    各机制层私有文件。
 - `contracts` 已收编入 engine：数据面契约资产随引擎内置（JSON 真源
   `engine/schemas/` + `engine/fixtures/` 与生成器 `engine/scripts/`；生成 TS
-  常量/类型入 `engine/src/core/contracts/generated/`，随 engine tsc/gate 守门，
+  常量/类型入 `engine/src/model/contracts/generated/`，随 engine tsc/gate 守门，
   禁手改由 contracts:verify 强制），不再有独立契约包。
 - `gate/`：开发/CI 静态纪律工具（行数、UTF-8、import 白名单、词汇、src-test
   检查），真实扫描挂在 root `npm test` 与 CI（不再只手动），不打包进运行时。
@@ -33,13 +45,12 @@
   engine Runtime、实现 `Host` 五件套、构建产品配方（AssemblyRecipe）、出宿主
   命令面 bridge（npm 包 @ink-ts/host）；只做「选哪个适配、读配置、注入 seam」与
   宿主薄服务接线；**不写厂商适配与存储驱动**（那是 engine/adapters 的职责）。
-   机制语义（审批/补丁链/审计/闸门/沙箱判定）属 engine core，不得在此复制。
+   机制语义（审批/补丁链/审计/闸门/沙箱判定）属 engine 对应机制层（gate 等），不得在此复制。
    不写 main、不监听端口、不是进程——只被 hosts/cli 与 vitest 链 import；
    renderer/hosts-web 侧经 cli serve 运行时通道消费，不静态 import host。
-- `hosts/cli/`（原 `cli/`）：唯一进程载体与宿主执行体（stdio/run/serve/tui
-  四形态——cli 为 kind=host 装配期插件（spec = `hosts/cli.spec.json`），tui 是
-  cli 宿主的终端呈现面（`hosts/cli/src/tui/`），web 是浏览器呈现面经 cli serve；
-  npm 包 @ink-ts/cli），注入实现到 seam。
+- `hosts/cli/`（原 `cli/`）：唯一进程载体与宿主执行体（stdio/run/serve
+  三形态——cli 为 kind=host 装配期插件（spec = `hosts/cli.spec.json`），web 是
+  浏览器呈现面经 cli serve；npm 包 @ink-ts/cli），注入实现到 seam。
 - `hosts/web/`（产品壳 @ink-ts/web，阶段 2 由 renderer 产品装配面独立成包）：
   web 宿主的浏览器呈现面——产品 chrome（App/activate/state/shell/productView/
   app/views 等）与「宿主数据/动作 → 显示设备」装配单点；`index.html`/`main.tsx`/
@@ -59,13 +70,12 @@
   运行配置完全声明化与其余 spec 落定随阶段 5b。
 - `bootstrap/`：**唯一进程入口**（阶段 5b-3 起规范入口）——读
   `hosts/<surface>.spec.json` 校验 implemented=true 后委托 `hosts/cli` 的
-  `runCliMain` 执行 stdio/run/serve/tui；直接跑 `hosts/cli/src/index.ts` 为兼容
+  `runCliMain` 执行 stdio/run/serve；直接跑 `hosts/cli/src/index.ts` 为兼容
   入口（cli e2e 不变），composition root 收敛面在 bootstrap。
 
 术语：**host（原 backend）** = 宿主装配层 / composition root（物理住
-`hosts/lib/`，@ink-ts/host）；**cli** = 唯一进程载体（含 main + 四形态：
-stdio/run/serve/tui，物理住 `hosts/cli/`，@ink-ts/cli；tui 为 cli 宿主终端呈现
-面）；**web** = web 宿主面 = 浏览器呈现产品壳（物理住 `hosts/web/`，@ink-ts/web，
+`hosts/lib/`，@ink-ts/host）；**cli** = 唯一进程载体（含 main + 三形态：
+stdio/run/serve，物理住 `hosts/cli/`，@ink-ts/cli）；**web** = web 宿主面 = 浏览器呈现产品壳（物理住 `hosts/web/`，@ink-ts/web，
 `hosts/web.spec.json`/`surface: 'web'`，经 cli serve 出 http+ws）；**renderer** =
 显示设备库（L5，@ink-ts/renderer，只渲染数据 + 触发补丁，不写业务，被
 hosts/web import，运行时只连 cli serve 通道）；exec/infer/ink_ts_mcp 为 Rust
@@ -77,9 +87,9 @@ hosts/web import，运行时只连 cli serve 通道）；exec/infer/ink_ts_mcp �
 
 当前实现状态：数据面枚举（端点名/补丁类型/审批分级/守卫集合/审计状态/
 FieldKind 等）经 engine 内置生成物单源（`engine/schemas` + `engine/fixtures`
-→ `engine/src/core/contracts/generated`），engine core 模块以相对 import
-直接消费，本地不维护同值第二套字面量；core 层 import 无裸包白名单（gate
-精确拒绝，见 §7）。生成物再经 `@ink-ts/engine` index 公共面导出，供
+→ `engine/src/model/contracts/generated`），engine 各机制层模块以相对 import
+直接消费，本地不维护同值第二套字面量；0-IO 纪律层（coreDirs ∪ layerDirs，
+见 §7）import 无裸包白名单（gate 精确拒绝）。生成物再经 `@ink-ts/engine` index 公共面导出，供
 host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 通道消费）。
 
 ## 2. 文件拆分纪律
@@ -93,9 +103,11 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
    组件文件只含渲染 + 绑定声明，逻辑文件为纯 TS（可测、无 JSX）。
 4. 单组件 JSX ≤350 行；超出即拆子组件到同目录 `__parts/` 或按 ui_spec 拆为
    独立注册组件，禁止「上帝组件」。
-5. 需要存储/LLM 等 IO 的机制：接口与仓储契约在 `engine/src/core`（纯 seam），
-   IO 实现在 `engine/src/adapters`（可选装载、DI 注入）——core 保持纯函数无
-    全局状态，宿主/host 只装配不实现。
+5. 需要存储/LLM 等 IO 的机制：端口词表与 seam 接口声明在
+   `engine/src/dock/ports.ts` 与 `engine/src/dock/ports/*`（纯 seam），机制契约在各机制层
+   `<mechanism>/contract.ts`（零 IO 白名单声明），IO 实现在
+   `engine/src/adapters`（可选装载、DI 注入）——机制层、dock 保持纯函数无
+   全局状态，宿主/host 只装配不实现。
 6. 超过 350 行仍膨胀 → 按「子机制/子渲染区」拆目录，不凑文件。
 7. **测试与源码分离（包内）/ 插件测试随插件同住**：engine/hosts(lib·cli·web)/renderer 包内 vitest
    测试放所属包 `test/` 目录（镜像被测 src 路径，文件仍名 `<机制>.test.ts`），
@@ -131,7 +143,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 
 1. 可 JSON 表达的契约（枚举、注册表条目、配方数据）只落 `engine/schemas` +
    `engine/fixtures`（JSON 真源），生成 TS 常量/类型入
-   `engine/src/core/contracts/generated`，core 模块相对 import 消费，
+   `engine/src/model/contracts/generated`，机制层模块相对 import 消费，
    host/cli 经 `@ink-ts/engine` 公共面取用（web/renderer 侧不静态 import engine，
    走 cli serve 运行时通道），全仓同构，禁止第二套语义枚举。
 2. 行为钩子（Callable/执行体接线）不落 JSON，只以 seam/类型存在于消费层，
@@ -154,14 +166,14 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 文件行数 ≤350（例外须标注） | engine、hosts(lib·cli·web)、renderer 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；hosts/web 阶段 2 起入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**`（plugins 例外：真面插件 `faces/`、`impl/` 内 `.test.ts(x)` 与源码同住并列 = 阶段 7a 目标形态，放行；生成器/脚本目录不进 src） | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
-| core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（P0 = `engine/src/dock/**`；两条款口径：0-IO 条款 `node:*`/裸包 + core-token 检查作用集合 = coreDirs ∪ layerDirs，禁反向依赖条款与私有 seam 检查仍只 core/kernel（见后两行）——dock 公共面承载 adapters re-export 属 S2 消亡物，其层向纪律由 layer-dag 矩阵执法；layerDirs 随 P2-P5 搬迁逐层加入、禁逆向移除） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
+| core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（现体 = `engine/src/{dock,model,graph,gate,loop,evolve}` 六层，P0-dock 起随 P2-P5 搬迁逐层加入、P7 扩面完成，禁逆向移除；两条款口径：0-IO 条款 `node:*`/裸包 + core-token 检查作用集合 = coreDirs ∪ layerDirs，禁反向依赖条款与私有 seam 检查仍只 core/kernel（见后两行）——dock 公共面承载 adapters re-export 属 S2 消亡物，其层向纪律由 layer-dag 矩阵执法） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core/kernel 禁反向依赖 adapters | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
 | adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
-| 生成文件禁手改 | `engine/src/core/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
-| 机制件契约三键（依赖单向/装配完整/0-IO） | `engine/src/kernel/<mechanism>/contract.ts` 全量 + runtime 装配闭包 + kernel 源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + kernel 禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
+| 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
+| 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 kernel/graph/gate/loop/evolve 机制层，现 31 契约）+ runtime 装配闭包 + 同五机制层与 core 残部源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 五机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
@@ -223,7 +235,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    可观测不静默（来源 `source_role=agent`/`fallback=true` 随 RoleModelStats
    与审计以 `role→agent` 键记录）；agent 槽缺失/空 → 该角色机制停用或
    确定性降级（如蒸馏走确定性基线），绝不跨槽顶替、不隐式换用其它模型。
-4. 实现锚点：角色槽原语收敛于 `engine/src/core/model_roles/modelRoles.ts`
+4. 实现锚点：角色槽原语收敛于 `engine/src/model/model_roles/modelRoles.ts`
    （`resolve_role_model` / `build_role_model_chain` / `RoleModelStats`，
    机制层零模块级可变状态）；knowledge_signals 蒸馏链走 router 槽；
    `llm/cache` 的 `tag` 仅为通用用途桶标签（随指纹与记录落库，供命中率/
@@ -349,14 +361,14 @@ mcp.status/enable/disable）；`round_ledger_list`/
   checkpoint 锚点 + 挂起卡键决议注入（execution.resume / rounds.resume）。图 =
   数据、图 = 投影的语义不变：投影的数据源从「组装图快照」换为执行轨迹/RunEvent
   流（执行树 = 轨迹投影），池结点类型/边先验仍为引擎内置池种子
-  engine/src/core/nodes（default_engine_pool_seed 供 engine_turn_runner）。host
+  engine/src/graph/nodes（default_engine_pool_seed 供 engine_turn_runner）。host
   配方（recipe.ts build_product_recipe）不产任何图（hosts/lib/src/graph.ts 已删），
   CLI 亦不再有占位图/`--graph` 选图；per-session 组装图/骨架/候选链路
   （assemble_round/_round_graph/RECENT_TOPS/_round_continuation/_thread_skeleton）
   已全部退役。
 - `max_tool_rounds` 消费点：引擎 llm_decider 节点 config 的 `max_tool_rounds`
   （工具回合上限；引擎池种子 default_config/登记数据携带，缺省常量
-  ENGINE_DEFAULT_TOOL_ROUNDS=8，见 engine/src/core/nodes）。host 能力记录
+  ENGINE_DEFAULT_TOOL_ROUNDS=8，见 engine/src/graph/nodes）。host 能力记录
   （capability.json）的 max_tool_rounds 只作声明的装配位存档，不再喂宿主
   静态图——宿主已无静态图。
 - 存储缺省 sqlite（沉淀跨会话）：host/cli 缺省存储 = data_dir 下 sqlite 库

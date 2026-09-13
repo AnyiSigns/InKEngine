@@ -1,4 +1,4 @@
-# core/schema — Schema 校验器（契约文档）
+# model/schema — Schema 校验器（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -6,7 +6,7 @@
 ## 定位
 
 声明式 schema 的声明语言与执行校验（L1 准入机制件）：结点契约输入/输出
-声明（core/contracts）、状态通道 schema（core/state）、工具参数等共用
+声明（model/contracts）、状态通道 schema（core/state）、工具参数等共用
 同一声明语言与校验执行体——「schema 即数据」的准入闸门。
 
 ## 文件与职责
@@ -17,8 +17,8 @@
 
 ## 对外契约面
 
-- 公共面：`src/index.ts`「Schema 校验」组 `export * from
-  './core/schema/schemaValidator.js'`（全量直通）。
+- 公共面：`dock/index.ts:173`「Schema 校验」组 `export * from
+  '../model/schema/schemaValidator.js'`（全量直通，经 `src/index.ts` 收口出面）。
 - 校验器语义：只返回违规清单不抛错（validate/validate_ok）；定义期非法
   声明抛 GraphDefinitionError（fail-fast）。
 - `validate_tool_name` 返回清单而非抛错（与 SchemaValidator.validate 同
@@ -26,7 +26,7 @@
 
 ## 数据形态
 
-- FieldKind 单一真源 = `core/contracts/generated/endpointTypes.ts`（数据面
+- FieldKind 单一真源 = `model/contracts/generated/endpointTypes.ts`（数据面
   schema 的 output_field.kind 枚举，schemas+fixtures 生成）——本目录 type
   直接引用，不维护第二套语义枚举（engine/AGENTS.md 约束的样板实现）。
 - 字段声明合法形态示例常量（FIELD_DECL_EXAMPLE/SCHEMA_DECL_EXAMPLE）内嵌
@@ -39,12 +39,12 @@
 
 ## 装配与消费
 
-- 消费面广：`core/contracts`（NodeContract input/output_schema）、
-  `core/state`（StateSchema/Channel 声明）、`core/nodes`（实例契约派生）、
-  `core/perception`（视觉结点契约）、`core/graph`（SchemaSerializable）等；
+- 消费面广：`model/contracts`（NodeContract input/output_schema）、
+  `core/state`（StateSchema/Channel 声明）、`graph/nodes`（实例契约派生）、
+  `model/perception`（视觉结点契约）、`model/graph`（SchemaSerializable）等；
   宿主经公共面直接取用（SchemaField/SchemaSpec/SchemaValidator）。
 - `validate_tool_name` 消费方：声明式工具定义校验链（grep
-  src/core/declarative_tools 与 kernel/tool_vetting 命名规范入口）。
+  src/loop/tools/declarative_tools 与 gate/tool_vetting 命名规范入口）。
 
 ## 不变式与门禁
 
@@ -71,5 +71,5 @@
 
 ## 测试
 
-`test/core/schema/schemaValidator.test.ts`（声明往返/校验清单/工具名
+`test/model/schema/schemaValidator.test.ts`（声明往返/校验清单/工具名
 规范/边界与正则）。

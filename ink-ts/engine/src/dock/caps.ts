@@ -5,7 +5,7 @@
  * 注册口径。本面收录前四面：tools（声明式工具端点/定义/执行体注册、工具编排打分
  * 选择）、node_types（引擎内置节点注册函数族，core/nodes 具名组）、event_types
  * （事件类型注册表 + 演化事件规格，含内联整组导出者）、patch_kinds（PATCH_KINDS/
- * PatchKind 词表，core/contracts/generated 数据面契约具名组）——各组语句（含分组
+ * PatchKind 词表，model/contracts/generated 数据面契约具名组）——各组语句（含分组
  * 注释）与 dock/index.ts 中对应语句逐字节一致：star 组整模块 star、具名组整语句
  * 具名，禁子集（防对公共符号做具名子集致公共面快照 value↔type 翻转），符号集合不
  * 因本面增减；index.ts 中语句保留，双路径导出按 name:kind 去重、快照不漂移。
@@ -84,7 +84,7 @@ export * from '../model/event_types/eventTypeSpec.js';
 // ── patch_kinds：数据面契约（值枚举 + 词表类型）──
 
 // 数据面契约（引擎内置生成物再导出：engine/schemas + fixtures →
-// core/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
+// model/contracts/generated，勿手改；宿主/上层一律经本公共面取用，
 // 不再存在独立契约包）
 export {
   APPROVAL_LEVELS,

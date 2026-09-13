@@ -12,7 +12,7 @@
  *
  * depends：introspection 只 value 组合 llm（ToolSpec 工具描述数据面）；
  * tool_pipeline/permissions 仅 type 引用（executor seam 数据形态），不构成
- * 装配值依赖。契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 装配值依赖。契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

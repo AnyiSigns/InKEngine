@@ -1,4 +1,4 @@
-# kernel/llm — LLM 机制契约层（契约文档）
+# loop/llm — LLM 机制契约层（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -33,7 +33,7 @@
 
 barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LLMConfig` `LLMParams` `LLMResult` `collect_result`；errors——`LLMAuthError` `LLMBadRequestError` `LLMConfigError` `LLMEmptyStreamError` `LLMError` `LLMFormatError` `LLMNetworkError` `LLMNotFoundError` `LLMRateLimitError` `LLMServerError` `LLMTimeoutError` `LLMUnknownError` `classify_llm_error` `is_transient_llm_error`；messages——`Attachment` `Message` `ToolCall` `ToolCallDelta` `accumulate_tool_calls` `assistant` `project_history_baseline` `system` `tool_result` `user`；tools——`ToolSpec` `to_openai_tools`；fallback——`ModelChain` `RetryPolicy`；cache——`CACHE_COLLECTION` `DEFAULT_CACHE_TTL` `CachingLLM`。
 
-公共面：`src/index.ts`「LLM 机制契约（core 纯 seam）」组 `export * from './kernel/llm/index.js'`——37 名全部上公共面。barrel 未含（kernel 内部消费）：guard 三件 `UsageTrackingLLM`/`CompressingLLM`/`current_node_context`、`llm_contract`、`redact`、`message_role`、`REASONING_EFFORTS`、`StoredMessage` 与全部 `_` 前缀私件。机制端口契约经 `kernel/registry/contracts.ts` 收入全量契约清单（verify:mechanisms 三键）。
+公共面：`src/index.ts`「LLM 机制契约（core 纯 seam）」组 `export * from './kernel/llm/index.js'`——37 名全部上公共面。barrel 未含（kernel 内部消费）：guard 三件 `UsageTrackingLLM`/`CompressingLLM`/`current_node_context`、`llm_contract`、`redact`、`message_role`、`REASONING_EFFORTS`、`StoredMessage` 与全部 `_` 前缀私件。机制端口契约经 `dock/registry/contracts.ts` 收入全量契约清单（verify:mechanisms 三键）。
 
 ## 数据形态
 
@@ -49,14 +49,14 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
 ## 装配与消费
 
 - guard 包装在 runtime 装配：`kernel/runtime/_runtime_engine` 以 `CompressingLLM`/`UsageTrackingLLM` 包装注入模型；`kernel/executor`（`_engine_parallel`/`_engine_execute_helpers`）在节点边界 set/reset `current_node_context`；`_node_context`/`_engine_base`/`run_subgraph` 经 `_guard_types` 视图持 `AsyncLLM`。
-- core 侧：`core/nodes`（llm_decider/router/agent/seams/tool_pipeline）经 `_guard_types` 视图消费 `AsyncLLM`、直用 `messages`/`tools`/`base.LLMParams`；`core/context`（window/compression）复用 `message_role`；`core/storage/storage_records` 复用 `Message`/`ToolCall`；tool_index/tool_orchestrator/harness/declarative_tools/self_tools/introspection 消费 `ToolSpec`。
+- core 侧：`graph/nodes`（llm_decider/router/agent/seams/tool_pipeline）经 `_guard_types` 视图消费 `AsyncLLM`、直用 `messages`/`tools`/`base.LLMParams`；`core/context`（window/compression）复用 `message_role`；`core/storage/storage_records` 复用 `Message`/`ToolCall`；tool_index/tool_orchestrator/harness/declarative_tools/self_tools/introspection 消费 `ToolSpec`。
 - hosts/lib：`host.ts` 单配置 `create_llm` 直建、多配置 `new ModelChain(...)`（fallback 链由 llm 层承载）；`bridge/rounds.ts` 用 `project_history_baseline` 重建分支/试跑基线。
 - `adapters/llm` 全部适配器（openai_compat/openai_response/anthropic）实现 base `AsyncLLM` 并注册于 adapters registry；重试唯一权威：适配器默认单次（内部重试关闭），`RetryPolicy` 是瞬时故障重试单一配置点，不叠加放大。
-- `llm_contract` 无本目录镜像测试，经 `kernel/registry/contracts.ts` 汇总、由 `test/kernel/registry/contracts_registry.test.ts` 侧覆盖。
+- `llm_contract` 无本目录镜像测试，经 `dock/registry/contracts.ts` 汇总、由 `test/dock/registry/contracts_registry.test.ts` 侧覆盖。
 
 ## 不变式与门禁
 
-- 0-IO 机制件：只调 contract effects 声明端口；适配器注册/传输不进本层；verify:mechanisms 三键（依赖单向 DAG/runtime depends 闭包/机制层零自持 IO）随 kernel/registry 契约清单强制。
+- 0-IO 机制件：只调 contract effects 声明端口；适配器注册/传输不进本层；verify:mechanisms 三键（依赖单向 DAG/runtime depends 闭包/机制层零自持 IO）随 dock/registry 契约清单强制。
 - 容错不变式：认证失败 fail-closed 不切备用（防凭据失效被静默掩盖/数据外转其它端点）；非 `LLMError` 中断（宿主取消）原样穿透不重试；流式产出后不切换不重试（防重复内容）；`astream` 不缓存。
 - 缓存 fail-open：读写失败一律按 miss/忽略，绝不阻断调用；params 纳入指纹（宁可多 miss）。
 - 凭据面：`LLMConfig.api_key` 不入 `toJSON`、extra 凭据键过滤；上游 detail 进异常前遮蔽+截断（对象级不变量，调用方免二次过滤）；`redact` 失败安全。
@@ -68,7 +68,7 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
 
 ## 疑点与不一致
 
-1. 同目录双 `AsyncLLM` 定义并存：`base.ts` 抽象类（`LLMChunk` readonly 字段类）与 `_guard_types.ts` 结构接口（字段可选）——后者头注释称「落地后本文件导出随之收敛为 base.ts 的 re-export」，而 base.ts/`collect_result` 已落地（adapters 侧全部经 base.js 消费），收敛条件已成立但未收敛；core/nodes 与 kernel/executor/runtime 仍按 `_guard_types` 视图消费。
+1. 同目录双 `AsyncLLM` 定义并存：`base.ts` 抽象类（`LLMChunk` readonly 字段类）与 `_guard_types.ts` 结构接口（字段可选）——后者头注释称「落地后本文件导出随之收敛为 base.ts 的 re-export」，而 base.ts/`collect_result` 已落地（adapters 侧全部经 base.js 消费），收敛条件已成立但未收敛；graph/nodes 与 kernel/executor/runtime 仍按 `_guard_types` 视图消费。
 2. `guard.ts` 头注释「AsyncLLM 实时厂商传输（适配器注册/SSE 流解析/collect_result）属 llm base 批次，尚未随本模块移植」与现状不符——base.ts（`collect_result`/`AsyncLLM` 契约）与 `adapters/llm`（适配器注册/SSE 解析）均已落地，陈旧注释。
 3. `errors.ts` 尾部 re-export（`ROLES`/`ATTACHMENT_KINDS`/`ATTACHMENT_SEGMENT_TYPES`/`ROLE_ALIASES`，注释称「仅供 messages.ts 复用」）：messages.ts 实际从 `./_types.js` 直取，全仓无经 errors.js 取这些名的 import（grep 核验）——死转出 + 注释失准。
 4. barrel 未含 `message_role`（core/context 两文件跨目录消费）、`redact`（仅 errors 内部）、`REASONING_EFFORTS`（adapters 三文件消费）、guard 三件与 `llm_contract`；是否收编口径未见显式说明（`index.test.ts` 守护现清单并断言适配器名不入 barrel）。

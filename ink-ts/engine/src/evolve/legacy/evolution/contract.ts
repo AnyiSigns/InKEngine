@@ -9,7 +9,7 @@
  *
  * depends 为空：evolution 不直接依赖任何其它机制件（失败日志/条目由使用
  * 方驱动提供；闸门 seam 由调用方注入）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

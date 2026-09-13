@@ -1,63 +1,92 @@
 # engine 层（docs/subsystems/engine.md）
 
 **层权威**：改 engine 先读本文件 + `engine/AGENTS.md`；跨层引用统一见
-`../component_data_endgame.md`（总纲）与 `../PLUGINS.md`（插件契约）。
+`../PLUGINS.md`（插件契约与机制闭集红线）。
 
 ## 定位
 
 L3 TypeScript 纯函数引擎（npm 包 `@ink-ts/engine`）：**大脑 = 数据权威**。
-JSON 进 JSON 出，核心层零框架依赖、零 IO、零自持进程——IO 一律由端口 seam
-定义、`adapters/` 实现、宿主装配注入。engine 不感知任何宿主/插件/前端存在
-（core 词汇门禁禁 tauri/electron/vitest/react/inkling 等宿主词，见 CODING §7）。
+JSON 进 JSON 出，机制层零框架依赖、零 IO、零自持进程——IO 一律由端口 seam
+声明（`src/dock/ports*`）、`adapters/` 实现、宿主装配注入。engine 不感知任何
+宿主/插件/前端存在（词汇门禁禁 tauri/electron/vitest/react/inkling 等宿主词，
+见 CODING §7）。
 
-## 目录语义（现状物理结构）
+## 目录语义（现状物理结构：七层现体 + 残部）
 
 ```
 engine/
 ├─ AGENTS.md            # 本层契约（就近权威，见下）
 ├─ src/
 │   ├─ index.ts         # 公共面（@ink-ts/engine 唯一出口，见 package.json exports）
-│   ├─ core/            # 数据面契约 + 领域纯逻辑（零 IO）：
-│   │                   #   contracts/generated/（schemas+fixtures 生成物，禁手改）
-│   │                   #   执行模型主线（设计稿 agent_execution_design.md）：
-│   │                   #     scopes/（作用域规格/目录种子/先验+prior 覆写）、
-│   │                   #     channels/（通道规格与目录）、
-│   │                   #     execution_runtime/（转场循环 run_loop、挂起续跑
-│   │                   #       run_checkpoint/run_transition/run_result、白板穿透与
-│   │                   #       __amend/__board 写路径、通道闸门 channel_gate、
-│   │                   #       护栏 guardrails、回合子引擎 engine_turn_runner、
-│   │                   #       隔离试跑 trial_runner、临时作用域 temp_scope）、
-│   │                   #     whiteboard/（块模型/授权三元组/amend 仲裁门面）、
-│   │                   #     collab/（裁决四步+仲裁三档/圆桌收敛判据）、
-│   │                   #     org_archive/（组织档案+择优修剪阈值）、
-│   │                   #     controlled_evolution/（采纳闸/结晶/提案应用/阈值配置面
-│   │                   #       evaluate_options，演化资产只经受控通道落库）、
-│   │                   #     context/（输入调配管线 + block_source 白板块→物理输入）
-│   │                   #   支撑数据面：graph/events/state/run_result/nodes/plan/...
-│   │                   #   （轨迹与图数据面纯逻辑；组装时代目录 assembly/、
-│   │                   #     pool_governance、fingerprint_cache、thread_skeleton、
-│   │                   #     path_assembler 已随执行主线切换退役，勿凭旧文档找回）
-│   ├─ kernel/          # 机制件契约目录：<mechanism>/contract.ts + impl.ts + *.test.ts
-│   │                   #   装配闭集 registry.ts：boot 组密封图 + 依赖单向校验
-│   └─ adapters/        # IO 端口真实装（boot/llm/mcp/storage...）：DI 装载，可覆盖
+│   ├─ model/           # 数据面：数据契约与纯数据形态，零依赖首层——
+│   │                   #   contracts/（契约声明语言）+ contracts/generated/
+│   │                   #   （schemas+fixtures 生成物，禁手改）、schema、events/
+│   │                   #   event_types、graph 数据面、perception、plan、workflow、
+│   │                   #   ui_schema/product_ui、model_roles、scopes/channels、
+│   │                   #   errors/json/path/py_repr 等共享数据原语
+│   ├─ loop/            # 执行主线：回合与执行运行时——runtime、round_steps、
+│   │                   #   tools（tool_pipeline）、execution_runtime（转场循环
+│   │                   #   run_loop、挂起续跑 run_checkpoint/run_transition、白板
+│   │                   #   穿透与 __amend/__board 写路径、通道闸门 channel_gate、
+│   │                   #   护栏 guardrails、回合子引擎 engine_turn_runner、临时
+│   │                   #   作用域 temp_scope）、whiteboard（块模型/授权三元组/
+│   │                   #   amend 仲裁门面）、collab（裁决+收敛判据）、context
+│   │                   #   （输入调配管线）、recovery/interrupt/trial（隔离试跑）/
+│   │                   #   turn_settle/display_stream/llm/route
+│   ├─ graph/           # 最小图解释器：executor（子图/条件边/检查点）、
+│   │                   #   nodes（结点类型池 + default_engine_pool_seed 池种子）、
+│   │                   #   builder、node_registry、registry（图注册）
+│   ├─ gate/            # 运行期「可不可以」：approval（审批裁决）、audit_log
+│   │                   #   （审计）、budget（预算闸门）、patch（补丁链）、
+│   │                   #   permissions（权限）、sandbox（文件/进程沙箱判定，
+│   │                   #   exec seam 的机制侧实现）、security、tool_vetting、
+│   │                   #   link_validator
+│   ├─ evolve/          # 单一演化栈：pipeline、learn（知识/结晶学习面）、
+│   │                   #   observe（inspection + org_archive 组织档案/择优修剪
+│   │                   #   阈值）、param_tuning、proposal（evolution_writer 受控
+│   │                   #   通道/controlled_applier 采纳闸/evaluate_options 阈值
+│   │                   #   配置面/self_edit_tools）、skill（crystallization
+│   │                   #   结晶）、legacy（旧演化件留守）；
+│   │                   #   演化资产只经受控通道落库
+│   ├─ dock/            # 对外契约面：ports.ts（机制端口词表单一真源，现 4 值）、
+│   │                   #   ports/（events/exec/llm/storage seam 接口）、
+│   │                   #   registry/（机制注册面：contract_types.ts + contracts.ts
+│   │                   #   汇入 ALL_MECHANISM_CONTRACTS + registry.ts boot 密封，
+│   │                   #   原 kernel/registry）、index/caps/calls/view 公共面
+│   ├─ adapters/        # IO 端口真实装（boot/llm/mcp/storage）：DI 装载，可覆盖；
+│   │                   #   无 exec 子目录——exec seam 在 dock/ports/exec.ts，
+│   │                   #   判定实现在 gate/sandbox，OS 执行真身为 Rust 原生件
+│   ├─ core/            # 残部（P8 逐层消化）：entities/knowledge_set/state/
+│   │                   #   fanout/run_result 与 environments/harness 留守纯逻辑
+│   └─ kernel/          # 残部（随 P8+S1 退役，新机制件禁入）：
+│                       #   simulation/multipath/spawn 旧推演机制件
 ├─ schemas/             # 数据面契约 JSON 真源（枚举/谓词/补丁类型/机制端口等）
 ├─ fixtures/            # 契约夹具 JSON 真源
-└─ scripts/             # generate.mjs（schemas+fixtures→generated）+ verify_generated.mjs
+└─ scripts/             # generate.mjs（schemas+fixtures→model/contracts/generated）+ verify_generated.mjs
 ```
 
-核心不变式（architecture gate + verify 链强制，见 CODING §7）：
+机制契约落点 = 各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制目录、
+测试镜像 `engine/test/`），
+现 31 项分布 loop(7)/gate(7)/evolve(12)/graph(2)/kernel 残部(3)，统一经
+`src/dock/registry/` 集中注册与 boot 密封（`seal_mechanism_registry`）。
 
-- `core/` 与 `kernel/`：禁 `node:*` 与第三方 import（`node:async_hooks`
-  白名单唯一例外）；禁反向依赖 `adapters/`；禁跨域私有模块 import；
+核心不变式（architecture gate + verify 链强制，口径同 CODING §7）：
+
+- 0-IO 条款作用集合 = coreDirs ∪ layerDirs：`engine/src/{core,kernel}` 残部 +
+  `engine/src/{model,graph,gate,loop,evolve,dock}` 六层，禁 `node:*` 与第三方/
+  裸包 import（`node:async_hooks` 白名单唯一例外）；禁反向依赖与跨域私有
+  import 条款仍按 core/kernel 口径执行（历史残留条款，见 CODING §7 表），
+  新七层层向纪律由 layer-dag 矩阵执法（未定义层间边一律违规）；
   禁宿主/框架词（命中即拒，opaque 协议串白名单如 `inkling.skill/v1`）。
 - `adapters/`：禁止反向 import `core/**/_*.ts`、`kernel/**/_*.ts`（公共 seam
-  标注「跨域契约模块」的例外放行）。
+  标注「跨域契约模块」的例外放行）；adapters 只 import `dock/ports*` 与
+  `model`（adapters→loop 为过渡边，S2 消亡位）。
 - 数据面契约（枚举、注册表条目、补丁类型、机制端口词表）只落
-  `schemas/` + `fixtures/`，生成 TS 常量/类型入 `contracts/generated/`，
+  `schemas/` + `fixtures/`，生成 TS 常量/类型入 `src/model/contracts/generated/`，
   全仓经 `@ink-ts/engine` 公共面取用——禁止第二套语义枚举。
-- 机制件三键（`verify:mechanisms`）：依赖单向 DAG、runtime depends 闭包 ∪
-  自足叶子覆盖全量、机制层零自持 IO；boot 装配首步 `seal_mechanism_registry`
-  fail-closed。
+- 机制契约三键（`verify:mechanisms`，现 31 项）：依赖单向 DAG、runtime
+  depends 闭包 ∪ 自足叶子覆盖全量、机制层零自持 IO；boot 装配首步
+  `seal_mechanism_registry` fail-closed。
 
 ## 边界（engine 不做什么）
 
@@ -73,14 +102,17 @@ engine/
 - 验证：`.venv` 无关——engine 用 `vitest run --root engine`、
   `tsc -p engine/tsconfig.json`、`node engine/scripts/verify_generated.mjs`
   （contracts:verify）、`tsx engine/scripts/verify_mechanisms.ts`
-  （verify:mechanisms）；root `npm test` 全链首段 = engine typecheck + gate。
+  （verify:mechanisms）、`tsx plugins/scripts/verify_unload.ts`
+  （verify:unload）；root `npm test` 全链首段 = engine typecheck + gate。
 
 ## 改动纪律
 
 1. 改数据面枚举/契约 → 改 `schemas`/`fixtures` JSON 真源 + 重跑
-   `node engine/scripts/generate.mjs`，generated 禁手改（contracts:verify 守漂移）。
-2. 新增机制件 → `kernel/<mechanism>/contract.ts + impl.ts + *.test.ts`，
-   在 runtime 装配注册并满足机制三键；gated docs 改动后必跑
+   `node engine/scripts/generate.mjs`，model/contracts/generated 禁手改
+   （contracts:verify 守漂移）。
+2. 新增机制件 → 四机制层终态归属：`<graph|gate|loop|evolve>/<mechanism>/`
+   `contract.ts + impl.ts`（kernel 残部只出不进），入 `dock/registry/contracts.ts`
+   全量清单，在 runtime 装配注册并满足机制三键；gated docs 改动后必跑
    `tsx gate/src/check.ts` 与 `pytest ink_engine/tests` 中对应门禁（见根 AGENTS）。
-3. 目录契约演进方向：现状 `core/` 契约化后归 `kernel/`；新文件优先落契约化目录，
-   旧文件迁移时同步更新本文件与 engine/AGENTS.md。
+3. 残部消化方向：`core/` 留守项按归属迁入 model/loop/graph，`kernel/` 推演
+   残部随 P8+S1 退役；迁移时同步更新本文件与 engine/AGENTS.md 及各层 docs。

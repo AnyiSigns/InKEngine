@@ -1,4 +1,4 @@
-# schema/（core/schema — Schema 校验器）
+# schema/（model/schema — Schema 校验器）
 
 声明式 schema 校验（L1 准入机制件）：`SchemaField`/`SchemaSpec` 声明数据
 形态 + `SchemaValidator` 执行体。约束取「声明式够用」子集（必填/类型/枚举/
@@ -13,12 +13,12 @@
   段拒读）。
 
 ## 依赖
-- 上游：`core/contracts/generated`（FieldKind 单一真源）、`core/errors`、
-  `core/json`。
-- 下游：`src/index.ts`（公共面 `export * from './core/schema/schemaValidator.js'`）、
-  `core/contracts`（NodeContract schema 声明语言）、`core/nodes`、
-  `core/perception`、`core/state`（StateSchema 同语言）、`core/graph` 等；
-  `test/core/schema/schemaValidator.test.ts`。
+- 上游：`model/contracts/generated`（FieldKind 单一真源）、`model/errors`、
+  `model/json`。
+- 下游：公共面汇出在 `dock/index.ts:173`（`export * from '../model/schema/schemaValidator.js'`，经
+  `src/index.ts` 收口出面）、`model/contracts`（NodeContract schema 声明语言）、`graph/nodes`、
+  `model/perception`、`core/state`（StateSchema 同语言）、`model/graph` 等；
+  `test/model/schema/schemaValidator.test.ts`。
 
 ## 备注
 - typeNameOf 的 Python 口径（dict/list/str/int/NoneType）供违规消息可读；

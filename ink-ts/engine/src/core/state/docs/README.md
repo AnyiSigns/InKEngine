@@ -7,5 +7,5 @@
 - `schema.ts` — `Channel`/`ChannelSpec` 通道定义、`StateSchema`（通道表 + `apply` 合并 + `to_dict`/`from_dict`）、`stateEquals`、子图回流增量 `subgraph_overlay_delta`、spawn 回流 `subgraph_flowback_overlay`。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors.ts`（`GraphDefinitionError`）、`core/json.ts`（`deepCopy`/`deepEqual`/`isRecord`/`stableStringify`/`Json`/`typeName`）、`kernel/patch/patchChain.ts`（`PatchChain`）、`kernel/patch/types.ts`（`Patch`，仅 reducers）；目录内 `schema.ts` → `reducers.ts`。
+- 上游（本目录实际 import）：`model/errors.ts`（`GraphDefinitionError`）、`model/json.ts`（`deepCopy`/`deepEqual`/`isRecord`/`stableStringify`/`Json`/`typeName`）、`kernel/patch/patchChain.ts`（`PatchChain`）、`kernel/patch/types.ts`（`Patch`，仅 reducers）；目录内 `schema.ts` → `reducers.ts`。
 - 下游（实际 import 本目录）：`src/index.ts`（公共面 `export *` 两文件）、`kernel/executor`（run_subgraph/_engine_spawn/_engine_simulate/_internals/_engine_plan/_engine_instance）、`kernel/spawn`、`kernel/recovery`、`kernel/multipath`、`core/run_result`、`core/harness`、`core/link_validator`（`kernel/path_assembler` 4 文件消费已随组装链路退役删除，W7-B）；hosts 无相对 import，经公共面消费。

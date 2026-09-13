@@ -1,4 +1,4 @@
-# kernel/executor — 执行引擎状态机（契约文档）
+# graph/executor — 执行引擎状态机（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -50,7 +50,7 @@
 
 ## 装配与消费
 
-- 值面装配：`kernel/runtime/_runtime_engine.ts` 值 import `Engine`/`RunOptions`（运行时装配）、`core/execution_runtime/engine_turn_runner.ts` 值 import `Engine`（主线回合引擎，W7-B 后回合主路径）；`kernel/registry/contracts.ts:22` 收入 31 项全量契约清单（原 `path_assembler`/`pool_governance`/`thread_skeleton` 契约与 `canary.ts`/`_runtime_rounds.ts`/`hosts/lib/test/_graphs.ts` 消费已随组装链路退役，W7-B）；hosts 经公共面。
+- 值面装配：`kernel/runtime/_runtime_engine.ts` 值 import `Engine`/`RunOptions`（运行时装配）、`core/execution_runtime/engine_turn_runner.ts` 值 import `Engine`（主线回合引擎，W7-B 后回合主路径）；`dock/registry/contracts.ts:22` 收入 31 项全量契约清单（原 `path_assembler`/`pool_governance`/`thread_skeleton` 契约与 `canary.ts`/`_runtime_rounds.ts`/`hosts/lib/test/_graphs.ts` 消费已随组装链路退役，W7-B）；hosts 经公共面。
 - 展开关系：run_subgraph = 同一 `Engine._execute` 通道的内联子图（digest 缓存、schema 继承检查 ENG2-7、merge 通道入口归零 + delta 回流）；spawn/推演 = 独立 checkpoint 子链实例（`instance_thread_id`/`simulate_thread_id`）；多径 = `MultipathRunner` 支流展开。
 - 错误语义要点：嵌套深度/清单超限/回路超限/计划·推演清单非法/预算超限 fail-closed；spawn·并行组部分失败剔除（`error_on_exception` 决定终止或跳过）；子图/实例 ERROR 不静默回流；中断统一提升父图挂起卡；checkpoint 写失败回滚孤立事件后重抛。
 

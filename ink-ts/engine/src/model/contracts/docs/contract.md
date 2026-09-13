@@ -1,4 +1,4 @@
-# core/contracts — 结点契约与装配开关（契约文档）
+# model/contracts — 结点契约与装配开关（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md` · 生成物漂移守卫：`engine/scripts/verify_generated.mjs`
@@ -50,14 +50,14 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
 
 ## 依赖与消费方
 
-- 上游：`core/errors`（GraphDefinitionError）、`core/json`（isRecord/
-  typeName）、`core/schema`（SchemaSpec）。
-- 下游（机制面）：`kernel/runtime`（结点注册契约校验与图执行数据；组装路的
+- 上游：`model/errors`（GraphDefinitionError）、`model/json`（isRecord/
+  typeName）、`model/schema`（SchemaSpec）。
+- 下游（机制面）：`loop/runtime`（结点注册契约校验与图执行数据；组装路的
   boot flag from_boot 解析已随组装链路退役，W7-B）、
   `kernel/multipath`（QualityGate 判定注入 + PathAssemblyFlags.multipath_enabled）、
-  `kernel/executor`（QualityGate）、`kernel/self_application`（审批分级/
-  守卫集合/generated）、`kernel/self_proposal`（PATCH_KINDS）；core 侧
-  `node_registry`/`link_validator`/`graph`/`perception`/`nodes`。
+  `graph/executor`（QualityGate）、`evolve/legacy/self_application`（审批分级/
+  守卫集合/generated）、`evolve/legacy/self_proposal`（PATCH_KINDS）；图/注册与
+  数据面消费：`graph/node_registry`/`gate/link_validator`/`model/graph`/`model/perception`/`graph/nodes`。
 
 ## Seam 与 IO 边界
 
@@ -73,5 +73,5 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
 
 ## 测试
 
-`test/core/contracts/contracts.test.ts`（形态校验/序列化往返/from_boot）；
+`test/model/contracts/contracts.test.ts`（形态校验/序列化往返/from_boot）；
 消费方测试覆盖（multipath/runtime/node_registry 等；path_assembler 消费随 W7-B 退役）。

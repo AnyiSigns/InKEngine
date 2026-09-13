@@ -8,7 +8,7 @@
  *
  * depends 为空：audit_log 不直接依赖任何其它机制件（emit_audit 以参数注入
  * 存储 seam；端口 id 词汇见 ../../dock/ports.ts）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

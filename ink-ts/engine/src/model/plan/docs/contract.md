@@ -1,4 +1,4 @@
-# core/plan — 运行时重规划原语（契约文档）
+# model/plan — 运行时重规划原语（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -25,10 +25,10 @@
 - 类：`PlanStep`（`kind`/`nodes`/`spawns`/`condition`）、`Plan`
   （`steps`/`index`、`remaining` getter、静态 `parse`）。
 
-公共面（逐名核对）：`src/index.ts` 无任何来自 `./core/plan/plan.js` 的
+公共面（逐名核对）：`src/index.ts` 无任何来自 `./model/plan/plan.js` 的
 导出（grep 核验；公共面 `plan_evolution` 等名真源为
-`core/controlled_evolution/apply_plan.ts`，与本目录无关）——本目录仅
-引擎内部消费。`kernel/executor/_engine_parallel.ts` 有
+`evolve/proposal/apply_plan.ts`，与本目录无关）——本目录仅
+引擎内部消费。`graph/executor/_engine_parallel.ts` 有
 `export type { PlanStep }` 转出，但 `_` 前缀私有文件不入公共面。
 
 ## 数据形态
@@ -49,7 +49,7 @@
 
 纯函数，无 IO 声明。解析注入面均由调用方传入：`graph`（图约束）、
 `edge_registry`（条件注册表 seam，`EdgeConditionRegistryLike`）、
-`workflow`（工作流约束域 `WorkflowSpec`）；校验失败统一抛 `core/errors`
+`workflow`（工作流约束域 `WorkflowSpec`）；校验失败统一抛 `model/errors`
 `GraphDefinitionError`。
 
 ## 装配与消费
@@ -62,11 +62,11 @@ workflow 节点集且在当前图；无：须在当前图）→ `condition` 非 
 子图归一 → `policy` 校验（`'strict'` 走相邻步边关联
 `validateStrictOrder`，未知策略拒绝，`'loose'` 缺省）。
 
-消费方：`kernel/executor`（`_engine_plan`/`_engine_parallel`/
+消费方：`graph/executor`（`_engine_plan`/`_engine_parallel`/
 `_engine_loop_front`/`_engine_execute`/`_loop_types`/`_internals`——
 计划推进、并行组、`PLAN_KEY` 出栈、`_node_in_plan_steps`）、
 `core/harness/registry.ts`（`Plan.parse` 解析 `definition.default_plan`）、
-`kernel/self_proposal/proposal_validator.ts`（提案计划校验）、
+`evolve/legacy/self_proposal/proposal_validator.ts`（提案计划校验）、
 `core/run_result/run_result.ts`（`DEFAULT_MAX_PLAN_STEPS` 作
 `max_plan_steps` 默认值）。hosts 无直接 import。
 
@@ -82,10 +82,10 @@ workflow 节点集且在当前图；无：须在当前图）→ `condition` 非 
 
 ## 测试
 
-镜像测试（`test/core/plan/`）：`plan.test.ts`（构造/类型/不可变/往返
+镜像测试（`test/model/plan/`）：`plan.test.ts`（构造/类型/不可变/往返
 序列化/`fromDict` 校验/常量值）、`plan_parse.test.ts`（基础校验/未知
 节点/条件未注册/顺序组展开/严格序）、`plan_workflow.test.ts`（工作流
-约束域/信封形态/策略/spawn 项）。执行路径侧：`test/kernel/executor/
+约束域/信封形态/策略/spawn 项）。执行路径侧：`test/graph/executor/
 executor_plan.test.ts` 以 `PLAN_KEY` 覆盖；`test/core/run_result/
 run_result.test.ts` 断言 `DEFAULT_MAX_PLAN_STEPS = 32`。
 
@@ -98,9 +98,9 @@ run_result.test.ts` 断言 `DEFAULT_MAX_PLAN_STEPS = 32`。
    整段跳过校验，作为后步因无 heads 必判「无边关联」拒绝；三个镜像
    测试均未见覆盖该场景。
 3. `plan.test.ts` 头注释称「当前 TS 执行器尚未移植」并列出 28 项未迁移
-   联跑用例；现状 `kernel/executor` 已存在、`Engine` 经公共面导出
+   联跑用例；现状 `graph/executor` 已存在、`Engine` 经公共面导出
    （`src/index.ts`「执行器入口」组）、executor 侧 `PLAN_KEY` 用例已在
-   `test/kernel/executor/executor_plan.test.ts` 落地——注释与代码现状
+   `test/graph/executor/executor_plan.test.ts` 落地——注释与代码现状
    不符。
 4. `PLAN_KEY`/`KIND_*` 为手写模块常量，`engine/schemas/` 真源 grep 无
    `__plan__` 条目；其是否属 AGENTS.md「枚举……一律经 contracts

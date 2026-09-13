@@ -50,11 +50,11 @@ export *，防面无序膨胀）。
 ## 依赖与消费方
 
 - 上游：无 import（生成产物）。
-- 下游：`kernel/self_application`（constants.ts/approval_level.ts：审批
-  分级 + 守卫集合）、`kernel/self_proposal`（PATCH_KINDS）、core 声明式
-  工具端点注册表（BUILTIN_ENDPOINTS 对账）；一致性测试
+- 下游：`evolve/legacy/self_application`（approval_level.ts：审批
+  分级 + 守卫集合）、`evolve/legacy/self_proposal`（PATCH_KINDS）、loop 声明式
+  工具端点注册表（`tools/declarative_tools`，BUILTIN_ENDPOINTS 对账）；一致性测试
   `test/core/contractsConsistency.test.ts` 与
-  `test/core/declarative_tools/registry.test.ts`。
+  `test/loop/tools/declarative_tools/registry.test.ts`。
 
 ## 不变式与门禁
 
@@ -64,5 +64,5 @@ export *，防面无序膨胀）。
 ## 测试
 
 `test/core/contractsConsistency.test.ts`（生成物 ↔ JSON 真源一致）；
-端点注册表测试（`test/core/declarative_tools/registry.test.ts`）以
+端点注册表测试（`test/loop/tools/declarative_tools/registry.test.ts`）以
 BUILTIN_ENDPOINTS 为权威对账。

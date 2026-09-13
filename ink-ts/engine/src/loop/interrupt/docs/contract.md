@@ -1,4 +1,4 @@
-# kernel/interrupt — 挂起/注入重入原语（契约文档）
+# loop/interrupt — 挂起/注入重入原语（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`

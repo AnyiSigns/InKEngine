@@ -15,7 +15,7 @@
  * depends = 值面机制清单：approval（审批动作/挂起协议）、patch（补丁链模型
  * PatchChain/Patch）、self_proposal（提案协议；校验器类型同属 self_proposal
  * 契约面，其实例由装配层注入——机制不自造默认）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

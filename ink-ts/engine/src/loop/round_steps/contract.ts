@@ -9,7 +9,7 @@
  *
  * depends 为空：round_steps 不直接依赖任何其它机制件（仅消费 core JSON 数据
  * 面与同目录子机制模块）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

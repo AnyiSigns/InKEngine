@@ -13,7 +13,7 @@
  * 类型值集合与提案构造判定）、tool_pipeline（执行上下文 seam 与结果上限等
  * 常量）。self_application / approval 仅作类型引用（SelfApplicationPipeline
  * 等类型面），不构成值级装配依赖，故不入列。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

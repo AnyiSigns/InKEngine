@@ -1,4 +1,4 @@
-# interrupt/（kernel/interrupt — 挂起/注入重入原语）
+# interrupt/（loop/interrupt — 挂起/注入重入原语）
 
 弹卡审批的一等控制流：节点内 `ctx.interrupt(key, payload)` 声明中断点，
 引擎捕获 `InterruptSignal` 持久化 checkpoint 后本轮挂起；外部注入决议后从
@@ -16,12 +16,12 @@
 - `contract.ts` — 机制契约：effects=[]、depends=[]（原语提供方，零端口）。
 
 ## 依赖
-- 上游：`core/errors`（InterruptError）、`core/json`（isRecord）。
+- 上游：`model/errors`（InterruptError）、`model/json`（isRecord）。
 - 下游：`kernel/executor`（13 处：InterruptCoordinator 持有于 _engine_base、
   InterruptSignal 捕获于 loop/plan/spawn/simulate/parallel/multipath、
   InterruptState 进 checkpoint/_loop_types/_internals/_node_context、
   interrupt_key_matches 于 _node_context）、`core/storage/storage_records`
   （InterruptState 进 CheckpointRecord）、`core/run_result`（type）、
   `kernel/multipath/_runner_base`、`adapters/storage/sqlite_checkpoints`
-  （InterruptState 还原）、`kernel/registry/contracts.ts`；公共面
+  （InterruptState 还原）、`dock/registry/contracts.ts`；公共面
   `export * from './kernel/interrupt/interrupt.js'`。

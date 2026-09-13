@@ -12,7 +12,8 @@
  *   发射事件登记）；
  * - e2e：接线 e2e（spawn cli serve → /health + ws 订阅到事件帧）；
  * - bench：启动/回合耗时最小基准（serve 冷启动→listen→一轮 stub 回合）；
- * - symbols：符号引用计数最小等价（engine core 顶层导出孤儿扫描）。
+ * - symbols：符号引用计数最小等价（engine（core 残部/model/graph/gate/
+ *   loop/evolve）顶层导出孤儿扫描）。
  *
  * 用法：`node --import tsx self_check/index.ts all`（默认 all）；
  * 可指定子集：`contracts vitest typecheck discipline data e2e bench symbols`。

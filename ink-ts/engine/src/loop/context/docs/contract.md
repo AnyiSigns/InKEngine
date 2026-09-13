@@ -1,4 +1,4 @@
-# core/context — 上下文调配器（契约文档）
+# loop/context — 上下文调配器（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
@@ -27,7 +27,7 @@
 - **公共面零导出**（src/index.ts grep 核对）——纯引擎内部面；消费方按文件
   直连 import（本目录无 barrel）。
 - 校验错误面：RangeError（数值域）/TypeError（allocator 协议不满足）——
-  未接 EngineError 族（core/errors 的 GraphDefinitionError 惯例在此目录
+  未接 EngineError 族（model/errors 的 GraphDefinitionError 惯例在此目录
   不适用，与 core/state 裸 Error 同类口径）。
 
 ## 数据形态
@@ -77,7 +77,7 @@ Clock（created_at/is_expired/压缩判定）。
    同病……拍板已定引擎侧先行修复，允许偏离 parity」——保留决策叙事与
    Python 对账语境（移植期措辞，同 fanout/events 先例）。
 4. **错误面与 core 惯例不一致**：本目录校验抛 RangeError/TypeError 裸
-   原生错误，未用 core/errors 的 GraphDefinitionError/EngineError 族
+   原生错误，未用 model/errors 的 GraphDefinitionError/EngineError 族
    （与 core/state、kernel/interrupt 同类口径分歧，跨目录不成体系）。
 5. **无 barrel**：6 文件无 index.ts 收敛者，消费方按文件直连（与多数
    core 目录形态不一致；对 workflow 同款发现，此处为大面积版本——

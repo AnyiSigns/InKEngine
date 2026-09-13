@@ -1,4 +1,4 @@
-# workflow/（core/workflow — 声明式工作流编译）
+# workflow/（model/workflow — 声明式工作流编译）
 
 声明式工作流：节点描述为「类型名 + 配置」的数据形态（`WorkflowSpec`），
 `build_workflow_graph` 编译为图定义（类型解析 + 建图期校验 + 扇出串行化）。
@@ -16,8 +16,8 @@
   再交 Engine 完整编译）。
 
 ## 依赖
-- 上游：`core/graph`（Graph/NodeTypeRegistryLike）、`core/errors`。
-- 下游：`core/plan`（三形态 import）、`core/run_result`（type WorkflowSpec）；
+- 上游：`model/graph`（Graph/NodeTypeRegistryLike）、`model/errors`。
+- 下游：`model/plan`（三形态 import）、`core/run_result`（type WorkflowSpec）；
   `build_workflow_graph` 编译入口 src/hosts 内零消费（头注自述机制就绪/
   宿主接线点待定——当前 plan 仅消费 workflow_types 数据形态）；公共面
-  零导出（grep 核对）；`test/core/workflow/`。
+  零导出（grep 核对）；`test/model/workflow/`。

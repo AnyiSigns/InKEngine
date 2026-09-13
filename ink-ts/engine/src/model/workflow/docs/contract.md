@@ -1,11 +1,11 @@
-# core/workflow — 声明式工作流编译（契约文档）
+# model/workflow — 声明式工作流编译（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` +
 > `engine/AGENTS.md`
 
 ## 定位
 
-图 DSL（core/graph）的最小单元是函数式节点、执行模型是路径行走；工作流
+图 DSL（model/graph）的最小单元是函数式节点、执行模型是路径行走；工作流
 把节点描述为「类型名 + 配置」数据形态，语义为「全节点按依赖序各执行一次」。
 扇出分支由编译器按拓扑序串行化收敛（画布平行分支顺序前后衔接，稳定序 =
 边插入序），状态按通道累积、与运行期可观测行为等价。
@@ -41,7 +41,7 @@
 
 ## 装配与消费
 
-- 消费方：`core/plan`（WorkflowNodeSpec/WorkflowEdgeSpec/WorkflowSpec——
+- 消费方：`model/plan`（WorkflowNodeSpec/WorkflowEdgeSpec/WorkflowSpec——
   计划步的工作流约束域）、`core/run_result`（RunOptions.plan_workflow 类型
   引用）。
 - `build_workflow_graph` 编译入口当前 src/hosts 内零消费（头注自述：机制
@@ -58,7 +58,7 @@
 ## 疑点与不一致
 
 1. **编译入口孤儿**：`build_workflow_graph` 全仓无消费方（仅测试）；头注
-   自述「机制就绪 / 宿主接线点待定」——与 kernel/builder 同款未接线状态，
+   自述「机制就绪 / 宿主接线点待定」——与 graph/builder 同款未接线状态，
    文档如实记录。
 2. **头注「状态标注」字样**：workflow.ts 头注含状态语（机制就绪/接线点
    待定），与 CODING §3 注释纪律的边界未见显式说明（同 builder 发现）。
@@ -71,4 +71,4 @@
 
 ## 测试
 
-`test/core/workflow/workflow.test.ts`（编译校验/串行化/入口解析用例）。
+`test/model/workflow/workflow.test.ts`（编译校验/串行化/入口解析用例）。

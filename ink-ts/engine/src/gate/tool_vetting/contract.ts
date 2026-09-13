@@ -11,7 +11,7 @@
  * effects 为空。
  *
  * depends：tool_vetting 组合 permissions（parse_permission 权限声明解析）。
- * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

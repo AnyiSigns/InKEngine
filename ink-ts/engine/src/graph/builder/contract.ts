@@ -13,7 +13,7 @@
  *
  * depends：builder 组合 sandbox（value import ProcessSandbox 执行构建/
  * 冒烟，_path.is_absolute 做产物越界判定）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

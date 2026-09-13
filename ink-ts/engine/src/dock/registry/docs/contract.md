@@ -1,13 +1,14 @@
-# kernel/registry — 机制件注册表与密封（契约文档）
+# dock/registry — 机制件注册表与密封（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
 ## 定位
 
 机制件装配闭集的注册表与密封器：机制件不是插件（插件走 CapabilityComponent），
-机制件走独立 `MechanismContract` 契约（每机制一份 `kernel/<mechanism>/contract.ts`，
+机制件走独立 `MechanismContract` 契约（每机制一份、落各机制层
+`<mechanism>/contract.ts`，跨 kernel/graph/gate/loop/evolve 现 31 份，
 id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配序（机制端口词表
-已迁 `engine/src/dock/ports.ts`，effects/depends 命名空间单一事实源随迁，
+真源 = `engine/src/dock/ports.ts`，effects/depends 命名空间单一事实源，
 不在本目录）——boot 组密封与 verify:mechanisms 三键校验
 共用同一实现。纯函数目录，无 IO、无 seam 消费。
 
@@ -22,7 +23,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 | `contracts.ts` | `ALL_MECHANISM_CONTRACTS` 单一真源聚合（31 项，只 re-export 不加边；path_assembler/pool_governance/thread_skeleton 契约已随组装链路退役删除，W7-B） |
 
 注：任务口径中的 registry `contract.ts` 实际不存在——机制契约 `contract.ts` 落在
-各机制件目录（31 份），本目录只有契约类型 `contract_types.ts` 与聚合
+各机制层目录（31 份），本目录只有契约类型 `contract_types.ts` 与聚合
 `contracts.ts`。
 
 ## 对外契约面
@@ -44,7 +45,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
   可依赖）、`MECHANISM_PORT_IDS`（以上 4 项清单）。
 - 全量契约：`ALL_MECHANISM_CONTRACTS`（31 项，id 与目录同集）。
 - 公共面导出情况：本目录导出面**不在** `src/index.ts` 公共面（该文件无任何
-  `kernel/registry` re-export 行）——属引擎内部面。消费方 = engine src 内部 +
+  `dock/registry` re-export 行）——属引擎内部面。消费方 = engine src 内部 +
   `engine/scripts/verify_mechanisms.ts` + `plugins/scripts/verify_unload.ts`
    （取 `engine/src/dock/ports.ts` 词表，注释自述为唯一跨进引擎内部的例外）+ 镜像测试。
 
@@ -69,7 +70,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 
 ## 装配与消费
 
-- 装配：`kernel/runtime/_runtime_boot.ts` `_assemble` 首步调
+- 装配：`loop/runtime/_runtime_boot.ts` `_assemble` 首步调
   `seal_mechanism_registry(ALL_MECHANISM_CONTRACTS)`（boot 静态门禁；依赖单向/
   装配完整/循环拒绝，失败即抛错，半装配或带环的运行时不得进入装配流程）；
   密封纯静态（契约 const + Tarjan/topo），零 IO 零副作用。
@@ -99,12 +100,12 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 - 全量集不变式（镜像测试强制）：契约 id 全局唯一且数量 = 31；每机制 effects
   只引用 `MECHANISM_PORT_IDS` 内端口；全量依赖图无环（组装时代 executor↔
   path_assembler 历史环随机制退役消失）。
-- gate：4 文件均远小于 350 行上限；kernel 层禁 node:*/第三方 import（本目录
-  无任何外部依赖）。
+- gate：4 文件均远小于 350 行上限；dock 层同受 0-IO 条款（coreDirs ∪ layerDirs，
+  CODING §7）禁 node:*/第三方 import（本目录无任何外部依赖）。
 
 ## 测试
 
-`test/kernel/registry/` 镜像测试（2 文件）：
+`test/dock/registry/` 镜像测试（2 文件）：
 - `registry.test.ts` — 样板契约（audit_log）通过校验进装配序；重复 id/未知
   依赖（外部名单放行 `rounds_port`）/自环/循环拒绝（seal 抛错）；拓扑序 =
   被依赖者先。

@@ -1,4 +1,4 @@
-# tool_vetting（kernel/tool_vetting）
+# tool_vetting（gate/tool_vetting）
 
 工具可信度闸门：清单校验（来源/签名/哈希/权限声明）→ 静态审查钩子 → 判定
 （verified/review/rejected），附观察模式（影子运行：独立工作区副本 + 写
@@ -10,5 +10,5 @@
 - `contract.ts` — 机制契约：id `tool_vetting`、effects 空（纯判定 + 注入 FsSeam）、depends `['permissions']`。
 
 ## 依赖
-- 上游（本目录实际 import）：`core/errors`（`GraphDefinitionError`）、`core/json`（`isRecord`/`typeName`）、`kernel/permissions`（`parse_permission`）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`adapters/mcp`（`_fs_seam.ts` FsSeam node:fs 真实装；`convert.ts` 构造 `ToolManifest`；`manager.ts` vetting 闸门调用面；`registry.ts`/`config.ts` 用 `ToolSource`）；`kernel/runtime`（`_runtime_boot` 构造 `new ToolVetting()`、`_runtime_base` 持有 vetting 字段、runtime contract depends 含本机制）；`kernel/registry/contracts`；公共面零导出（grep 核验）；测试 `test/kernel/tool_vetting`。
+- 上游（本目录实际 import）：`model/errors`（`GraphDefinitionError`）、`model/json`（`isRecord`/`typeName`）、`gate/permissions`（`parse_permission`）、`dock/registry/contract_types`。
+- 下游（实际 import 本目录）：`adapters/mcp`（`_fs_seam.ts` FsSeam node:fs 真实装；`convert.ts` 构造 `ToolManifest`；`manager.ts` vetting 闸门调用面；`registry.ts`/`config.ts` 用 `ToolSource`）；`loop/runtime`（`_runtime_boot` 构造 `new ToolVetting()`、`_runtime_base` 持有 vetting 字段、runtime contract depends 含本机制）；`dock/registry/contracts`；公共面零导出（grep 核验）；测试 `test/gate/tool_vetting`。

@@ -10,7 +10,7 @@
  *
  * depends 为空：budget 不直接依赖任何其它机制件（策略经注册注入，判定
  * 语义 fail-closed 内置本模块）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

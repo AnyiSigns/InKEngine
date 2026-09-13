@@ -1,4 +1,4 @@
-# kernel/budget — 执行预算（契约文档）
+# gate/budget — 执行预算（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -20,12 +20,13 @@ budget_exceeded（入轨迹与审计）。附余量只读预检（`query_remaini
 
 ## 对外契约面
 
-公共面「恢复/中断/预算」组（`src/index.ts` 具名导出，逐名核对 6 名）：
+公共面「恢复/中断/预算」组（`dock/index.ts:218-219` 具名导出、经 `src/index.ts`
+收口出面，逐名核对 6 名）：
 `BudgetExceededError` `BudgetManager` `BudgetRemaining` `can_afford` +
-类型 `BudgetPolicy` `BudgetQuery`——均从 `./kernel/budget/budget.js` 直取
+类型 `BudgetPolicy` `BudgetQuery`——均从 `../gate/budget/budget.js` 直取
 （`BudgetRemaining` 真源 `budget_types.ts` 经 `budget.ts` 转出；目录无
-barrel）。机制契约 `budget_contract` 经 `kernel/registry/contracts.ts` 入
-全量注册表（34 机制）。
+barrel）。机制契约 `budget_contract` 经 `dock/registry/contracts.ts` 入
+全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -47,7 +48,7 @@ barrel）。机制契约 `budget_contract` 经 `kernel/registry/contracts.ts` �
 
 ## 装配与消费
 
-- 引擎检查点：`kernel/executor/_engine_parallel` 捕获 `BudgetExceededError`
+- 引擎检查点：`graph/executor/_engine_parallel` 捕获 `BudgetExceededError`
   收口并行成员终止（`TerminateReason.BUDGET_EXCEEDED` 语义族）；`RunOptions.
   budget: BudgetManager | null`（`core/run_result`）为注入口（null = 不检查）。
 - 策略装配示例：`RunOptions.budget` 注入口在用（`core/run_result`）；
@@ -56,7 +57,7 @@ barrel）。机制契约 `budget_contract` 经 `kernel/registry/contracts.ts` �
   已随 `kernel/path_assembler/canary` 退役（W7-B）。
 - hosts：公共面无直接 import（`budget_remaining` 等经事件/日志数据面读取；
   旧 `bridge/pool.ts` 从日志行取值的组装读面已随 W7-B 退役）。
-- 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract` depends
+- 机制契约经 `dock/registry/contracts.ts` 汇总；`runtime_contract` depends
   含 budget。
 
 ## 不变式与门禁
@@ -71,7 +72,7 @@ barrel）。机制契约 `budget_contract` 经 `kernel/registry/contracts.ts` �
 
 ## 测试
 
-镜像测试 `test/kernel/budget/budget.test.ts`（2 组）：执行预算机制（策略
+镜像测试 `test/gate/budget/budget.test.ts`（2 组）：执行预算机制（策略
 注册/节点边界检查/异常包装 fail-closed）、预算余量只读查询（预检
 fail-closed）。
 

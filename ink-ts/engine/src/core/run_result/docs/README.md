@@ -18,4 +18,4 @@
   `RunOptions`/`RunResult`）、`kernel/runtime`、`kernel/multipath`、
   `kernel/settle`（type）、`core/execution_runtime`；公共面 `src/index.ts` `export *`（`kernel/path_assembler` 消费已随组装链路退役删除，W7-B）；
   hosts/lib 经公共面消费 `RunOptions`；测试 `test/core/run_result`、
-  `test/kernel/{executor,runtime,multipath,settle}`、`test/core/nodes`。
+  `test/kernel/{executor,runtime,multipath,settle}`、`test/graph/nodes`。

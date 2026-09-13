@@ -63,7 +63,7 @@
   tool_pipeline.DEFAULT_MAX_RESULT_CHARS 截断。
 
 ## 依赖
-- 上游：`core/errors`、`core/json`、`core/declarative_tools`（端点类型与
+- 上游：`model/errors`、`model/json`、`core/declarative_tools`（端点类型与
   声明式定义/执行体注册表）、`kernel/tool_vetting`（ToolSource/
   VettingVerdict/ToolManifest/FsSeam）、`kernel/tool_pipeline`
   （DEFAULT_MAX_RESULT_CHARS）、`adapters/_lock`。

@@ -23,7 +23,7 @@
 ## 依赖
 - 上游（真源）：`engine/schemas/` + `engine/fixtures/` + 生成器脚本——本
   目录是生成产物，无 import。
-- 下游：`src/index.ts` 数据面契约组（全仓公共面导出）；kernel 消费方
-  `self_application`（审批分级/守卫集合）、`self_proposal`（PATCH_KINDS）；
-  core 声明式工具端点注册表（BUILTIN_ENDPOINTS）；一致性测试
+- 下游：`src/index.ts` 数据面契约组（全仓公共面导出，汇出落 `dock/index.ts`）；机制消费方
+  `evolve/legacy/self_application`（审批分级/守卫集合）、`evolve/legacy/self_proposal`（PATCH_KINDS）；
+  loop 声明式工具端点注册表（`tools/declarative_tools` 的 BUILTIN_ENDPOINTS）；一致性测试
   `test/core/contractsConsistency.test.ts` 与端点注册表测试对账。

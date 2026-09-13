@@ -11,7 +11,7 @@
  *
  * depends 为空：approval 不直接依赖任何其它机制件模块（review_card 属
  * core；interrupt 语义经 ctx 成员消费，非模块级 import）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

@@ -1,4 +1,4 @@
-# kernel/tool_pipeline — 统一工具执行流水线（契约文档）
+# loop/tools/tool_pipeline — 统一工具执行流水线（契约文档）
 
 > 就近导航：本目录 `README.md` · 层权威：`docs/subsystems/engine.md` + `engine/AGENTS.md`
 
@@ -26,8 +26,8 @@ fail-closed，宿主无需重写。与 `kernel/tool_vetting` 分工：本机制�
 
 目录另转出而公共面未收：`ALLOW`/`DENY`/`REVIEW`（公共面经 kernel/permissions
 组 `export *` 可达）、`DEFAULT_MAX_RESULT_CHARS`（公共面不可达，消费方全部
-经相对路径）。机制契约 `tool_pipeline_contract` 经 `kernel/registry/
-contracts.ts` 入全量注册表（34 机制）。
+经相对路径）。机制契约 `tool_pipeline_contract` 经 `dock/registry/
+contracts.ts` 入全量注册表（31 机制）。
 
 ## 数据形态
 
@@ -67,11 +67,11 @@ SpawnSeam/ProcessSandbox/FileSandbox 等执行信封面。单调时钟 seam（�
 - 端点级装配：`core/declarative_tools/pipeline.ts` 另构造声明式端点流水线
   （`_gates.ts` 装配 `GateSeam`/`SandboxSeam`）；`core/harness/registry`
   传 `max_result_chars`。
-- 节点消费：`core/nodes`（`seams.ts`/`llm_decider.ts`/`tool_pipeline.ts`）
+- 节点消费：`graph/nodes`（`seams.ts`/`llm_decider.ts`/`tool_pipeline.ts`）
   经 `EngineNodeSeams.tool_pipeline` 消费；`kernel/introspection` 消费
   `Executor` 形态；`kernel/sandbox/process_sandbox`、`adapters/mcp/_result`、
   `kernel/self_tools` 复用 `DEFAULT_MAX_RESULT_CHARS` 截断常量。
-- 机制契约经 `kernel/registry/contracts.ts` 汇总；`runtime_contract`
+- 机制契约经 `dock/registry/contracts.ts` 汇总；`runtime_contract`
   depends 含 tool_pipeline。
 
 ## 不变式与门禁

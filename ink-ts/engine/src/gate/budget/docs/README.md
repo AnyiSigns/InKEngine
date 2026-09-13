@@ -1,4 +1,4 @@
-# budget（kernel/budget）
+# budget（gate/budget）
 
 执行预算检查的注册表 + fail-closed 终止式检查 + 只读预检：预算维度 = 可插
 拔策略（业务/宿主注册），引擎在节点边界调用 `check`，超限抛
@@ -10,5 +10,5 @@
 - `contract.ts` — 机制契约：id `budget`、effects 空（纯内存注册表，策略经注入注册）、depends 空。
 
 ## 依赖
-- 上游（本目录实际 import）：`budget_types.js`（同目录数据面）、`kernel/registry/contract_types`。
-- 下游（实际 import 本目录）：`src/index.ts` 公共面（「恢复/中断/预算」组具名 6 名）；`kernel/executor`（`_engine_parallel` 捕获 `BudgetExceededError`）、`kernel/multipath`（BudgetManager/BudgetRemaining 类型）、`core/run_result`（`RunOptions.budget` 类型引用）、`kernel/registry/contracts`；`kernel/path_assembler/canary` 试跑消费已随组装链路退役删除（W7-B）；公共面无 hosts 直接 import（budget_remaining 经事件/日志数据面读取）；测试 `test/kernel/budget`。
+- 上游（本目录实际 import）：`budget_types.js`（同目录数据面）、`dock/registry/contract_types`。
+- 下游（实际 import 本目录）：`src/index.ts` 公共面（「恢复/中断/预算」组具名 6 名）；`graph/executor`（`_engine_parallel` 捕获 `BudgetExceededError`）、`kernel/multipath`（BudgetManager/BudgetRemaining 类型）、`core/run_result`（`RunOptions.budget` 类型引用）、`dock/registry/contracts`；`kernel/path_assembler/canary` 试跑消费已随组装链路退役删除（W7-B）；公共面无 hosts 直接 import（budget_remaining 经事件/日志数据面读取）；测试 `test/gate/budget`。

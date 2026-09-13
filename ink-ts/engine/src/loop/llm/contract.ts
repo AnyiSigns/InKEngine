@@ -13,7 +13,7 @@
  *
  * depends：llm 引用 builder 的纯 TS sha256（_sha256，缓存指纹与内容寻址，
  * core 禁 node:crypto）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

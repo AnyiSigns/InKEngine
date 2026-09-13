@@ -1,4 +1,4 @@
-# ui_schema/（core/ui_schema — 界面描述数据原语）
+# product_ui/（界面描述数据原语，原 ui_schema）
 
 产品即数据：界面描述 = JSON 布局树 + 绑定协议 + 主题 token，渲染器 =
 机制实现（产品侧装配）。AI 经自指层提案 ui 补丁落地布局，渲染器消费最新
@@ -14,16 +14,17 @@
 - `uiSchemaSupport.ts` — 常量（NODE_KIND_*/BIND_*/DEFAULT_BIND_CHANNELS=
   ['state']/RESERVED_BIND_PREFIXES=['_']）+ Python 口径工具（pyRepr/
   pyTupleRepr/pyTruthy/pyInt/typeNameOf/tupleHas；注释自述收敛迁移点 =
-  core/py_repr.ts 单源）。
+  model/py_repr.ts 单源）。
 
 ## 依赖
-- 上游：`core/errors`、`core/json`。
-- 下游：`src/index.ts`（公共面 `export * from './core/ui_schema/uiSchema.js'`；
-  uiSchemaSupport 不上公共面但 kernel/runtime 直连 import）、
-  `kernel/runtime`（_types DEFAULT_BIND_CHANNELS/_runtime_engine/
-  _runtime_boot UISchemaValidator）、`kernel/self_proposal`
-  （proposal_validator 校验 ui 提案）、`core/py_repr.ts`（收敛目标自述）；
-  `test/core/ui_schema/uiSchema.test.ts`。
+- 上游：`model/errors`、`model/json`。
+- 下游：公共面汇出在 `dock/index.ts:176`（`export * from '../model/product_ui/uiSchema.js'`，经
+  `src/index.ts` 收口出面；
+  uiSchemaSupport 不上公共面但 loop/runtime 直连 import）、
+  `loop/runtime`（_types DEFAULT_BIND_CHANNELS/_runtime_engine/
+  _runtime_boot UISchemaValidator）、`evolve/legacy/self_proposal`
+  （proposal_validator 校验 ui 提案）、`model/py_repr.ts`（收敛目标自述）；
+  `test/model/product_ui/uiSchema.test.ts`。
 
 ## 备注
 - 绑定双防线：通道白名单（默认仅 state，宿主经

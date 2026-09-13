@@ -12,7 +12,7 @@
  *
  * depends：sandbox 引用 tool_pipeline 的共享常量
  * （DEFAULT_MAX_RESULT_CHARS，输出截断与工具结果文本同源同量级）。
- * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
+ * 契约化归属见 engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../dock/registry/contract_types.js';

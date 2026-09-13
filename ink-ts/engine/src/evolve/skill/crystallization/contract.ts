@@ -11,7 +11,7 @@
  *
  * depends 为空：skill_crystal 不直接依赖任何其它机制件（互转/容器复用
  * core knowledge_set 数据面）。契约化归属见
- * engine/src/kernel/registry/contract_types.ts。
+ * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';

@@ -54,7 +54,9 @@ interface HostFaces {                // 宿主插件（kind='host'）：不走�
 字段约束：
 
 - `contract.effects` 是 0-IO 白名单：只调声明过的端口，调未声明端口或直接
-  IO = 装配期/扫描期拒绝；
+  IO = 装配期/扫描期拒绝；端口词表单一真源 = `engine/src/dock/ports.ts`
+  （现 4 值：storage_seam/llm_port/exec_envelope/rounds_port，verify:unload
+  与 boot 密封共用同一词表）；
 - `depends` 可引用**其它插件 id 与机制端口 id**（如 `rounds_port`——机制端口是
   可依赖的契约面，由引擎内核导出）；装配期校验单向 + 完整 + **循环拒绝**；
   卸载某插件时校验下游，有依赖 = 级联禁用或拒绝，不留孤儿；
@@ -188,8 +190,9 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 
 - **机制件**（gate/audit/patch_chain/executor/round_steps/runtime 状态机…）
   不是插件，用独立类型 `MechanismContract`（`contract` + `depends` + `inject`），
-  装配期闭集；契约化后归 `engine/src/kernel/<mechanism>/`
-  （`contract.ts` 声明端口 + `impl.ts` 纯实现 + boot 密封）；
+  装配期闭集；机制契约落各机制层 `<mechanism>/`（跨 graph/gate/loop/evolve
+  四机制层，kernel 残部只出不进；`contract.ts` 声明端口 + `impl.ts` 纯实现，
+  经 `engine/src/dock/registry/` 集中注册 + boot 密封）；
 - **补丁链只能动数据/策略/配方/激活集，永远动不了机制语义**（怎么审计、
   怎么裁决、怎么回退、怎么保证链完整）；
 - 机制**可**演化，但只走三条受控通道：

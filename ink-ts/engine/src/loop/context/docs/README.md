@@ -1,4 +1,4 @@
-# context/（core/context — 上下文调配器）
+# context/（loop/context — 上下文调配器）
 
 上下文融合输入的确定性调配：源值对象（ContextSource）+ 预算分配器
 （加权分档：高权重整保/中权重截断/低权重丢弃）+ 组装器（按优先级序拼接、

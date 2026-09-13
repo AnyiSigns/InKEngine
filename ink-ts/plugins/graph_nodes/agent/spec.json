@@ -1,0 +1,33 @@
+{
+  "id": "agent",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "agent",
+      "executor": "agent",
+      "kind": "agent",
+      "label": "实体协作者",
+      "description": "按 entity_id 展开实体子回路（persona 引导 + per-scope model），产出并入父状态",
+      "flags": {},
+      "config_defaults": {},
+      "contract": {
+        "input_schema": null,
+        "output_schema": null,
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

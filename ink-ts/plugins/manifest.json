@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成（kind 注册表真源 plugins/kinds.json，首方 kind + 第三方 x-* 开放命名空间）；改工具/市场/命令/ui 声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint 原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。第三方 kind = x-<vendor>.<name>（目录名即 kind）：capability=external_tool + faces ≥1，只进 plugins[] 索引，语义由 verify:unload fail-closed。",
+  "note": "插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs 从 plugins/<kind>/<id>/spec.json 聚合生成（kind 注册表真源 plugins/kinds.json，首方 kind + 第三方 x-* 开放命名空间）；改工具/市场/命令/ui 声明只改 spec.json，重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树引用组件 type 并集（升序，canonical 白名单；host/ui_canonical.generated.ts 同源）；plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint 原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。graph_nodes = kind=graph_node 图节点注册清单（spec.data.node：type/executor/contract/config_defaults/kind/label/description/flags；runtime 装配据此清单建节点）。第三方 kind = x-<vendor>.<name>（目录名即 kind）：capability=external_tool + faces ≥1，只进 plugins[] 索引，语义由 verify:unload fail-closed。",
   "plugins": [
     {
       "id": "collab_request",
@@ -1323,6 +1323,134 @@
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-native",
       "dir": "endpoints/mcp"
+    },
+    {
+      "id": "agent",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-agent",
+      "dir": "graph_nodes/agent",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "llm_decider",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-llm-decider",
+      "dir": "graph_nodes/llm_decider",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "llm_main",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-llm-main",
+      "dir": "graph_nodes/llm_main",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "llm_planner",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-llm-planner",
+      "dir": "graph_nodes/llm_planner",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "llm_reviewer",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-llm-reviewer",
+      "dir": "graph_nodes/llm_reviewer",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "router_judge",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-router-judge",
+      "dir": "graph_nodes/router_judge",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "router_plan_judge",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-router-plan-judge",
+      "dir": "graph_nodes/router_plan_judge",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "tool_pipeline",
+      "kind": "graph_node",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-graph-node-tool-pipeline",
+      "dir": "graph_nodes/tool_pipeline",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     }
   ],
   "tools": [
@@ -3891,6 +4019,320 @@
       "id": "workspace.state",
       "group": "workspace",
       "order": 1
+    }
+  ],
+  "graph_nodes": [
+    {
+      "type": "agent",
+      "executor": "agent",
+      "kind": "agent",
+      "label": "实体协作者",
+      "description": "按 entity_id 展开实体子回路（persona 引导 + per-scope model），产出并入父状态",
+      "flags": {},
+      "config_defaults": {},
+      "contract": {
+        "input_schema": null,
+        "output_schema": null,
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "llm_decider",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "LLM 决策",
+      "description": "单节点内完成模型流式 + 工具回合",
+      "flags": {
+        "terminal": true
+      },
+      "config_defaults": {
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "reply",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "llm_main",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "综合答复",
+      "description": "读取 plan+review 综合产出最终 reply（读面=plan+review）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是主回答器：综合已有计划与评审意见，输出对用户问题的最终答复（只输出答复正文，不要多余解释）。",
+        "read_fields": [
+          "plan",
+          "review"
+        ],
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            },
+            {
+              "name": "review",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "reply",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "llm_planner",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "计划制定",
+      "description": "把会话目标拆解为执行计划并写入 plan（供下游评审/主答复消费）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是任务规划器：分析会话目标，输出一份结构化执行计划（只输出计划正文，不要多余解释）。",
+        "output_field": "plan",
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "llm_reviewer",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "计划评审",
+      "description": "读取 plan 产出评审意见写入 review（读面=plan）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是计划评审器：结合会话目标评审已有计划，输出风险与补充意见（只输出评审正文，不要多余解释）。",
+        "read_fields": [
+          "plan"
+        ],
+        "output_field": "review",
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "review",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "router_judge",
+      "executor": "router_judge",
+      "kind": "router",
+      "label": "路由判断",
+      "description": "LLM 从候选目标中选一个走向（模糊/复杂判断，占一个执行步骤）",
+      "flags": {},
+      "config_defaults": {
+        "routes": [
+          {
+            "key": "answer",
+            "label": "直接回答",
+            "description": "目标已明确，直接产出回复"
+          },
+          {
+            "key": "research",
+            "label": "先研究再回答",
+            "description": "目标信息不足，先检索/观察再回复"
+          }
+        ],
+        "prompt": "根据会话目标判断当前应直接回答还是需要先收集信息"
+      },
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "router_judge.output",
+          "fields": [
+            {
+              "name": "_route_to",
+              "required": false,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "router_plan_judge",
+      "executor": "router_judge",
+      "kind": "router",
+      "label": "计划后路由",
+      "description": "读取 plan 判断直接答复还是需补充研究（读面=plan；route 走向分岔）",
+      "flags": {},
+      "config_defaults": {
+        "routes": [
+          {
+            "key": "direct",
+            "label": "直接答复",
+            "description": "计划已充分，直接产出答复"
+          },
+          {
+            "key": "more",
+            "label": "进一步研究",
+            "description": "计划仍缺信息，需补充研究"
+          }
+        ],
+        "prompt": "读取计划后判断应直接答复还是需进一步研究",
+        "read_fields": [
+          "plan"
+        ]
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "router_judge.output",
+          "fields": [
+            {
+              "name": "_route_to",
+              "required": false,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    },
+    {
+      "type": "tool_pipeline",
+      "executor": "tool_pipeline",
+      "kind": "tool",
+      "label": "工具流水线",
+      "description": "消费 state.pending 工具清单；role=terminal 为终态",
+      "flags": {},
+      "config_defaults": {},
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "tool_pipeline.output",
+          "fields": [
+            {
+              "name": "messages",
+              "required": false,
+              "kind": "array",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
     }
   ],
   "ui_features": {

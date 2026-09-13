@@ -1,0 +1,50 @@
+{
+  "id": "llm_planner",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "llm_planner",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "计划制定",
+      "description": "把会话目标拆解为执行计划并写入 plan（供下游评审/主答复消费）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是任务规划器：分析会话目标，输出一份结构化执行计划（只输出计划正文，不要多余解释）。",
+        "output_field": "plan",
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

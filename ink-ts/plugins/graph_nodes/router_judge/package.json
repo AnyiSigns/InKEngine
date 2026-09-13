@@ -1,0 +1,6 @@
+{
+  "name": "@ink-ts/plugin-graph-node-router-judge",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true
+}

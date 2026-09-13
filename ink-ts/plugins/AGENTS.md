@@ -38,8 +38,17 @@ plugins/
 │       ├─ package.json #   npm 包名 = @ink-ts/plugin-<kebab>
 │       └─ spec.json    #   声明（id/kind='endpoint'/capability='host_tool'/
 │                        #   data.native = { file 二进制文件名, env 覆盖键 }）
+├─ graph_nodes/         # kind='graph_node' 插件域：一个图节点类型一个目录（S1-b 节点族插件化）
+│   ├─ llm_decider/     #   节点注册键（data.node.type；executor=共享内核名，缺省=type）
+│   ├─ llm_planner/     #   可区分 LLM 实例（executor=llm_decider，共享内核分化 config）
+│   ├─ .../             #   llm_reviewer/llm_main/tool_pipeline/router_judge/router_plan_judge/agent
+│   ├─ package.json     #   npm 包名 = @ink-ts/plugin-graph-node-<kebab>
+│   └─ spec.json        #   声明（id/kind='graph_node'/capability='host_tool'/
+│                        #   data.node = { type, executor?, kind, label, description, flags?,
+│                        #   config_defaults?, contract }；faces.logic entry = 节点注册声明/
+│                        #   工厂入口（S1-b2 物理迁移后统一工厂））
 ├─ manifest.json        # 派生视图（生成物，禁手改）：plugins 索引 + tools 聚合 +
-│                       #   mcp 市场视图 + ui_features 组件白名单；由
+│                       #   mcp 市场视图 + graph_nodes 节点注册清单 + ui_features 组件白名单；由
 │                       #   scripts/sync_plugin_manifest.mjs 生成，--check 强制漂移为红
 ├─ ui.generated.json    # 派生视图（生成物，禁手改）：产品主壳布局树（装配入口 $ref
 │                       #   展开；渲染器 UISpec 同构）；同脚本生成，--check 强制
@@ -53,8 +62,8 @@ plugins/
                                   # hosts/web/src/app/settings/settingsSections.generated.ts 派生视图）
 ```
 
-kind 全集（PLUGINS.md §1/§4）：首方 5 值 `tool | command | ui_feature | endpoint |
-mcp`（真源 `plugins/kinds.json`，各自 {dir, contractTemplate, faces, capabilityDefault,
+kind 全集（PLUGINS.md §1/§4）：首方 6 值 `tool | command | ui_feature | endpoint | mcp | graph_node`
+（真源 `plugins/kinds.json`，各自 {dir, contractTemplate, faces, capabilityDefault,
 loader}）+ 第三方开放命名空间 `x-<vendor>.<name>`（目录名即 kind，声明式模板由插件
 自带：faces/effects/capability='external_tool'/data/loader，与首方同校验、同装卸、
 同审计）——plugins/ 按 kind 分子目录，其中 `host` 例外住 `hosts/<host>.spec.json`

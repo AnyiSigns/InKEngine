@@ -1,0 +1,66 @@
+{
+  "id": "llm_reviewer",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "llm_reviewer",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "计划评审",
+      "description": "读取 plan 产出评审意见写入 review（读面=plan）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是计划评审器：结合会话目标评审已有计划，输出风险与补充意见（只输出评审正文，不要多余解释）。",
+        "read_fields": [
+          "plan"
+        ],
+        "output_field": "review",
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "review",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

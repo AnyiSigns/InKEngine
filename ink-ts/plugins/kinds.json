@@ -61,6 +61,18 @@
       ],
       "capabilityDefault": "host_tool",
       "loader": "sync_plugin_manifest.mjs endpoints 段：聚合 native[] 派生 native.generated.ts（NATIVE_BINARY_DECLS + NativeBinaryKind）"
+    },
+    {
+      "kind": "graph_node",
+      "dir": "graph_nodes",
+      "contractTemplate": "data.node：{ type（注册表键，全局唯一）, executor（执行体内核名，缺省=type）, kind/label/description/flags（目录元数据）, config_defaults（实例配置）, contract（NodeContract 数据） }；faces.logic（真节点实现工厂入口，S1-b2 物理迁移后 = 默认导出统一工厂）",
+      "faces": [
+        "logic",
+        "ui",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs graph_nodes 段：聚合 graph_nodes[] 节点注册清单（type/executor/contract/config_defaults/kind/label/description/flags）+ plugins[] 索引；runtime 装配经该清单 + verify:unload 守语义"
     }
   ],
   "thirdParty": {

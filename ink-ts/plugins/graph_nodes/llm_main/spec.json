@@ -1,0 +1,75 @@
+{
+  "id": "llm_main",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "llm_main",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "综合答复",
+      "description": "读取 plan+review 综合产出最终 reply（读面=plan+review）",
+      "flags": {},
+      "config_defaults": {
+        "system_prompt": "你是主回答器：综合已有计划与评审意见，输出对用户问题的最终答复（只输出答复正文，不要多余解释）。",
+        "read_fields": [
+          "plan",
+          "review"
+        ],
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            },
+            {
+              "name": "review",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "reply",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

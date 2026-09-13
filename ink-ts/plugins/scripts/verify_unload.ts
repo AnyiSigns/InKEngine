@@ -407,10 +407,17 @@ function auditFacesAndContract(universe: Map<string, Plugin>): void {
 }
 
 /** 真面许可：声明了全脸字段的插件须为 capability=external_tool、白名单内置
- *  （阶段 7a doc_parse 样板）或 ui_feature 组件节点（阶段 7b：布局叶子/设置
- *  面板的独占 UI 实现随插件 faces/ui 同住）；data-only（无声明）不在此判定。 */
+ *  （阶段 7a doc_parse 样板）、ui_feature 组件节点（阶段 7b：布局叶子/设置
+ *  面板的独占 UI 实现随插件 faces/ui 同住）或 graph_node kind（S1-b：图节点
+ *  注册清单 = 真声明——faces.logic 节点工厂入口 + data.node 契约数据，kind 级
+ *  放行不论 capability）；data-only（无声明）不在此判定。 */
 function realFaceAllowed(plugin: Plugin): boolean {
-  return plugin.capability === 'external_tool' || REAL_FACE_BUILTINS.has(plugin.id) || plugin.isUiComponent === true;
+  return (
+    plugin.capability === 'external_tool' ||
+    REAL_FACE_BUILTINS.has(plugin.id) ||
+    plugin.isUiComponent === true ||
+    plugin.kind === 'graph_node'
+  );
 }
 
 /** 真面插件 faces 结构约束：face entry 须相对插件目录（禁绝对/`..` 逃逸）且

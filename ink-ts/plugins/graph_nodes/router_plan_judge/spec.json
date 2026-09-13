@@ -1,0 +1,76 @@
+{
+  "id": "router_plan_judge",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "router_plan_judge",
+      "executor": "router_judge",
+      "kind": "router",
+      "label": "计划后路由",
+      "description": "读取 plan 判断直接答复还是需补充研究（读面=plan；route 走向分岔）",
+      "flags": {},
+      "config_defaults": {
+        "routes": [
+          {
+            "key": "direct",
+            "label": "直接答复",
+            "description": "计划已充分，直接产出答复"
+          },
+          {
+            "key": "more",
+            "label": "进一步研究",
+            "description": "计划仍缺信息，需补充研究"
+          }
+        ],
+        "prompt": "读取计划后判断应直接答复还是需进一步研究",
+        "read_fields": [
+          "plan"
+        ]
+      },
+      "contract": {
+        "input_schema": {
+          "name": "instance.input",
+          "fields": [
+            {
+              "name": "plan",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "output_schema": {
+          "name": "router_judge.output",
+          "fields": [
+            {
+              "name": "_route_to",
+              "required": false,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

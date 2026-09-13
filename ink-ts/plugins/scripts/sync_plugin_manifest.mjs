@@ -112,6 +112,8 @@ const MANIFEST_NOTE =
   'actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；' +
   '引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint ' +
   '原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。' +
+  'graph_nodes = kind=graph_node 图节点注册清单（spec.data.node：type/executor/' +
+  'contract/config_defaults/kind/label/description/flags；runtime 装配据此清单建节点）。' +
   '第三方 kind = x-<vendor>.<name>（目录名即 kind）：capability=external_tool + faces ≥1，' +
   '只进 plugins[] 索引，语义由 verify:unload fail-closed。';
 
@@ -290,7 +292,7 @@ async function loadKindDirs() {
   try {
     text = await readFile(KINDS_PATH, 'utf8');
   } catch {
-    await fail('plugins/kinds.json 缺失或不可解析（kind 注册表真源）——须先建该文件（含首方 5 kind）');
+    await fail('plugins/kinds.json 缺失或不可解析（kind 注册表真源）——须先建该文件（含首方 6 kind）');
   }
   let kinds;
   try {
@@ -470,6 +472,43 @@ async function derive() {
     });
   }
 
+  // kind='graph_node'：plugins/graph_nodes/<id>/spec.json → 图节点注册清单
+  // （spec.data.node：type=注册表键、executor=执行体内核名（缺省=type）、
+  //  kind/label/description/flags=目录元数据、config_defaults=实例配置、
+  //  contract=NodeContract 数据）。runtime 装配（hosts/lib 出厂 seed）据此清单
+  // 经引擎节点执行体装配槽（register_node_builder，S1-a）建节点；语义
+  //  （faces/effects/entry/default 导出、无环）由 verify:unload 守（同源 fail-closed）。
+  const graphNodeRows = [];
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('graph_node')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('graph_node'), id);
+    const spec = await readSpec(dir, 'graph_node');
+    const node = spec.data?.node;
+    if (typeof node !== 'object' || node === null || typeof node.type !== 'string' || node.type.length === 0) {
+      await fail(`graph_node 插件 ${id} 缺 data.node.type（注册表键，全局唯一）`);
+    }
+    if (node.type !== id) await fail(`graph_node 插件 ${id} data.node.type 与目录不符`);
+    const row = { type: node.type };
+    if (typeof node.executor === 'string' && node.executor.length > 0) row.executor = node.executor;
+    if (typeof node.kind === 'string' && node.kind.length > 0) row.kind = node.kind;
+    if (typeof node.label === 'string' && node.label.length > 0) row.label = node.label;
+    if (typeof node.description === 'string' && node.description.length > 0) row.description = node.description;
+    if (typeof node.flags === 'object' && node.flags !== null && !Array.isArray(node.flags)) row.flags = node.flags;
+    if (typeof node.config_defaults === 'object' && node.config_defaults !== null) {
+      row.config_defaults = node.config_defaults;
+    }
+    if (typeof node.contract === 'object' && node.contract !== null) row.contract = node.contract;
+    graphNodeRows.push(row);
+    plugins.push({
+      id,
+      kind: 'graph_node',
+      capability: spec.capability ?? 'host_tool',
+      package: await loadPackage(dir),
+      dir: `${kindDir('graph_node')}/${id}`,
+      ...declaredRow(spec),
+    });
+  }
+  graphNodeRows.sort((a, b) => a.type.localeCompare(b.type));
+
   // 第三方 kind（x-<vendor>.<name> 开放命名空间，§4.6）：顶层目录名即 kind，
   // 插件住 plugins/<kind>/<id>/spec.json；声明式模板由插件自带（faces/effects/
   // capability='external_tool'/data/loader），引擎按契约校验不认名单。只进
@@ -633,6 +672,7 @@ async function derive() {
       servers,
     },
     commands,
+    graph_nodes: graphNodeRows,
     ui_features: {
       components: uiCanonical,
       settings: settingsSections,
@@ -647,7 +687,7 @@ async function derive() {
 function render(data) {
   const order = {
     version: 1, note: 2, plugins: 3, tools: 4, mcp_market: 5,
-    commands: 6, ui_features: 7,
+    commands: 6, graph_nodes: 7, ui_features: 8,
   };
   const toolOrder = {
     name: 1, description: 2, parameters: 3, permissions: 4, approval: 5,
@@ -678,6 +718,11 @@ function render(data) {
   );
   const settingsOrder = { id: 1, type: 2, key: 3, label: 4, order: 5, icon: 6, entry: 7 };
   const settings = data.ui_features.settings.map((s) => sortKeys(s, settingsOrder));
+  const nodeOrder = {
+    type: 1, executor: 2, kind: 3, label: 4, description: 5, flags: 6,
+    config_defaults: 7, contract: 8,
+  };
+  const graphNodes = data.graph_nodes.map((r) => sortKeys(r, nodeOrder));
   return JSON.stringify(
     sortKeys(
       {
@@ -687,6 +732,7 @@ function render(data) {
         tools,
         mcp_market: market,
         commands: data.commands,
+        graph_nodes: graphNodes,
         ui_features: { components: data.ui_features.components, settings },
       },
       order,

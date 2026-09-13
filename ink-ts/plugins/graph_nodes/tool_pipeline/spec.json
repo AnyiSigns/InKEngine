@@ -1,0 +1,46 @@
+{
+  "id": "tool_pipeline",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "tool_pipeline",
+      "executor": "tool_pipeline",
+      "kind": "tool",
+      "label": "工具流水线",
+      "description": "消费 state.pending 工具清单；role=terminal 为终态",
+      "flags": {},
+      "config_defaults": {},
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "tool_pipeline.output",
+          "fields": [
+            {
+              "name": "messages",
+              "required": false,
+              "kind": "array",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

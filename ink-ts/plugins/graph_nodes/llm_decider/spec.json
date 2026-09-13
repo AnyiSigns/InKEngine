@@ -1,0 +1,50 @@
+{
+  "id": "llm_decider",
+  "kind": "graph_node",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": []
+  },
+  "data": {
+    "node": {
+      "type": "llm_decider",
+      "executor": "llm_decider",
+      "kind": "llm",
+      "label": "LLM 决策",
+      "description": "单节点内完成模型流式 + 工具回合",
+      "flags": {
+        "terminal": true
+      },
+      "config_defaults": {
+        "max_tool_rounds": 8
+      },
+      "contract": {
+        "input_schema": null,
+        "output_schema": {
+          "name": "llm_decider.output",
+          "fields": [
+            {
+              "name": "reply",
+              "required": true,
+              "kind": "string",
+              "enum": [],
+              "min": null,
+              "max": null,
+              "pattern": null
+            }
+          ]
+        },
+        "safety_tier": 0,
+        "version": 1
+      }
+    }
+  }
+}

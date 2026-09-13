@@ -280,7 +280,7 @@ face 默认导出静态守卫）+ 失败用例 `plugins/scripts/verify_unload.te
 
 | 面 | 首方 kind（内置模板） | 第三方 kind（开放命名空间） |
 |---|---|---|
-| 名单 | `tool` / `command` / `ui_feature` / `endpoint` / `mcp`（真源 `plugins/kinds.json`） | `x-<vendor>.<name>`（目录名即 kind，名字第三方自定） |
+| 名单 | `tool` / `command` / `ui_feature` / `endpoint` / `mcp` / `graph_node`（真源 `plugins/kinds.json`） | `x-<vendor>.<name>`（目录名即 kind，名字第三方自定） |
 | 声明 | `plugins/<dir>/<id>/spec.json`（kind 契约模板见 kinds.json 各条） | `plugins/x-<vendor>.<name>/<id>/spec.json`；模板由插件自带：`faces`（ui/logic/data 任意组合）、`contract.effects`（⊆ 端口词表）、`capability: 'external_tool'`、`data` schema、`loader` |
 | 校验 | 引擎按契约校验（生成器守形状、`verify:unload` 守语义） | 引擎**按契约校验，不认名单**；`verify:unload`/生成器统一 fail-closed（命名空间前缀、faces ≥1、effects ⊆ 端口词表、entry 相对插件目录且文件同住、无孤儿、无环） |
 | 装卸/审计 | 受控动作（审批/审计/回退） | 与首方同装卸、同审计 |

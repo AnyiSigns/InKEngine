@@ -9,7 +9,10 @@
 
 import type { Family, Split, Style, Task } from '../../schema.js';
 
-export type GateId = 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6';
+export type GateId =
+  | 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6'
+  | 'G1.1' | 'G1.2' | 'G1.3'
+  | 'F1' | 'F2' | 'F3' | 'F4';
 
 /** gates.md §0.2 唯一输出 JSON 形状（键名逐字对齐，机器可读证据）。 */
 export interface GateResult {
@@ -47,6 +50,8 @@ export interface GateContext {
   readonly outDir: string | undefined;
   /** 结果/证据文件在仓库根下的相对路径前缀（artifacts 口径统一、正斜杠）。 */
   readonly artifactPrefix: string;
+  /** C.8 scaling 证据 `runs/scale-<stamp>/results.json`（G1.2/G1.3 输入）；缺省取 runs/ 下最新 scale 目录。 */
+  readonly resultsPath?: string;
 }
 
 /** fixtures.json 中 G0.1 需复算的三段冻结值的形状（其余段与本门禁无关）。 */

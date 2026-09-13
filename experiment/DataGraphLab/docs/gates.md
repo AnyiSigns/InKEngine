@@ -1,4 +1,4 @@
-# DataGraphLab 门禁判定脚本规格（G0.1–G0.6）
+# DataGraphLab 门禁判定脚本规格（G0.1–G0.6、G1.1–G1.3）
 
 > 本文件是**判定口径**（输入/算法/输出/判据/落点），不是实现稿。所有门禁共享
 > 一套 harness；判据只许引用冻结 fixture 与实测值，**禁止手写期望数字**。
@@ -14,7 +14,8 @@
 | 件 | 路径 | 职责 |
 |---|---|---|
 | harness | `conformance/gates/harness.ts` | 统一执行、写结果、判 exit code |
-| 门禁实现 | `conformance/gates/g0N_*.ts` | 每门禁一个 `run(ctx): GateResult` |
+| 门禁实现 | `conformance/gates/g0N_*.ts` / `g1N_*.ts` | 每门禁一个 `run(ctx): GateResult` |
+| 证据读取 | `conformance/gates/results_view.ts` | G1.2/G1.3 共享的 `results.json` 只读视图（唯一实现） |
 | 结果 | `runs/<run_id>/gates/G0.N.json` | 机器可读证据（长表另存 csv） |
 | 金标 | `conformance/fixtures.json` | 哈希/随机/渲染的冻结真值 |
 | 断言 | `tests/gates.test.ts` | 把每个 `run()` 包成 vitest 用例 |
@@ -23,7 +24,7 @@
 
 ```typescript
 interface GateResult {
-  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6';
+  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6' | 'G1.1' | 'G1.2' | 'G1.3';
   version: number;              // 判定脚本语义版本，改动即 +1
   world_version: string;        // = world/operators 契约表 hash
   seeds: number[];              // 本次使用的全部种子
@@ -38,7 +39,7 @@ interface GateResult {
 
 ### 0.3 harness 规则
 
-1. `runAll(ctx)` 依次跑 G0.1→G0.6；任一 `passed=false` 则整体 exit 1，但**继续跑完**
+1. `runAll(ctx)` 依次跑 G0.1→G1.3；任一 `passed=false` 则整体 exit 1，但**继续跑完**
    并写全部结果（失败也要报告，附录 E.7）。
 2. 所有随机显式 `makeRng(seed)`；所有哈希 `hashObj`/`crc32`；禁止 `Math.random` 与
    内置 `hash()`（E.8）。
@@ -139,12 +140,122 @@ interface GateResult {
 
 ---
 
+## G1.1 非免费午餐（no free lunch）
+
+> 未训练的随机权重不许白拿端到端成功；越线说明世界存在捷径/泄漏/目标过易。
+
+- **输入**：C.8 统计集口径的 heldout 批次——
+  `makeSplit('heldout', perFamily=min(max(30, |HELDOUT_SKELETONS|), 300), seed=0)`，
+  经 `ctx.genTasks` 同口径缓存；`RandomArm(seed=123)`（同架构随机权重）；`GRAPH`。
+- **算法**：`evaluateArm` 两 style 各评一次 greedy pass@1（每题一次，主指标走
+  `passAt1`/`ci95` 唯一口径，禁本地重写）。
+- **输出 metrics**：`pass1_follow`、`pass1_goal`、`n_follow`、`n_goal`、`seed`（臂 seed=123）。
+- **通过判据**：`pass1_follow ≤ 0.05` **且** `pass1_goal ≤ 0.05`（同时成立）。
+- **失败模式**：任一 style 越线 → FAIL（notes 报两 style 实测与 CI）。**不许改阈值**
+  （A.2/E.7）；先查 G0.4 泄漏审计与 C.1 极小性守卫（`hasShortcut`/`hasOneStepSolution`），
+  失败也要报告。
+- **落点**：`conformance/gates/g11_no_free_lunch.ts`；断言于 `tests/gates.test.ts`
+  （真实 held-out 全量，timeout 240 s）。
+
+## G1.2 主目标（A.1 判定式）
+
+> 判据全部来自 C.8 scaling 产物 `results.json` 长表，本门禁是**证据复核者**，
+> 不自己评测；读取/聚合唯一口径在 `results_view.ts`。
+
+- **输入**：`ctx.resultsPath` 指向 `runs/scale-<stamp>/results.json`（`createGateContext`
+  可显式注入 `{resultsPath}`——测试合成 fixture 走这道口；缺省自动扫 `runs/` 下
+  `scale-*`/`scale_*` 目录名最大 stamp 者，最新目录缺 `results.json` **不回退旧 run**）。
+  行契约（与 scale 侧同源）：`rows: [{N, seed, style, arm, metric, value, ci_lo, ci_hi, n}]`。
+- **算法与判据**（主指标 = `arm==trained`、`metric==pass1` 行的跨 seed 均值，
+  C.8 均值口径）：
+  1. `S_goal(10_000) ≥ 0.50`（目标式主指标）；
+  2. `S_follow(10_000) ≥ 0.80`（配方式）；
+  3. `S_follow(10k) − S_heur_follow(10k) ≥ 0.05`（`heuristic` 行必须存在，消歧+组合增益）；
+  4. 单调性 `S_goal(30_000) ≥ S_goal(1_000)`（种子噪声内非降）；网格缺 30000 点
+     时该项**跳过**（notes 标 `monotonicity: skipped(no 30k)`，`monotonicity_checked=0`），
+     不把缺证当通过也不当失败。
+- **输出 metrics**：`S_goal_10k`、`S_follow_10k`、`S_heur_follow_10k`、
+  `follow_minus_heur`、`monotonicity_ok`（1/0；跳过时按 1 记但不判分）、
+  `monotonicity_checked`（1/0）、`grid_has_10k`、`grid_has_30k`。缺数据切片以 `-1`
+  占位（min 阈值必红），归因写在 notes。
+- **失败模式**（不许改阈值、不许删基线，A.1/E.7）：
+  - 文件缺失/未注入且扫不到 → FAIL，notes `results.json not found: run C.8 scale first`；
+  - 网格缺 10000 点 → FAIL，notes 含 `grid missing N=10000`；
+  - heuristic 行被删 → FAIL，notes 点名基线缺失；
+  - 判据不达标 → FAIL，notes 逐项点名，报告须附「表示容量 / 数据覆盖 / 目标可达性」
+    三分诊断；
+  - `results.json` 破坏（坏 JSON/坏行）→ 按缺失处理并 FAIL（证据文件不许静默进门禁）。
+- **落点**：`conformance/gates/g12_main_target.ts`；合成 fixture 断言于
+  `tests/gates.test.ts`。
+
+## G1.3 三臂齐全
+
+> 同一份 `results.json`（输入注入与缺省扫描口径同 G1.2）。
+
+- **判据**：`follow` 行须出现 `arm ∈ {heuristic, random, trained}`；
+  `goal` 行须出现 `arm ∈ {random, planner, trained}`（`contract_route` 为可选
+  对照列，缺席不红）；任一必含臂缺失即 FAIL，缺一不可（A.2）。文件缺失 → FAIL
+  （notes 同 G1.2 引导先跑 C.8 scale）——「没跑」不是「齐全」。
+- **输出 metrics**：`follow_required_present`、`goal_required_present`（各 /3）、
+  `follow_arms_reported`、`goal_arms_reported`（实报臂数，含可选列）、
+  `complete`（1/0，唯一阈值 `complete:eq=1`）。臂名清单在 notes（`GateResult.metrics`
+  钉死为数值表，数组不入门禁 JSON 面）。
+- **落点**：`conformance/gates/g13_three_arms.ts`。
+
+---
+
+## F1 前向一致
+
+- **输入**：`conformance/ffixtures/f1_forward.json`（冻结权重子集 + obs/候选动作特征，
+  arch `v1:lang:732:83:128:none`，无时间戳、git 跟踪）。
+- **算法**：TS 与 Python 两侧统一 **float64 累加**重算前向（TS 走 `f_math.forward64`，
+  Python 走 `conformance/py_forward.py`，前向数学 `import controller/train_nn`，两侧都不
+  复刻公式），比对 softmax 分布逐元素。
+- **判据**：`max|Δ| < 1e-6`。Python 解释器默认仓库 `.venv`，可用环境变量 `DGL_PYTHON`
+  覆盖；解释器缺失 → FAIL（不静默跳过）。
+- **输出 metrics**：`max_abs_diff`、`n_groups`、`tol`。
+- **落点**：`conformance/f_gates.ts`（`runF1`）、`conformance/f_math.ts`。
+
+## F2 往返一致
+
+- **输入**：`conformance/ffixtures/f2_roundtrip.json`（`weights_path` 指 f1 的权重 +
+  若干任务 `{obs_vec, candidates_act_feats}`，fixture 生成时已保证 `top1−top2 ≥ 1e-3`）。
+- **算法**：TS `Policy.actFromObs`（f32 概率首位取大）与 Python greedy 比对 action 一致率；
+  并列窗口 `|top1−top2| < 1e-4` 按**索引小者**取，两侧同窗口口径。
+- **判据**：一致率 `agree_rate == 1`（非并列分歧不允许）。
+- **输出 metrics**：`match`、`total`、`agree_rate`、`tie_count`。
+- **落点**：同 F1 模块（`runF2`）。
+
+## F3 特征单源
+
+- **算法**：静态扫描训练器（`controller/train.py`、`controller/train_nn.py`）与
+  conformance 入口（`conformance/py_forward.py`）源码文本，banned 标识符零容忍
+  （注释命中也算违规）；`extra` 可注入含脏串的伪文件，供测试验审计有效性。
+- **判据**：`banned_hits == 0`。banned 清单（精确子串、大小写敏感）含
+  `LEXICON/LEX_OPS_BASE/GOAL_LEX/GOAL_TEMPLATES/mentionStats/mention_stats/tokenize/
+  tokens(/featurizeObs/featurizeAction/stateStats/featurize_instr/crc32/canonicalJson/
+  hashObj/GOAL_STRUCT`——Python 侧若出现任一即说明特征逻辑被复刻（违反 F.3 单源）。
+- **输出 metrics**：`banned_hits`、`files_scanned`、`banned_list_len`。
+- **落点**：同 F1 模块（`runF3`）。
+
+## F4 规范序列化自检（TS 单侧）
+
+- **算法**：`canonicalJson`/`hashObj` 对边角值 `0.1 / 1e-7 / 1 vs 1.0 / -0.0 / CJK /
+  嵌套`与冻结期望 `conformance/ffixtures/f4_expected.json` 逐字一致，且同对象两次
+  `hashObj` 恒定（F.2.5 的 TS 独占口径，Python 侧不复刻 canonical 序列化）。
+- **判据**：`all_stable == 1`。
+- **输出 metrics**：`cases_checked`、`all_stable`。
+- **落点**：同 F1 模块（`runF4`）。
+
+---
+
 ## 附：fixture 复用与非目标
 
 - G0.1 读取 `conformance/fixtures.json` 的冻结值复算（G0.3 的真值在
   `verify/adversarial.ts` 套件本体、G0.5 的分层在 `gen/splits.ts` 的 `STRATA`，
   不经 fixture）；文档示例同源（`docs/helpers.md` 亦由 `conformance/gen_golden.ts` 生成）。
 - `npm run golden:check` 保证 fixture 与文档未漂移；门禁脚本不得内联期望数字。
-- 本文件只覆盖 Phase 0 门禁；G1.x/G2.x/G4.x 沿用同一 `GateResult` 形状，在各自阶段
-  补 `g1x_*`/`g2x_*`/`g4x_*`，阈值与口径以 `1789174413324-datagraphlab-data-engine-sft-controller.md`
-  附录 A.2 为准。
+- 本文件覆盖 Phase 0（G0.1–G0.6）、Phase 1（G1.1–G1.3，判据对应 A.1/A.2/C.8）
+  与防漂移（F1–F4，判据对应 F.3）；G2.x/G4.x 沿用同一 `GateResult` 形状，在各自
+  阶段补 `g2x_*`/`g4x_*`，阈值与口径以
+  `1789174413324-datagraphlab-data-engine-sft-controller.md` 附录 A.2 为准。

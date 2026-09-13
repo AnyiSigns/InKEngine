@@ -12,7 +12,7 @@
 - `"any"` 只是 requires 的通配符，绝不进 TYPE_LIST / requires_types。
 - 浮点：特征/参数走 float32；跨语言一致性只在 `records.jsonl` / `weights.json`。
 
-## T2 核心 helper（本波已落地）
+## 核心 helper（已落地，含 Phase 0/T2 与 Phase 1 控制器与评测面）
 
 | 符号 | 签名 | 文件 | 状态 | 语义/边界 |
 |---|---|---|---|---|
@@ -94,6 +94,34 @@
 | `safeActionConflictRate` | `safeActionConflictRate(records, opts?): ConflictRateReport` | `data/provenance.ts` | 已落地 | 目标族多解诊断：先 join+on-path 过滤（缺省只统计 goal/goal_verify，includeFollow 放开），再在子池上固定 seed 抽样 ≤200 做 bounded BFS；C.8 诊断项不进门禁 |
 | `stateDigest / reachesAccept` | `stateDigest(st): string; reachesAccept(graph, task, start, budget): ReachResult` | `data/conflict_bfs.ts` | 已落地 | C.4 去重键（值字段+逐算子计数，不含完整 hist）；BFS 超预算保守判不可达；plan_bfs 落地时 import 本键 |
 | `main / buildTasks / loadDemoTasks` | `main(argv?): number; buildTasks(n, seed): Task[]; loadDemoTasks(path): Task[]` | `demos/generate_demo.ts` | 已落地 | style follow/goal 严格轮转 50/50，canonical Task JSONL（每行一键序稳定）；失败退出码非 0 |
+| `featurizeObs` | `featurizeObs(instruction, obs: ObsView, featureSet?): Float32Array` | `controller/features.ts` | 已落地 | lang 主臂 obs=732 维；struct/hash_only 为诊断/消融 arch；白名单只读 instruction/state，`struct` 的 goal 段由调用方经 featurizeGoalStruct 拼接 |
+| `featurizeAction` | `featurizeAction(graph, nid): Float32Array` | `controller/features.ts` | 已落地 | 契约派生+哈希算子桶，ACT_DIM=83；新增算子不改宽；"any" 不置位、exit/decoy kind 独占 |
+| `OBS_DIM / ACT_DIM` | `OBS_DIM: Readonly<Record<FeatureSet, number>>; ACT_DIM=83` | `controller/features.ts` | 已落地 | lang=732 / struct=740 / hash_only=671；与 Python 侧 arch 串互钉 |
+| `stateStats` | `stateStats(v: unknown): readonly [number, number, number]` | `controller/features.ts` | 已落地 | 值字段统计三特征（Int 数值归一/Str 长度与字符桶）；类型 one-hot 由 featurizeState 负责 |
+| `featurizeGoalStruct` | `featurizeGoalStruct(spec): Float32Array` | `controller/features_struct.ts` | 已落地 | GOAL_STRUCT_DIM=8；只进 struct 诊断 arch（G0.4 唯一例外，audit_features 执法） |
+| `Policy` | `class Policy; static random(seed, featureSet?, head?); act(instr, obs, cand, graph, greedy?, rng?); save(path, trainMeta?); static load(path, expect?)` | `controller/policy.ts` | 已落地 | pointer 打分前向（hiddenOf/zOf/probsOf/scoresFromObs）；反向只在 train.py（F.1）；load 走 arch fail-fast 通道 |
+| `currentArch` | `currentArch(featureSet, head): string` | `controller/checkpoint.ts` | 已落地 | v<ARCH_VERSION>:<featureSet>:<obsDim>:<ACT_DIM>:<H>:<head>，加载须逐字核对 |
+| `readWeightsJson / writeWeightsJson` | `readWeightsJson(path, expect?): WeightsFile; writeWeightsJson(path, file): void` | `controller/checkpoint.ts` | 已落地 | 跨语言权重契约；arch 版本校验 fail-fast、禁跨版本静默加载（F.2）；写前先过 assertParams 形状审计 |
+| `rollout` | `rollout(policy, graph, task, greedy?, maxSteps?, rng?): RolloutResult` | `runner/rollout.ts` | 已落地 | 环境循环唯一口径；成功 ⇔ accept===true（出口当刻判定）；非 greedy 采样必须显式 rng |
+| `passAt1` | `passAt1(policy, graph, tasks): {solved; total; passRate; ci95}` | `eval/metrics.ts` | 已落地 | 主指标（A.1）：greedy 每题一次，端到端成功率 + Wilson 95% CI，按 style 分开调用 |
+| `pathExcess` | `pathExcess(policy, graph, tasks): {mean; successCount}` | `eval/metrics.ts` | 已落地 | 配方族相对 gold 冗余步（两侧都不含 EXIT，G2.2 同源口径）；仅统计验收通过任务 |
+| `stepsOverShortest` | `stepsOverShortest(tasks, graph, solvedPlans): {meanExcess; overBudget; total}` | `eval/metrics.ts` | 已落地 | 目标族相对 BFS 穷尽最短解冗余；超预算记 ∞ 桶不 raise（C.4） |
+| `routingAcc` | `routingAcc(policy, graph, tasks): {match; total}` | `eval/metrics.ts` | 已落地 | teacher-forced 逐步路由（oracleTrace 上 greedy act）；仅诊断项不入门禁；坏标签任务整任务跳过 |
+| `ci95` | `ci95(p, n): [number, number]` | `eval/metrics.ts` | 已落地 | Wilson score 95% 区间钳 [0,1]；n=0 返 [0,0]；全仓唯一 CI 口径 |
+| `calibrationEce` | `calibrationEce(confs, outcomes, bins?): number` | `eval/metrics.ts` | 已落地 | 等宽分桶 ECE（§7 校准列）；长度不一致即抛 |
+| `HeuristicArm` | `class HeuristicArm { solve(task, graph): RolloutResult }` | `eval/arms.ts` | 已落地 | 仅 follow：parseRecipe(Lexicon 首现) 线性重放；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected |
+| `RandomArm` | `new RandomArm(seed, featureSet?)` | `eval/arms.ts` | 已落地 | 同架构 Policy.random(seed) 下界，greedy rollout；同 seed 两次 solve 逐字相同（G1.1 臂） |
+| `TrainedArm` | `new TrainedArm(policy); static fromWeights(path, expect?)` | `eval/arms.ts` | 已落地 | 训练产物臂唯一入口；fromWeights 走 Policy.load arch fail-fast（F.2） |
+| `PlannerArm` | `class PlannerArm { solve(task, graph): RolloutResult }` | `eval/arms.ts` | 已落地 | 仅 goal：planBfs 公开规划上界（G1.3 必含臂）；无解/超预算记 accepted=false；follow N/A；产出永不回灌训练（E.13） |
+| `ContractRouteArm` | `class ContractRouteArm { solve(task, graph): RolloutResult }` | `eval/contract_route.ts` | 已落地 | 两 style 廉价机制臂：公开契约反向链贪心，零学习零泄漏；对照列不进主指标；经 eval/arms.ts re-export |
+| `evaluateArm / defaultArms` | `evaluateArm(arm, tasks, graph, style): ArmReport; defaultArms(randomSeed?, trained?): readonly EvalArm[]` | `eval/arms.ts` | 已落地 | 按 style 分报的统计口径（策略臂包 passAt1、replay 臂自数 accepted 共用 ci95）；N/A 不跑 solve，与 0 分严格区分 |
+| `featurizeRecords` | `featurizeRecords(records, featureSet?): BinRow[]` | `data/records.ts` | 已落地 | store 原始 obs → (obs, cand_mask, target_idx) 派生行；含 CLI main；动作表 actionFeatureTable() |
+| `writeRecordsBin / readRecordsBin` | `writeRecordsBin(path, rows, obsDim, actFeats): void; readRecordsBin(path): BinFile` | `data/records_bin.ts` | 已落地 | records.bin 跨语言契约（magic+版本+act 表）；train.py 只读，header obsDim 与 arch 互钉 |
+| `bc_train` | `bc_train(D, val_D, act_table, epochs=30, patience=4, min_epochs=5, min_delta=1e-4, seed=0, batch=512, lr_schedule="cosine", head="progress", save_last_k=5)` | `controller/train.py` | 已落地 | 纯拟合、不触环境/rollout（F.1 语言分工）；val CE 早停恢复 best；落最近 K epoch 快照供 TS 按 held-out/val pass@1 选点（C.7）；train.py CLI main(argv?)：--train/--val/--out/--loss |
+| `val_ce` | `val_ce(params, rows, act_table): float` | `controller/train.py` | 已落地 | 早停指标（连续 CE，非 route_acc）；batches/snapshot 非公开符号（bc_train 内联） |
+| `Adam` | `class Adam(params); step(params, grads, lr)` | `controller/train_nn.py` | 已落地 | 矩估计优化器；numpy-only；二次函数收敛测试 |
+| `check_numeric_gradient` | `check_numeric_gradient(seed=7, delta=1e-5, verbose=True)` | `controller/train_nn.py` | 已落地 | 变长 mask backward 数值梯度校验：‖∇num−∇ana‖/‖∇num‖ < 1e-5（D 表断言）；CLI 开关 --check-grad |
+| `memory_selftest` | `memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True)` | `controller/train_nn.py` | 已落地 | 记忆 32 例 → train acc ≥ 0.99 的拟合能力自检；CLI 开关 --selftest |
 
 ## T2 其余 helper（随各自 Phase 0 文件补齐）
 
@@ -112,13 +140,7 @@
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
 | `plan_bfs` | `planBfs(task, graph, opts?): string[] | null` | `teacher/search.ts` | 已落地 | BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集 |
-| `featurize_* / OBS_DIM / ACT_DIM` | `featurizeInstr/State/Action; OBS_DIM=724; ACT_DIM=83` | `controller/features.ts` | 待 Phase 0 | 白名单只读 instruction/state |
-| `Policy.forward/backward/act/save/load` | `Policy` | `controller/policy.ts` | 待 Phase 0 | pointer 打分；数值梯度校验 |
-| `val_ce / batches / snapshot` | `valCe(policy, D): number; batches(D, n); snapshot(policy)` | `controller/train.py` | 待 Phase 0 | 训练器内层；仅 numpy |
-| `trainPython / loadWeights` | `trainPython(D, valD): string; loadWeights(path): Policy` | `controller/train.py` | 待 Phase 0 | 唯一跨语言接口 records.bin/weights.json |
 | `recordOf / samePrefix` | `recordOf(st, cand, target); samePrefix(hist, plan, k)` | `runner/dagger.ts` | 待 Phase 0 | on-path 判定；off-prefix 不打标；samePrefix 复用 teacher/oracle.isOnPath，禁止第二份判定源 |
-| `HeuristicArm / RandomArm / TrainedArm / PlannerArm` | `HeuristicArm; RandomArm; TrainedArm; PlannerArm` | `eval/arms.ts` | 待 Phase 0 | HeuristicArm 用 LEXICON 首现顺序解析 |
-| `pass_at_1 / path_excess / steps_over_shortest / routing_acc / ci95` | `指标函数` | `eval/metrics.ts` | 待 Phase 0 | pass@1 带 95% CI；routing_acc 仅诊断 |
 | `structure/*` | `Genome; validate; MUTATIONS; fitness; search; promote` | `structure/*` | 待 Phase 0 | 离线、需求触发、成功非降 + 回滚 |
 | `chat / listFreeModels` | `chat(messages, model); listFreeModels()` | `adapters/llm_gateway.ts` | 待 Phase 0 | Kilo 网关免费档；run 内 pin 死 |
 

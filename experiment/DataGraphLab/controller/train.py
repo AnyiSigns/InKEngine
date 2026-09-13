@@ -9,7 +9,7 @@ records.bin v2 契约补齐了跨语言缺口：候选动作特征不逐行重�
 F.2），而是按 ROUTING 序在 header 存一张 nAct×actDim 稀疏表；行内 candMask 是 22 位
 全局位掩码，置位下标升序就是该步候选在动作表中的行号，据此重建批量动作张量 a（批内
 变长候选 pad 到本批 max m、pad 位由掩码挡住，train_nn 的数值梯度检查本就覆盖该路径）。
-本侧只查表、不复刻任何特征函数——动作表内容与 TS 推理端 featurizeAction 天然同源。
+   本侧只查表、不复刻任何特征函数——动作表内容与 TS 推理端特征函数产物天然同源。
 v1 的「占位动作表」随之下线：version≠2 一律 fail-fast 拒读。
 
 哈希纪律：只对外部文件字节与两份源码字节取 sha256，不做任何 canonical-JSON。

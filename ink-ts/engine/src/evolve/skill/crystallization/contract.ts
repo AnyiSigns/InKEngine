@@ -7,7 +7,7 @@
  * 接线经 KnowledgeSkillStore 落知识集 kind=path 条目，同属记录落位面），
  * 属 storage_seam 端口面（0-IO：不自持 IO，只经声明存储面读写）；分类/
  * 命名/命中率/测试报告为纯算法、零 LLM（不列 llm_port），无执行信封
- * （不列 exec_envelope）、不消费回合组装端口（不列 rounds.port）。
+ * （不列 exec_envelope）、不消费回合组装端口（不列 rounds_port）。
  *
  * depends 为空：skill_crystal 不直接依赖任何其它机制件（互转/容器复用
  * core knowledge_set 数据面）。契约化归属见

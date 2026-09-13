@@ -7,7 +7,7 @@
  * 记录（EdgeEvidenceStore 注入面），属 storage_seam 端口面（0-IO：不自持
  * IO，只经声明端口读回链尾/落记录）；无模型调用（不列 llm_port）、无执行
  * 信封（不列 exec_envelope；子链执行经 executor 机制承接）、不消费回合
- * 组装端口（不列 rounds.port；恢复续跑语义经 recovery 值 seam 复用）。
+ * 组装端口（不列 rounds_port；恢复续跑语义经 recovery 值 seam 复用）。
  *
  * depends = 值面机制清单：interrupt（InterruptSignal 中断信号语义）、
  * recovery（tail_checkpoint 支流链尾恢复）。契约化归属见

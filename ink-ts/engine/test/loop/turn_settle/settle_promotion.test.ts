@@ -15,10 +15,10 @@ import { EdgeEvidenceStore } from '../../../src/evolve/observe/usage_evidence/st
 import {
   RecommendedPriorSettleHook,
   promotion_signature_key,
-} from '../../../src/loop/settle/promotion.js';
+} from '../../../src/loop/turn_settle/promotion.js';
 import {
   TRACE_SUCCESS,
-} from '../../../src/model/settle/_constants.js';
+} from '../../../src/model/turn_settle/_constants.js';
 import {
   NOW,
   StubGate,

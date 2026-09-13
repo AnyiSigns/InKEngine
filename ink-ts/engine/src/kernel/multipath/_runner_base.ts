@@ -29,7 +29,7 @@ import type { RunResult } from '../../core/run_result/run_result.js';
 import type { RunOptions } from '../../core/run_result/run_result.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import type { TraceStep } from '../../loop/settle/index.js';
+import type { TraceStep } from '../../loop/turn_settle/index.js';
 import { fan_out } from '../../core/fanout/fanout.js';
 import { tail_checkpoint } from '../../loop/recovery/index.js';
 import { is_merge_reducer } from '../../core/state/reducers.js';

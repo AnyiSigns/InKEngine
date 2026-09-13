@@ -28,7 +28,7 @@ interface CapabilityComponent {
   contract: {
     inputs?: unknown;
     outputs?: unknown;
-    effects: string[];   // 只允许引用已声明端口（storage_seam/llm_port/exec_envelope/rounds.port…）
+    effects: string[];   // 只允许引用已声明端口（storage_seam/llm_port/exec_envelope/rounds_port…）
   };
   data: unknown;         // 数据面：声明数据 / locale / theme token，随插件走
   actions: string[];     // logic face 暴露的命令/操作；命令面从此派生，禁手写数组
@@ -55,7 +55,7 @@ interface HostFaces {                // 宿主插件（kind='host'）：不走�
 
 - `contract.effects` 是 0-IO 白名单：只调声明过的端口，调未声明端口或直接
   IO = 装配期/扫描期拒绝；
-- `depends` 可引用**其它插件 id 与机制端口 id**（如 `rounds.port`——机制端口是
+- `depends` 可引用**其它插件 id 与机制端口 id**（如 `rounds_port`——机制端口是
   可依赖的契约面，由引擎内核导出）；装配期校验单向 + 完整 + **循环拒绝**；
   卸载某插件时校验下游，有依赖 = 级联禁用或拒绝，不留孤儿；
 - 代码实现文件随插件目录走（`spec.json` + 各 face + 测试 + locale 同住）。

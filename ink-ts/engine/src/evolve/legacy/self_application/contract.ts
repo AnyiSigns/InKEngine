@@ -10,7 +10,7 @@
  * approval 机制值面（approve_before_execute 注入策略）；L2 沙箱验证/域内回归/
  * 活跃态应用为宿主注入钩子（函数回调），不属 exec_envelope 进程/文件沙箱
  * seam；机制 src 无模型调用（不列 llm_port）、无回合端口消费（不列
- * rounds.port）。
+ * rounds_port）。
  *
  * depends = 值面机制清单：approval（审批动作/挂起协议）、patch（补丁链模型
  * PatchChain/Patch）、self_proposal（提案协议；校验器类型同属 self_proposal

@@ -84,13 +84,13 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
   "id": "collect_material",        // 注册表键，全局唯一（工具 = 工具名）
   "kind": "tool",                  // 仅 8 kind 之一（host 例外见上）
   "capability": "host_tool",       // core_tool | host_tool | external_tool
-  "depends": [],                   // 可引用插件 id 或机制端口 id（storage_seam/llm_port/exec_envelope/rounds.port）
+  "depends": [],                   // 可引用插件 id 或机制端口 id（storage_seam/llm_port/exec_envelope/rounds_port）
   "actions": [],
   // 以下为可选全脸字段（阶段 4 schema 能力；内置插件缺省即 data-only——
   // ui_feature 组件叶子/设置面板的真 ui 面例外，声明 faces.ui 即真面插件）：
   // "faces":   { "ui": { "target": "web", "entry": "./faces/ui/index.tsx" } },
   //            { "logic": { "target": "host", "entry": "./faces/logic" } },
-  // "contract": { "effects": ["rounds.port"] },
+  // "contract": { "effects": ["rounds_port"] },
   "data": { "tool": { /* 原工具声明行逐字：name/description/parameters/... */ } }
 }
 ```

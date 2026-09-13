@@ -34,8 +34,8 @@ describe('机制件注册表密封', () => {
     const a: MechanismContract = { id: 'a', contract: { effects: [] }, depends: [] };
     const b: MechanismContract = { id: 'b', contract: { effects: [] }, depends: ['ghost'] };
     expect(validate_mechanism_registry([a, b]).some((v) => v.rule === 'unknown-dep')).toBe(true);
-    const c: MechanismContract = { id: 'c', contract: { effects: [] }, depends: ['rounds.port'] };
-    expect(validate_mechanism_registry([a, c], ['rounds.port'])).toEqual([]);
+    const c: MechanismContract = { id: 'c', contract: { effects: [] }, depends: ['rounds_port'] };
+    expect(validate_mechanism_registry([a, c], ['rounds_port'])).toEqual([]);
   });
 
   it('自环依赖拒绝', () => {

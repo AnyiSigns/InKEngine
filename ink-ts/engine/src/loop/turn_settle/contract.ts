@@ -6,7 +6,7 @@
  * （EdgeEvidenceStore 注入面，边证据行读写）属 storage_seam 端口面
  * （0-IO：不自持 IO，只经声明存储面读写记录）；判据（归类/是否可提/复审/
  * 晋升资格）为纯规则，零 LLM（不列 llm_port），无执行信封（不列
- * exec_envelope）、不消费回合组装端口（不列 rounds.port；settle 是回合
+ * exec_envelope）、不消费回合组装端口（不列 rounds_port；settle 是回合
  * 收尾的被触发方，入向钩子不构成端口消费）。
  *
  * 契约化归属见 engine/src/kernel/registry/contract_types.ts。
@@ -17,7 +17,7 @@ import { PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
 /** settle 机制契约：消费 storage_seam 沉淀簿记端口面。 */
 export const settle_contract: MechanismContract = {
-  id: 'settle',
+  id: 'turn_settle',
   contract: {
     effects: [PORT_STORAGE_SEAM],
   },

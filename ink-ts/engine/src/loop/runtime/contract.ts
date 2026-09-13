@@ -17,7 +17,7 @@
  * - exec_envelope 不列：runtime 不直接消费进程/文件沙箱 seam（runtime src 无
  *   子进程/沙箱调用，执行面经 executor 机制拿引擎，信封归 executor/harness
  *   侧）；
- * - rounds.port 不列：runtime 不再承担回合执行入口（rounds.send 主线 =
+ * - rounds_port 不列：runtime 不再承担回合执行入口（rounds.send 主线 =
  *   execution 执行运行时，回合语义归 execution_runtime），提供面不入本契约
  *   effects 白名单。
  *
@@ -52,7 +52,7 @@ export const runtime_contract: MechanismContract = {
     'self_application',
     'self_proposal',
     'self_tools',
-    'settle',
+    'turn_settle',
     'skill_crystal',
     'tool_pipeline',
     'tool_vetting',

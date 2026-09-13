@@ -22,7 +22,7 @@ import {
   UIRenderer,
   UISchemaValidator,
   UISpec,
-} from '../../../src/model/ui_schema/uiSchema.js';
+} from '../../../src/model/product_ui/uiSchema.js';
 
 const BIND_PATH_KEY = 'path';
 

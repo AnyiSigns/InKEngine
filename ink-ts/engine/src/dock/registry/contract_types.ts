@@ -7,7 +7,7 @@
  * 注入工厂；boot 组密封（registry.ts）校验单向依赖 + 完整 + 循环拒绝。
  *
  * effects 语义 = 0-IO 白名单：只允许引用已声明端口（storage_seam/llm_port/
- * exec_envelope/rounds.port…）。端口 id 与依赖 id 共用同一命名空间（点分或
+ * exec_envelope/rounds_port…）。端口 id 与依赖 id 共用同一命名空间（点分或
  * 下划线均可），由 registry 的 external 名单放行非本注册表内 id。
  */
 
@@ -31,7 +31,7 @@ export interface MechanismContract {
 export interface MechanismRegistryOptions {
   /** 已知副作用端口名（effects 白名单）；空 = 只校验已声明项是否被外部名单放行。 */
   effectAllowlist?: readonly string[];
-  /** 外部依赖 id 名单（如 rounds.port 等引擎导出端口）；不在此名单的未知 id = 违规。 */
+  /** 外部依赖 id 名单（如 rounds_port 等引擎导出端口）；不在此名单的未知 id = 违规。 */
   externalDeps?: readonly string[];
 }
 

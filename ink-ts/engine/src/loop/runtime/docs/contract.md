@@ -43,7 +43,7 @@ self_learning→node_registry→boot）+ 叶类 `Runtime`（原 skeleton/rounds 
 
 ## 对外契约面
 
-- 机制契约 `runtime_contract`：effects=[`storage_seam`, `llm_port`]；depends=19 项（approval/audit_log/entity_evolution/evolution/evolution_writer/executor/growth/introspection/llm/memory_extract/permissions/self_application/self_proposal/self_tools/settle/skill_crystal/tool_pipeline/tool_vetting/tuning；原 path_assembler/pool_governance/thread_skeleton 三项随机制退役，W7-B）。`exec_envelope` 不列（不直接消费进程/沙箱 seam）；`rounds.port` 不列——回合入口已由执行运行时承载（W7-B），runtime 不再自持回合编排。
+- 机制契约 `runtime_contract`：effects=[`storage_seam`, `llm_port`]；depends=19 项（approval/audit_log/entity_evolution/evolution/evolution_writer/executor/growth/introspection/llm/memory_extract/permissions/self_application/self_proposal/self_tools/turn_settle/skill_crystal/tool_pipeline/tool_vetting/tuning；原 path_assembler/pool_governance/thread_skeleton 三项随机制退役，W7-B）。`exec_envelope` 不列（不直接消费进程/沙箱 seam）；`rounds_port` 不列——回合入口已由执行运行时承载（W7-B），runtime 不再自持回合编排。
 - 公共面（`src/index.ts`「运行时装配」组，逐名核对）：值导出 `AssemblyRecipe`/`Runtime`/`RuntimeState`/`RunTicket`/`set_runtime_clock`；类型导出 `AssemblyRecipeInit`/`AssemblySourceProvider`/`EvolveOfflineOptions`/`EvolveOfflineResult`/`Host`/`RunTaskHandle`/`RuntimeConfigInit`/`ToolWiring`（原 `ROUND_CONTINUATION_STATE_KEY`/`ContinuationIntent`/`ContinuationReason` 与 `core/thread_skeleton` 转口组已退役，W7-B）。
 - 目录 `index.ts` 导出、公共面未导出（内部面）：`_KnowledgeUsageSettleHook`（原 `parse_continuation_state`/`ROUND_GRAPH_STATE_KEY`/`RECENT_TOPS_STATE_KEY`/`RoundAssembleOptions` 已随 W7-B 退役）；`_` 前缀文件不随公共面外泄。
 

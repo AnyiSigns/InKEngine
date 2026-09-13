@@ -20,7 +20,7 @@ import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import { strip_sensitive } from '../../gate/security/security.js';
 import { isRecord, type JsonRecord } from '../../model/json.js';
 import { GraphDefinitionError } from '../../model/errors.js';
-import { TraceStep } from '../../loop/settle/index.js';
+import { TraceStep } from '../../loop/turn_settle/index.js';
 import type { Graph } from '../../model/graph/graph.js';
 import type { ResumeMap } from '../../loop/recovery/recovery_types.js';
 import type { AsyncLLM } from '../../model/llm/_guard_types.js';

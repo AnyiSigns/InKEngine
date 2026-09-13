@@ -23,7 +23,7 @@ import type { NodeFactory } from '../../graph/registry/registry_types.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import type { SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../../evolve/proposal/self_edit_tools/index.js';
-import { DEFAULT_BIND_CHANNELS } from '../../model/ui_schema/uiSchemaSupport.js';
+import { DEFAULT_BIND_CHANNELS } from '../../model/product_ui/uiSchemaSupport.js';
 
 /** 回合装配源提供者形态（检索结果 + 知识注入 → 装配源清单）。 */
 export type AssemblySourceProvider = (

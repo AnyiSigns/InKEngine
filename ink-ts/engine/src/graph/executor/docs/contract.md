@@ -4,7 +4,7 @@
 
 ## 定位
 
-引擎执行面机制件：把编译图驱动为「单循环状态机」——每节点完成写一次 checkpoint 快照（版本链），无 Pregel 中间状态，回路任意点可恢复。同时承载嵌套子图/spawn 实例/推演分支/多径展开四类展开的执行语义与统一 checkpoint/事件写入。`contract.ts` 自述：本机制是回合执行引擎的驱动方而非 rounds.port 消费方。
+引擎执行面机制件：把编译图驱动为「单循环状态机」——每节点完成写一次 checkpoint 快照（版本链），无 Pregel 中间状态，回路任意点可恢复。同时承载嵌套子图/spawn 实例/推演分支/多径展开四类展开的执行语义与统一 checkpoint/事件写入。`contract.ts` 自述：本机制是回合执行引擎的驱动方而非 rounds_port 消费方。
 
 ## 文件与职责
 
@@ -33,7 +33,7 @@
 ## 对外契约面
 
 - 公共面逐名核对（`src/index.ts:111-112`）：值 `Engine`、`run_subgraph`；类型 `EngineBase`、`ExecuteOptions`、`NodeContext`。目录 `index.ts` 另导出 `run_agent_scope`/`_validate_subgraph_schema_inheritance`/`_NodeContextImpl`/`_select_next_node`/`_locate_next`（仓内可达，如测试直用 `_NodeContextImpl`），不在公共面。
-- 机制契约：`executor_contract = { id: 'executor', contract: { effects: [PORT_STORAGE_SEAM='storage_seam'] }, depends: ['budget','interrupt','llm','multipath','recovery','settle','simulation','spawn'] }`；`llm_port`/`exec_envelope`/`rounds.port` 不列（`path_assembler` 不列项已随机制退役，W7-B；contract.ts 头注逐项说明理由）。
+- 机制契约：`executor_contract = { id: 'executor', contract: { effects: [PORT_STORAGE_SEAM='storage_seam'] }, depends: ['budget','interrupt','llm','multipath','recovery','turn_settle','simulation','spawn'] }`；`llm_port`/`exec_envelope`/`rounds_port` 不列（`path_assembler` 不列项已随机制退役，W7-B；contract.ts 头注逐项说明理由）。
 
 ## 数据形态
 

@@ -19,7 +19,7 @@ import {
   preview_limit_for,
   truncate_preview,
   validate_card,
-} from '../../../src/model/review_card/reviewCard.js';
+} from '../../../src/model/product_ui/reviewCard.js';
 
 describe('validate_card：契约校验（枚举/必填/数值界/预览截断）', () => {
   it('未知审核卡类型被拒绝', () => {

@@ -12,13 +12,13 @@
  * - exec_envelope 不列：spawn/并行组展开把子任务清单并发展开为进程内子引擎
  *   实例（_make_instance_engine 同进程构造，事件/checkpoint 数据流），不启动
  *   沙箱子进程——信封归 spawn/sandbox 侧；
- * - rounds.port 不列：本机制是回合执行引擎的驱动方而非该端口的消费方
+ * - rounds_port 不列：本机制是回合执行引擎的驱动方而非该端口的消费方
  *   （回合入口在宿主组装/执行运行时侧，本机制只承接恢复解析与审批重入
  *   的执行语义）。
  *
  * depends = 值面机制清单：budget（预算检查）、interrupt（挂起/重入协议）、
  * llm（用量记账守卫接线）、multipath（多径展开）、recovery（恢复解析/链尾）、
- * settle（结点级成败留痕）、simulation（推演）、spawn（子任务清单数据面）。
+ * turn_settle（结点级成败留痕）、simulation（推演）、spawn（子任务清单数据面）。
  * path_assembler 不列（机制已随 W7-B 组装链路退役）：多径编排的组装上下文
  * （request/candidates）经节点数据面注入，executor 不反向读组装模块级默认——
  * 候选链路类型已迁 kernel/multipath/types.ts（spawn/multipath 隔离试跑在用）。
@@ -40,7 +40,7 @@ export const executor_contract: MechanismContract = {
     'llm',
     'multipath',
     'recovery',
-    'settle',
+    'turn_settle',
     'simulation',
     'spawn',
   ],

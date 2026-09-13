@@ -24,7 +24,7 @@ import { RunOptions } from '../../core/run_result/run_result.js';
 import { InterruptCoordinator } from '../../loop/interrupt/interrupt.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
-import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/settle/index.js';
+import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/turn_settle/index.js';
 import type { Graph as GraphType } from '../../model/graph/graph.js';
 
 import type { _AsyncQueue, NodeContext } from './_internals.js';

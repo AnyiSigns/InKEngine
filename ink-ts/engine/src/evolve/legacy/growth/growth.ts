@@ -35,7 +35,7 @@
 import type { JsonRecord } from '../../../model/json.js';
 import { isRecord } from '../../../model/json.js';
 import type { EngineEvent } from '../../../dock/ports/events.js';
-import type { SettleContext } from '../../../model/settle/types.js';
+import type { SettleContext } from '../../../model/turn_settle/types.js';
 import { KnowledgeGate } from '../../learn/knowledge_gate/knowledge_gate.js';
 import {
   KIND_INSIGHT,

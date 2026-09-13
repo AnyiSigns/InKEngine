@@ -40,7 +40,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
   `PORT_STORAGE_SEAM`='storage_seam'（存储 seam：审计/补丁链/记录等
   受守卫落库端口）、`PORT_LLM_PORT`='llm_port'（模型推理 seam）、
   `PORT_EXEC_ENVELOPE`='exec_envelope'（子进程/沙箱执行端口）、
-  `PORT_ROUNDS`='rounds.port'（回合端口：组装回合/恢复/审批重入，插件 depends
+  `PORT_ROUNDS`='rounds_port'（回合端口：组装回合/恢复/审批重入，插件 depends
   可依赖）、`MECHANISM_PORT_IDS`（以上 4 项清单）。
 - 全量契约：`ALL_MECHANISM_CONTRACTS`（31 项，id 与目录同集）。
 - 公共面导出情况：本目录导出面**不在** `src/index.ts` 公共面（该文件无任何
@@ -106,7 +106,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 
 `test/kernel/registry/` 镜像测试（2 文件）：
 - `registry.test.ts` — 样板契约（audit_log）通过校验进装配序；重复 id/未知
-  依赖（外部名单放行 `rounds.port`）/自环/循环拒绝（seal 抛错）；拓扑序 =
+  依赖（外部名单放行 `rounds_port`）/自环/循环拒绝（seal 抛错）；拓扑序 =
   被依赖者先。
 - `contracts_registry.test.ts` — 全量 31 机制契约：id 全局唯一且与目录同集、
   effects 只引用已登记端口、全量依赖图无环、`runtime_contract.depends` 全部
@@ -121,4 +121,4 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 - `MechanismContract.contract.inputs?/outputs?` 可选字段：31 份 contract.ts 无一定义使用（仅 audit_log 注释提及「声明期不固化」）——形状声明面未见消费。
 - `find_cycles` 具名导出无外部消费方（仅 `validate_mechanism_registry` 内部使用；镜像测试与 verify 脚本均未 import）。
 - `topo_order` 对含环契约集按 Kahn 算法静默省略环成员及其下游（不报错）；自环同样不入环检测（单结点 SCC 不记）——防环完全依赖调用方先走 `validate_mechanism_registry`/`seal_mechanism_registry`，函数本身无环守卫。
-- `PORT_ROUNDS` 常量无直接 import 方（仅经 `MECHANISM_PORT_IDS` 间接消费）；`registry.test.ts` 的外部名单示例用字面量 `'rounds.port'` 而未引用该常量。
+- `PORT_ROUNDS` 常量无直接 import 方（仅经 `MECHANISM_PORT_IDS` 间接消费）；`registry.test.ts` 的外部名单示例用字面量 `'rounds_port'` 而未引用该常量。

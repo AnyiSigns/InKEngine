@@ -13,7 +13,7 @@ export const PORT_LLM_PORT = 'llm_port';
 /** exec 信封：子进程/沙箱执行端口（宿主注入 Rust 原生信封）。 */
 export const PORT_EXEC_ENVELOPE = 'exec_envelope';
 /** 回合端口：组装回合/恢复/审批重入的引擎导出机制端口（插件 depends 可依赖）。 */
-export const PORT_ROUNDS = 'rounds.port';
+export const PORT_ROUNDS = 'rounds_port';
 
 /** 全部已知机制端口（契约 effects 白名单默认集）。 */
 export const MECHANISM_PORT_IDS: readonly string[] = [

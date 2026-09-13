@@ -26,7 +26,7 @@ import { PLAN_KEY, PlanStep } from '../../model/plan/plan.js';
 import { SIMULATE_KEY } from '../../kernel/simulation/simulation.js';
 import { SPAWN_KEY, collect_spawn_specs } from '../../kernel/spawn/spawn.js';
 import type { Graph } from '../../model/graph/graph.js';
-import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/settle/index.js';
+import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/turn_settle/index.js';
 import type { NodeContext } from './_internals.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { _interrupt_state, _PlanWorkOutcome, _warn } from './_internals.js';

@@ -17,7 +17,7 @@ import { EntitySpec } from '../../core/entities/entities.js';
 import { HarnessDefinition } from '../../core/harness/index.js';
 import { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import type { AsyncLLM } from '../../model/llm/_guard_types.js';
-import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
+import { UISchemaValidator } from '../../model/product_ui/uiSchema.js';
 import type { AssemblyRecipe } from './_types.js';
 import { RuntimeMechanisms } from './_runtime_mechanisms.js';
 

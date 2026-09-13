@@ -28,8 +28,8 @@
  */
 
 import { isRecord } from '../../model/json.js';
-import { build_gate_card } from '../../model/review_card/reviewCard.js';
-import type { CardPayload } from '../../model/review_card/reviewCard_types.js';
+import { build_gate_card } from '../../model/product_ui/reviewCard.js';
+import type { CardPayload } from '../../model/product_ui/reviewCard_types.js';
 import {
   ApprovalDecision,
   DECISION_AUTO,

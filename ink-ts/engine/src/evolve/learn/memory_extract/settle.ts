@@ -15,7 +15,7 @@
 import type { JsonRecord } from '../../../model/json.js';
 import { isRecord } from '../../../model/json.js';
 import { StorageBackedMemoryStore } from '../memory/index.js';
-import type { SettleContext } from '../../../loop/settle/index.js';
+import type { SettleContext } from '../../../loop/turn_settle/index.js';
 import {
   DEFAULT_NAMESPACE,
   PRIORITY_CONCLUSION,

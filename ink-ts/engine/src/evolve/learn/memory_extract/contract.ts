@@ -5,7 +5,7 @@
  * 函数（规则抽取优先，零 LLM），回合收尾 settle 钩子把当轮账本事实经装配
  * 注入的记忆存储对象落位（受控演化通道承接写盘，本机制 src 不直接持有
  * Storage 类 seam 对象，storage_seam 不列）；无模型调用（不列 llm_port）、
- * 无执行信封（不列 exec_envelope）、不消费回合组装端口（不列 rounds.port）。
+ * 无执行信封（不列 exec_envelope）、不消费回合组装端口（不列 rounds_port）。
  * 0-IO：不自持 IO。
  *
  * depends 为空：memory_extract 不直接依赖任何其它机制件（抽取输入 = 账本

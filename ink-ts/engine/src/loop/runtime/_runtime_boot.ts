@@ -50,7 +50,7 @@ import { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
 import { ToolSelector } from '../tools/tool_orchestrator/tool_orchestrator.js';
 import { ToolVectorIndex } from '../tools/tool_index/tool_index.js';
 import { ToolVetting } from '../../gate/tool_vetting/tool_vetting.js';
-import { UISchemaValidator } from '../../model/ui_schema/uiSchema.js';
+import { UISchemaValidator } from '../../model/product_ui/uiSchema.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
 import type { Host, AssemblyRecipe } from './_types.js';
 import { _uuid_hex } from './_runtime_base.js';

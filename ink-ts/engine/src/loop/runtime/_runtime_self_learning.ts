@@ -28,7 +28,7 @@ import {
   DEFAULT_NAMESPACE,
   MemoryExtractSettleHook,
 } from '../../evolve/learn/memory_extract/index.js';
-import type { SettleContext, SettleHooks } from '../settle/index.js';
+import type { SettleContext, SettleHooks } from '../turn_settle/index.js';
 import { KnowledgeSkillStore } from '../../evolve/skill/crystallization/index.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import { MetaTuner } from '../../evolve/param_tuning/index.js';

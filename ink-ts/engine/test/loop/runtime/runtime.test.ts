@@ -40,7 +40,7 @@ import { ApprovalLevel } from '../../../src/evolve/legacy/self_application/index
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/evolve/proposal/self_edit_tools/index.js';
 import type { SelfToolContext } from '../../../src/evolve/proposal/self_edit_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/evolve/param_tuning/index.js';
-import { SettleContext } from '../../../src/loop/settle/index.js';
+import { SettleContext } from '../../../src/loop/turn_settle/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
 import { TerminateReason } from '../../../src/model/graph/graph_types.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';

@@ -37,7 +37,7 @@ import {
   SchemaValidator,
   validate_tool_name,
 } from '../../../model/schema/schemaValidator.js';
-import { DEFAULT_BIND_CHANNELS, UISchemaValidator } from '../../../model/ui_schema/uiSchema.js';
+import { DEFAULT_BIND_CHANNELS, UISchemaValidator } from '../../../model/product_ui/uiSchema.js';
 
 import { example_skeleton, pyRepr, pyTupleRepr } from './self_proposal.js';
 import type { SelfProposal } from './self_proposal.js';

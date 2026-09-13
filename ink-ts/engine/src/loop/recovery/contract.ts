@@ -11,7 +11,7 @@
  *
  * depends 为空：recovery 不直接依赖任何其它机制件（恢复语义的消费方在
  * 执行器 resume 接线侧，本模块只提供解析函数；回合入口/审批重入在消费
- * 方组装，本模块不依赖 rounds.port）。契约化归属见
+ * 方组装，本模块不依赖 rounds_port）。契约化归属见
  * engine/src/kernel/registry/contract_types.ts。
  */
 

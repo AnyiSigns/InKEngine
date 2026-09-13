@@ -173,7 +173,7 @@ export * from '../core/environments/index.js';
 export * from '../model/schema/schemaValidator.js';
 
 // UI schema（三层白名单校验/渲染器 seam）
-export * from '../model/ui_schema/uiSchema.js';
+export * from '../model/product_ui/uiSchema.js';
 
 // 权限与沙箱安全类型（PermissionGate/NetworkPolicySandbox/文件与进程沙箱；
 // SpawnSeam = core 进程沙箱的宿主注入 seam）

@@ -36,7 +36,7 @@ import { sandbox_contract } from '../../gate/sandbox/contract.js';
 import { self_application_contract } from '../../evolve/legacy/self_application/contract.js';
 import { self_proposal_contract } from '../../evolve/legacy/self_proposal/contract.js';
 import { self_tools_contract } from '../../evolve/proposal/self_edit_tools/contract.js';
-import { settle_contract } from '../../loop/settle/contract.js';
+import { settle_contract } from '../../loop/turn_settle/contract.js';
 import { simulation_contract } from '../../kernel/simulation/contract.js';
 import { skill_crystal_contract } from '../../evolve/skill/crystallization/contract.js';
 import { spawn_contract } from '../../kernel/spawn/contract.js';

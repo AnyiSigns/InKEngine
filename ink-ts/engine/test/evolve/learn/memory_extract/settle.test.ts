@@ -15,7 +15,7 @@ import {
   MemoryExtractSettleHook,
   extract_entries_from_ledger,
 } from '../../../../src/evolve/learn/memory_extract/index.js';
-import type { SettleContext } from '../../../../src/loop/settle/index.js';
+import type { SettleContext } from '../../../../src/loop/turn_settle/index.js';
 
 /** 固定时间轴线（条目 created_at 确定可断言）。 */
 const now: NowFn = (): number => 1000;

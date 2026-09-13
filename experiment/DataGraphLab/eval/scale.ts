@@ -20,7 +20,7 @@
  * `controller/train.py`。
  */
 
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { makeCoverageSplitInfo, makeSplit } from '../gen/generator.js';
@@ -79,6 +79,12 @@ export interface ScaleOptions {
   readonly coverageKs?: number[];
   readonly coverageN?: number;
   readonly includeKCoverage?: boolean;
+  /**
+   * 断点续跑（缺省 false，全新行为不变）：当 `--out` 侧的 bin 与 weights 都已存在时
+   * 跳过重复的 store 构建与训练，直接进入选点/评测。用于长跑被外部因素中断后复用
+   * 已落盘产物——被跳过的制品是本实现确定性产物，复用不改变报告口径。
+   */
+  readonly resume?: boolean;
 }
 
 /** 每 (N,seed) 的采样派生 seed：乘法散列保证跨格互不相同且可复现。 */
@@ -107,6 +113,7 @@ export function runScale(opts: ScaleOptions = {}): ScaleReport {
   const coverageKs = opts.coverageKs ?? [...DEFAULT_COVERAGE_KS];
   const coverageN = opts.coverageN ?? (grid.length > 0 ? Math.max(...grid) : 3000);
   const includeKCoverage = opts.includeKCoverage !== false;
+  const resume = opts.resume === true;
 
   const runId = opts.runId ?? `scale-${stamp()}`;
   const outRoot = opts.outRoot ?? join(PKG_ROOT, 'runs');
@@ -116,7 +123,7 @@ export function runScale(opts: ScaleOptions = {}): ScaleReport {
   // —— val 固定集（C.8：VAL_SKELETONS，seed=0，与 held-out 零重叠）——
   const valTasks = makeSplit('val', valPerFamily, 0);
   const valBin = join(runDir, 'val.bin');
-  buildSplitBin(valTasks, join(runDir, 'store', 'val'), valBin);
+  if (!(resume && existsSync(valBin))) buildSplitBin(valTasks, join(runDir, 'store', 'val'), valBin);
 
   // —— held-out：覆盖集（sanity）+ 统计集（主指标）——
   const cov = makeCoverageSplitInfo('heldout', 0);
@@ -133,10 +140,12 @@ export function runScale(opts: ScaleOptions = {}): ScaleReport {
       // 采样 + on-path oracle → bin
       const tasks = sampleTasks(n, cellSeed(n, seed), trainPool, styleRatio);
       const trainBin = `${trainedOf(n, seed)}.bin`;
-      buildSplitBin(tasks, join(runDir, 'store', `train_N${String(n)}_s${String(seed)}`), trainBin);
       // 训练（train.py 内外两层同一口径；失败即抛，不降级）
       const weights = `${trainedOf(n, seed)}_weights.json`;
-      runTrainer({ trainer, trainBin, valBin, outWeights: weights, saveLastK, extraArgs: opts.trainPyArgs, timeoutMs });
+      if (!(resume && existsSync(trainBin) && existsSync(weights))) {
+        buildSplitBin(tasks, join(runDir, 'store', `train_N${String(n)}_s${String(seed)}`), trainBin);
+        runTrainer({ trainer, trainBin, valBin, outWeights: weights, saveLastK, extraArgs: opts.trainPyArgs, timeoutMs });
+      }
       // 末 K 快照 + 最终 params 按 val greedy pass@1 选终点（并列取更晚）
       const file = readWeightsJson(weights);
       const selectedEpoch = selectCheckpoint(file, valTasks, saveLastK);
@@ -203,6 +212,7 @@ export function runScale(opts: ScaleOptions = {}): ScaleReport {
       trainer,
       valBin,
       saveLastK,
+      resume,
       extraArgs: opts.trainPyArgs,
       timeoutMs,
     });

@@ -205,7 +205,21 @@ def build_arch(obs_dim, head):
     return f"v{ARCH_VERSION}:lang:{obs_dim}:{ACT_DIM}:{H}:{head}"
 
 
+def _loss_of(argv):
+    """原始 argv 里 `--loss` 的取值：reinforce 有独立超参与独立入口，须在 argparse 前分流。"""
+    for i, a in enumerate(argv):
+        if a == "--loss" and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith("--loss="):
+            return a.split("=", 1)[1]
+    return "ce"
+
+
 def main(argv=None):
+    raw = sys.argv[1:] if argv is None else list(argv)
+    if _loss_of(raw) == "reinforce":
+        import train_reinforce
+        return train_reinforce.main(raw)
     ap = argparse.ArgumentParser(prog="controller/train.py",
                                  description="DataGraphLab BC 批量拟合：records.bin → weights.json")
     ap.add_argument("--train", help="训练 records.bin 路径")
@@ -219,7 +233,7 @@ def main(argv=None):
     ap.add_argument("--loss", default="ce")
     ap.add_argument("--check-grad", action="store_true", dest="check_grad")
     ap.add_argument("--selftest", action="store_true")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(raw)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     if args.check_grad:
@@ -227,8 +241,7 @@ def main(argv=None):
     if args.selftest:
         return 0 if train_nn.memory_selftest(seed=args.seed)["train_acc"] >= 0.99 else 1
     if args.loss != "ce":
-        print("reinforce 属后续批次")
-        return 2
+        ap.error("--loss 仅支持 ce|reinforce（reinforce 已在上游分流）")
     missing = [k for k in ("train", "val", "out") if getattr(args, k) is None]
     if missing:
         ap.error("训练模式缺少参数: " + " ".join("--" + m for m in missing))

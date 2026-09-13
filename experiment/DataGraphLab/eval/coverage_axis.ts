@@ -11,6 +11,7 @@
  * 上报（全覆盖下不存在未训组合）。所有随机一律 makeRng(seed)，禁 Math.random。
  */
 
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { _skelId, type Skel } from '../gen/skeletons.js';
@@ -44,6 +45,8 @@ export interface CoverageAxisInput {
   readonly saveLastK: number;
   readonly extraArgs?: readonly string[];
   readonly timeoutMs?: number;
+  /** 断点续跑：bin 与 weights 都在时跳过该 k 的构建与训练（口径与主网格一致）。 */
+  readonly resume?: boolean;
 }
 
 export interface CoverageAxisResult {
@@ -120,16 +123,18 @@ export function runCoverageAxis(input: CoverageAxisInput): CoverageAxisResult {
     const storeRoot = join(input.runDir, 'store', `k${String(k)}`);
     const trainBin = join(input.runDir, `cov_k${String(k)}.bin`);
     const weights = join(input.runDir, `cov_k${String(k)}_weights.json`);
-    buildSplitBin(trainTasks, storeRoot, trainBin);
-    runTrainer({
-      trainer: input.trainer,
-      trainBin,
-      valBin: input.valBin,
-      outWeights: weights,
-      saveLastK: input.saveLastK,
-      extraArgs: input.extraArgs,
-      timeoutMs: input.timeoutMs,
-    });
+    if (!(input.resume === true && existsSync(trainBin) && existsSync(weights))) {
+      buildSplitBin(trainTasks, storeRoot, trainBin);
+      runTrainer({
+        trainer: input.trainer,
+        trainBin,
+        valBin: input.valBin,
+        outWeights: weights,
+        saveLastK: input.saveLastK,
+        extraArgs: input.extraArgs,
+        timeoutMs: input.timeoutMs,
+      });
+    }
     const file = readWeightsJson(weights);
     const policy = new Policy(file.params, file.dims.featureSet, file.dims.head);
     for (const style of ['follow', 'goal'] as const) {

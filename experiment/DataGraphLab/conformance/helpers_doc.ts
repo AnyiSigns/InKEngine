@@ -101,12 +101,15 @@ const CORE: readonly HelperRow[] = [
   { name: 'currentArch', signature: 'currentArch(featureSet, head): string', file: 'controller/checkpoint.ts', status: '已落地', note: 'v<ARCH_VERSION>:<featureSet>:<obsDim>:<ACT_DIM>:<H>:<head>，加载须逐字核对' },
   { name: 'readWeightsJson / writeWeightsJson', signature: 'readWeightsJson(path, expect?): WeightsFile; writeWeightsJson(path, file): void', file: 'controller/checkpoint.ts', status: '已落地', note: '跨语言权重契约；arch 版本校验 fail-fast、禁跨版本静默加载（F.2）；写前先过 assertParams 形状审计' },
   { name: 'rollout', signature: 'rollout(policy, graph, task, greedy?, maxSteps?, rng?): RolloutResult', file: 'runner/rollout.ts', status: '已落地', note: '环境循环唯一口径；成功 ⇔ accept===true（出口当刻判定）；非 greedy 采样必须显式 rng' },
+  { name: 'correctGold', signature: 'correctGold(task, st, action): string | null', file: 'runner/dagger.ts', status: '已落地', note: 'DAgger 偏离判定唯一口径：off-prefix（isOnPath 判）一律 null 不打标；on-path 时计划耗尽取 EXIT；所选与 gold 一致返 null' },
+  { name: 'dagger', signature: 'dagger(policy, options: DaggerOptions): DaggerResult', file: 'runner/dagger.ts', status: '已落地', note: 'C.5 on-path 干预编排：偏离处打 gold 标签、老师干预后续跑、单 rollout maxFixes=4；训练/评估出口由回调注入（本模块不 spawn Python）；stats（偏离步/首次偏离步位）供 G2.1 诊断消费，不作晋级门槛' },
   { name: 'passAt1', signature: 'passAt1(policy, graph, tasks): {solved; total; passRate; ci95}', file: 'eval/metrics.ts', status: '已落地', note: '主指标（A.1）：greedy 每题一次，端到端成功率 + Wilson 95% CI，按 style 分开调用' },
   { name: 'pathExcess', signature: 'pathExcess(policy, graph, tasks): {mean; successCount}', file: 'eval/metrics.ts', status: '已落地', note: '配方族相对 gold 冗余步（两侧都不含 EXIT，G2.2 同源口径）；仅统计验收通过任务' },
   { name: 'stepsOverShortest', signature: 'stepsOverShortest(tasks, graph, solvedPlans): {meanExcess; overBudget; total}', file: 'eval/metrics.ts', status: '已落地', note: '目标族相对 BFS 穷尽最短解冗余；超预算记 ∞ 桶不 raise（C.4）' },
   { name: 'routingAcc', signature: 'routingAcc(policy, graph, tasks): {match; total}', file: 'eval/metrics.ts', status: '已落地', note: 'teacher-forced 逐步路由（oracleTrace 上 greedy act）；仅诊断项不入门禁；坏标签任务整任务跳过' },
   { name: 'ci95', signature: 'ci95(p, n): [number, number]', file: 'eval/metrics.ts', status: '已落地', note: 'Wilson score 95% 区间钳 [0,1]；n=0 返 [0,0]；全仓唯一 CI 口径' },
   { name: 'calibrationEce', signature: 'calibrationEce(confs, outcomes, bins?): number', file: 'eval/metrics.ts', status: '已落地', note: '等宽分桶 ECE（§7 校准列）；长度不一致即抛' },
+  { name: 'beyondOracleRate', signature: 'beyondOracleRate(tasks, graph, opts?): BeyondOracleReport', file: 'eval/beyond_oracle.ts', status: '已落地', note: 'G2.2 超 oracle 率（仅 follow）：逐任务 planBfs 限深 goldLen−1 早停，非 null 记命中；超预算按保守未命名单列 overBudget，不入 hits' },
   { name: 'HeuristicArm', signature: 'class HeuristicArm { solve(task, graph): RolloutResult }', file: 'eval/arms.ts', status: '已落地', note: '仅 follow：弱词法扫描（义项首现升序，同位命中按 LEX_OPS_BASE 固定序取最小、放弃类型消歧，C.7 规格）；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected' },
   { name: 'RandomArm', signature: 'new RandomArm(seed, featureSet?)', file: 'eval/arms.ts', status: '已落地', note: '同架构 Policy.random(seed) 下界，greedy rollout；同 seed 两次 solve 逐字相同（G1.1 臂）' },
   { name: 'TrainedArm', signature: 'new TrainedArm(policy); static fromWeights(path, expect?)', file: 'eval/arms.ts', status: '已落地', note: '训练产物臂唯一入口；fromWeights 走 Policy.load arch fail-fast（F.2）' },
@@ -120,6 +123,13 @@ const CORE: readonly HelperRow[] = [
   { name: 'Adam', signature: 'class Adam(params); step(params, grads, lr)', file: 'controller/train_nn.py', status: '已落地', note: '矩估计优化器；numpy-only；二次函数收敛测试' },
   { name: 'check_numeric_gradient', signature: 'check_numeric_gradient(seed=7, delta=1e-5, verbose=True)', file: 'controller/train_nn.py', status: '已落地', note: '变长 mask backward 数值梯度校验：‖∇num−∇ana‖/‖∇num‖ < 1e-5（D 表断言）；CLI 开关 --check-grad' },
   { name: 'memory_selftest', signature: 'memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True)', file: 'controller/train_nn.py', status: '已落地', note: '记忆 32 例 → train acc ≥ 0.99 的拟合能力自检；CLI 开关 --selftest' },
+  { name: 'collectReinforceRows', signature: 'collectReinforceRows(policy, tasks, opts?): CollectResult', file: 'eval/reinforce.ts', status: '已落地', note: 'G2.3 采样轨迹 → 优势标签行（非 greedy 需 seed rng；baseline=滑动均值 200、排除当前；单候选步不入集）；行经 recordFromStep/featurizeRecord 唯一口径产出' },
+  { name: 'slidingBaseline', signature: 'slidingBaseline(rewards, window=200): number', file: 'eval/reinforce.ts', status: '已落地', note: '最近 window 条 rollout 奖励均值；调用方在推入当前奖励前取值，自然排除自身（防优势泄漏）' },
+  { name: 'ReinforceArm', signature: 'class ReinforceArm { policy; solve(task, graph?); static evaluate(arm, tasks, graph?) }', file: 'eval/reinforce.ts', status: '已落地', note: 'G2.3 对照臂：白手起家随机初始化、greedy 评测走 passAt1；不从 BC checkpoint 热启（A.2）；lr=1e-3/β_ent=0.01/batch=512 在 Python 侧' },
+  { name: 'writeReinforceFile', signature: 'writeReinforceFile(path, rows, featureSet?)', file: 'eval/reinforce.ts', status: '已落地', note: 'reinforce.bin 写盘收敛口；obsDim 取自 featureSet，动作表 actionFeatureTable() 唯一源' },
+  { name: 'writeReinforceBin / readReinforceBin', signature: 'writeReinforceBin(path, rows, obsDim, actFeats); readReinforceBin(path): ReinforceFile', file: 'data/reinforce_bin.ts', status: '已落地', note: 'reinforce.bin v1 字节契约（magic DGLR）：header 动作表 + 稀疏 obs/掩码 + 采样动作本地下标 + advantage/reward；magic/版本/越界/NaN fail-fast' },
+  { name: 'backward_reinforce', signature: 'backward_reinforce(params, o, a, mask, action_idx, advantage, beta_ent=0.01): grads', file: 'controller/reinforce_nn.py', status: '已落地', note: '策略梯度余量 g=advantage·p−advantage·δ+β·p·(logp+H)，回传链与 BC 反向同构；无 value head、无权重衰减（A.2）' },
+  { name: 'check_numeric_gradient_reinforce', signature: 'check_numeric_gradient_reinforce(seed=7, delta=1e-6): bool', file: 'controller/reinforce_nn.py', status: '已落地', note: '策略梯度链中心差分自检，相对范数差 <1e-5（小维模型逐元素）；CLI `python controller/reinforce_nn.py` 退出码即判' },
 ];
 
 const PENDING: readonly HelperRow[] = [
@@ -138,7 +148,6 @@ const PENDING: readonly HelperRow[] = [
   { name: 'plan_bfs', signature: 'planBfs(task, graph, opts?): string[] | null', file: 'teacher/search.ts', status: '已落地', note: 'BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集' },
   // Phase 1 控制器/评测/训练面（featurize_*、Policy、checkpoint、rollout、五臂+evaluateArm、
   // metrics、records bin、train.py 面）已陆续转入上方 CORE 表——留在此处即口径漂移。
-  { name: 'recordOf / samePrefix', signature: 'recordOf(st, cand, target); samePrefix(hist, plan, k)', file: 'runner/dagger.ts', status: '待 Phase 0', note: 'on-path 判定；off-prefix 不打标；samePrefix 复用 teacher/oracle.isOnPath，禁止第二份判定源' },
   { name: 'structure/*', signature: 'Genome; validate; MUTATIONS; fitness; search; promote', file: 'structure/*', status: '待 Phase 0', note: '离线、需求触发、成功非降 + 回滚' },
   { name: 'chat / listFreeModels', signature: 'chat(messages, model); listFreeModels()', file: 'adapters/llm_gateway.ts', status: '待 Phase 0', note: 'Kilo 网关免费档；run 内 pin 死' },
 ];

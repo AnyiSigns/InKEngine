@@ -1,6 +1,6 @@
 /**
  * 门禁共享 harness（docs/gates.md §0）：统一构造上下文、依序执行
- * G0.1→G1.3 与 F1→F4、写机器可读结果、判 exit code。`inputs_hash` =
+ * G0.1→G2.2 与 F1→F4、写机器可读结果、判 exit code。`inputs_hash` =
  * hashObj{world_version, 数据集 manifest hash, fixture hash}——三者任一变化
  * 都会让历史结果不可复用（§0.3.4）。任一 `passed=false` 整体退出码 1，但
  * **继续跑完全部**并照样落盘（失败也要报告）；测试与非落盘调用把 `outDir`
@@ -47,6 +47,7 @@ import { run as runG06 } from './g06_goal_separability.js';
 import { run as runG11 } from './g11_no_free_lunch.js';
 import { run as runG12 } from './g12_main_target.js';
 import { run as runG13 } from './g13_three_arms.js';
+import { run as runG22 } from './g22_beyond_oracle.js';
 import { runF1, runF2, runF3, runF4 } from '../f_gates.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,7 @@ const GATES: ReadonlyArray<{ gate: GateId; run: (ctx: GateContext) => GateResult
   { gate: 'G1.1', run: runG11 },
   { gate: 'G1.2', run: runG12 },
   { gate: 'G1.3', run: runG13 },
+  { gate: 'G2.2', run: runG22 },
   { gate: 'F1', run: runF1 },
   { gate: 'F2', run: runF2 },
   { gate: 'F3', run: runF3 },
@@ -140,7 +142,7 @@ export function createGateContext(opts: { runId?: string; resultsPath?: string }
   return returnCtx;
 }
 
-/** 依序跑全部六门禁；单个门禁抛错按失败兜底继续（§0.3.1「失败也要报告」）。 */
+/** 依序跑全部门禁；单个门禁抛错按失败兜底继续（§0.3.1「失败也要报告」）。 */
 export function runAll(ctx: GateContext): GateResult[] {
   const results: GateResult[] = [];
   for (const { gate, run } of GATES) {

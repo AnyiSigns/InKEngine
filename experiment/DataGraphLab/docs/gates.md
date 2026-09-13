@@ -1,4 +1,4 @@
-# DataGraphLab 门禁判定脚本规格（G0.1–G0.6、G1.1–G1.3）
+# DataGraphLab 门禁判定脚本规格（G0.1–G0.6、G1.1–G1.3、G2.2）
 
 > 本文件是**判定口径**（输入/算法/输出/判据/落点），不是实现稿。所有门禁共享
 > 一套 harness；判据只许引用冻结 fixture 与实测值，**禁止手写期望数字**。
@@ -14,7 +14,7 @@
 | 件 | 路径 | 职责 |
 |---|---|---|
 | harness | `conformance/gates/harness.ts` | 统一执行、写结果、判 exit code |
-| 门禁实现 | `conformance/gates/g0N_*.ts` / `g1N_*.ts` | 每门禁一个 `run(ctx): GateResult` |
+| 门禁实现 | `conformance/gates/g0N_*.ts` / `g1N_*.ts` / `g2N_*.ts` | 每门禁一个 `run(ctx): GateResult`；G2.2 判定式在 `eval/beyond_oracle.ts` |
 | 证据读取 | `conformance/gates/results_view.ts` | G1.2/G1.3 共享的 `results.json` 只读视图（唯一实现） |
 | 结果 | `runs/<run_id>/gates/G0.N.json` | 机器可读证据（长表另存 csv） |
 | 金标 | `conformance/fixtures.json` | 哈希/随机/渲染的冻结真值 |
@@ -24,7 +24,7 @@
 
 ```typescript
 interface GateResult {
-  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6' | 'G1.1' | 'G1.2' | 'G1.3';
+  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6' | 'G1.1' | 'G1.2' | 'G1.3' | 'G2.1' | 'G2.2' | 'G2.3';
   version: number;              // 判定脚本语义版本，改动即 +1
   world_version: string;        // = world/operators 契约表 hash
   seeds: number[];              // 本次使用的全部种子
@@ -39,7 +39,7 @@ interface GateResult {
 
 ### 0.3 harness 规则
 
-1. `runAll(ctx)` 依次跑 G0.1→G1.3；任一 `passed=false` 则整体 exit 1，但**继续跑完**
+1. `runAll(ctx)` 依次跑 G0.1→G1.3、G2.2 与 F1→F4；任一 `passed=false` 则整体 exit 1，但**继续跑完**
    并写全部结果（失败也要报告，附录 E.7）。
 2. 所有随机显式 `makeRng(seed)`；所有哈希 `hashObj`/`crc32`；禁止 `Math.random` 与
    内置 `hash()`（E.8）。
@@ -204,6 +204,43 @@ interface GateResult {
 
 ---
 
+## G2.2 超 oracle 率（配方族 only）
+
+> 配方式 gold 计划应当就是最短验收解；held-out 上若被搜出**严格更短**且过验收的
+> 算子序列，说明生成端守卫有漏。仅配方族——goal 族多解是设计语义（accept 只读
+> 公开 spec），不参评本门。
+
+- **输入**：`makeSplit('heldout', 2, 13)` 的 **follow 子集**（value/verify 各 2、
+  共 4 条），批常量 `G22_SAMPLE_BATCH` 导出自门禁脚本，经 `ctx.genTasks` 按批次
+  哈希共享缓存。小样是**运行时约束**：plan_bfs 在「无更短解」任务上要耗尽
+  `goldLen−1` 深球，单任务秒级，整批 120 条约 4 分钟——任何进程内同步块都会越过
+  vitest worker→main 的心跳（与 G0.1 把复算放进子进程同一规避动机）；4 条把单块
+  压到数秒内，且实测率≈1 时判决完全无歧义。完整 120 条统计量在 README 报告
+  （实测 108/120≈0.90），**门禁筛查只为运行时约束，主指标与阈值不受其替换**。
+  plan_bfs 一律用缺省节点预算；批内退化 gold（`goldLen−1 < 1`）恒判未命中但仍计
+  分母。
+- **判定式**（计划 A.2 原文口径）：逐任务取 `goldLen = len(plan_hidden)`（含
+  `submit(+check_*)`，不含 EXIT；plan_bfs 返回值同样不含 EXIT，两边同口径按
+  算子步数比较）。`plan_bfs(task, graph, maxDepth=goldLen−1)` 非 null ⇔ 存在
+  严格更短验收解 ⇒ 命中（等长不算超——gold 本身不算捷径；早停深度恰差一步）。
+  `goldLen−1 < 1` 的任务结构上不可能更短：恒未命中但**留在分母**。
+  `plan_bfs` 超预算抛 `search budget exceeded`：按保守未命中计入分母，另以
+  `over_budget` 单列上报，绝不静默吞掉，其余异常当场暴露。
+- **输出 metrics**：`beyond_oracle_rate`、`tasks_total`、`hits`、`over_budget`、
+  `n_value`、`n_verify`。
+- **通过判据**：`beyond_oracle_rate ≤ 0.02`（A.2 固定值，**禁止改动**；样本量
+  下限阈只做哨兵，防子集萎缩造成假通过）。
+- **失败模式**：期望≈0 的前提是恒等签名去冗余与 follow 极小性守卫（该守卫只挡
+  「单算子+收尾提交」捷径）。实测 >0 的来源是 Str 探针/代数碰撞或**多算子巧合
+  捷径**（多算子组合值碰撞不在守卫覆盖内，极小域 mod7 上尤密）——非零一律如实
+  报告作自检证据，notes 带全 hits/total/over_budget 数字；**禁止**据此调阈值或
+  削基线（A.1/E.7），红也是报告。
+- **落点**：判定式 `eval/beyond_oracle.ts`（`beyondOracleRate(tasks, graph, opts?)`
+  → `{total, hits, overBudget, rate}`）；门禁 `conformance/gates/g22_beyond_oracle.ts`；
+  断言于 `tests/beyond_oracle.test.ts` 与 `tests/gates.test.ts`。
+
+---
+
 ## F1 前向一致
 
 - **输入**：`conformance/ffixtures/f1_forward.json`（冻结权重子集 + obs/候选动作特征，
@@ -255,7 +292,7 @@ interface GateResult {
   `verify/adversarial.ts` 套件本体、G0.5 的分层在 `gen/splits.ts` 的 `STRATA`，
   不经 fixture）；文档示例同源（`docs/helpers.md` 亦由 `conformance/gen_golden.ts` 生成）。
 - `npm run golden:check` 保证 fixture 与文档未漂移；门禁脚本不得内联期望数字。
-- 本文件覆盖 Phase 0（G0.1–G0.6）、Phase 1（G1.1–G1.3，判据对应 A.1/A.2/C.8）
-  与防漂移（F1–F4，判据对应 F.3）；G2.x/G4.x 沿用同一 `GateResult` 形状，在各自
-  阶段补 `g2x_*`/`g4x_*`，阈值与口径以
+- 本文件覆盖 Phase 0（G0.1–G0.6）、Phase 1（G1.1–G1.3，判据对应 A.1/A.2/C.8）、
+  G2.2（超 oracle 率，判据对应 A.2）与防漂移（F1–F4，判据对应 F.3）；G2.1/G2.3/G4.x
+  沿用同一 `GateResult` 形状，在各自阶段补 `g2x_*`/`g4x_*`，阈值与口径以
   `1789174413324-datagraphlab-data-engine-sft-controller.md` 附录 A.2 为准。

@@ -1,5 +1,5 @@
 /**
- * 门禁判定脚本断言（docs/gates.md §0.1）：把每个 G0.x/G1.x 的 run() 包成 vitest 用例，
+ * 门禁判定脚本断言（docs/gates.md §0.1）：把每个 G0.x/G1.x/G2.x 的 run() 包成 vitest 用例，
  * 断言 `passed` 且 `passed === evaluateThresholds(metrics, thresholds)`（判据由
  * metrics/thresholds 机器复核，不手写期望数字）。上下文由 `createGateContext()`
  * 构造——与 `npm run gate` 走同一代码路径、同一批确定性数据（上下文内按
@@ -26,6 +26,7 @@ import { run as runG06 } from '../conformance/gates/g06_goal_separability.js';
 import { run as runG11 } from '../conformance/gates/g11_no_free_lunch.js';
 import { run as runG12 } from '../conformance/gates/g12_main_target.js';
 import { run as runG13 } from '../conformance/gates/g13_three_arms.js';
+import { run as runG22 } from '../conformance/gates/g22_beyond_oracle.js';
 import { runF1, runF2, runF3, runF4 } from '../conformance/f_gates.js';
 import { evaluateThresholds, gateShapeKeys } from '../conformance/gates/common.js';
 import { SKELETONS } from '../gen/generator.js';
@@ -80,26 +81,27 @@ describe('门禁 G0.1–G0.6（与 npm run gate 同源断言）', () => {
     expectGate(runG06(ctx()), 'G0.6');
   }, 300_000);
 
-  it('runAll 依序 G0.1→G1.3 + F1→F4、G0.*+G1.1+F* 全绿、G1.2/G1.3 与单个 run() 结果一致', () => {
+  it('runAll 依序 G0.1→G2.2 + F1→F4、G0.*+G1.1+F* 全绿、G2.2 如实报告、G1.2/G1.3 与单个 run() 结果一致', () => {
     const results = runAll(ctx());
     expect(results.map((r) => r.gate)).toEqual([
       'G0.1', 'G0.2', 'G0.3', 'G0.4', 'G0.5', 'G0.6', 'G1.1', 'G1.2', 'G1.3',
-      'F1', 'F2', 'F3', 'F4',
+      'G2.2', 'F1', 'F2', 'F3', 'F4',
     ]);
-    // G0.*+G1.1（7 项）与 F1–F4（4 项）须全绿；G1.2/G1.3 缺真实 scale 证据时如实 FAIL。
-    for (const r of [...results.slice(0, 7), ...results.slice(9, 13)]) {
+    // G0.*+G1.1（7 项）与 F1–F4（4 项）须全绿；G1.2/G1.3 缺真实 scale 证据时如实 FAIL；
+    // G2.2 按实测比率判定，多算子巧合捷径下可红——红也是报告（A.2/E.7），不入必绿集。
+    for (const r of [...results.slice(0, 7), ...results.slice(10, 14)]) {
       expect(r.passed, `${r.gate} ${r.notes ?? ''}`).toBe(true);
     }
     const perGate = [
       runG01(ctx()), runG02(ctx()), runG03(ctx()), runG04(ctx()), runG05(ctx()), runG06(ctx()),
-      runG11(ctx()), runG12(ctx()), runG13(ctx()),
+      runG11(ctx()), runG12(ctx()), runG13(ctx()), runG22(ctx()),
       runF1(ctx()), runF2(ctx()), runF3(ctx()), runF4(ctx()),
     ];
     for (let i = 0; i < perGate.length; i++) {
       expect(results[i]!.metrics).toEqual(perGate[i]!.metrics);
       expect(results[i]!.passed).toBe(perGate[i]!.passed);
     }
-  }, 600_000);
+  }, 900_000);
 
   it('G1.2/G1.3 无真实 scale 证据时：ctx 未注入且（干净 clone）扫不到即如实 FAIL 并引导先跑', () => {
     // 显式注入不存在的 resultsPath，把「证据缺席」分支与并行 scale 产物隔离；

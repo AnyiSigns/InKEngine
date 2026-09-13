@@ -103,12 +103,15 @@
 | `currentArch` | `currentArch(featureSet, head): string` | `controller/checkpoint.ts` | 已落地 | v<ARCH_VERSION>:<featureSet>:<obsDim>:<ACT_DIM>:<H>:<head>，加载须逐字核对 |
 | `readWeightsJson / writeWeightsJson` | `readWeightsJson(path, expect?): WeightsFile; writeWeightsJson(path, file): void` | `controller/checkpoint.ts` | 已落地 | 跨语言权重契约；arch 版本校验 fail-fast、禁跨版本静默加载（F.2）；写前先过 assertParams 形状审计 |
 | `rollout` | `rollout(policy, graph, task, greedy?, maxSteps?, rng?): RolloutResult` | `runner/rollout.ts` | 已落地 | 环境循环唯一口径；成功 ⇔ accept===true（出口当刻判定）；非 greedy 采样必须显式 rng |
+| `correctGold` | `correctGold(task, st, action): string | null` | `runner/dagger.ts` | 已落地 | DAgger 偏离判定唯一口径：off-prefix（isOnPath 判）一律 null 不打标；on-path 时计划耗尽取 EXIT；所选与 gold 一致返 null |
+| `dagger` | `dagger(policy, options: DaggerOptions): DaggerResult` | `runner/dagger.ts` | 已落地 | C.5 on-path 干预编排：偏离处打 gold 标签、老师干预后续跑、单 rollout maxFixes=4；训练/评估出口由回调注入（本模块不 spawn Python）；stats（偏离步/首次偏离步位）供 G2.1 诊断消费，不作晋级门槛 |
 | `passAt1` | `passAt1(policy, graph, tasks): {solved; total; passRate; ci95}` | `eval/metrics.ts` | 已落地 | 主指标（A.1）：greedy 每题一次，端到端成功率 + Wilson 95% CI，按 style 分开调用 |
 | `pathExcess` | `pathExcess(policy, graph, tasks): {mean; successCount}` | `eval/metrics.ts` | 已落地 | 配方族相对 gold 冗余步（两侧都不含 EXIT，G2.2 同源口径）；仅统计验收通过任务 |
 | `stepsOverShortest` | `stepsOverShortest(tasks, graph, solvedPlans): {meanExcess; overBudget; total}` | `eval/metrics.ts` | 已落地 | 目标族相对 BFS 穷尽最短解冗余；超预算记 ∞ 桶不 raise（C.4） |
 | `routingAcc` | `routingAcc(policy, graph, tasks): {match; total}` | `eval/metrics.ts` | 已落地 | teacher-forced 逐步路由（oracleTrace 上 greedy act）；仅诊断项不入门禁；坏标签任务整任务跳过 |
 | `ci95` | `ci95(p, n): [number, number]` | `eval/metrics.ts` | 已落地 | Wilson score 95% 区间钳 [0,1]；n=0 返 [0,0]；全仓唯一 CI 口径 |
 | `calibrationEce` | `calibrationEce(confs, outcomes, bins?): number` | `eval/metrics.ts` | 已落地 | 等宽分桶 ECE（§7 校准列）；长度不一致即抛 |
+| `beyondOracleRate` | `beyondOracleRate(tasks, graph, opts?): BeyondOracleReport` | `eval/beyond_oracle.ts` | 已落地 | G2.2 超 oracle 率（仅 follow）：逐任务 planBfs 限深 goldLen−1 早停，非 null 记命中；超预算按保守未命名单列 overBudget，不入 hits |
 | `HeuristicArm` | `class HeuristicArm { solve(task, graph): RolloutResult }` | `eval/arms.ts` | 已落地 | 仅 follow：弱词法扫描（义项首现升序，同位命中按 LEX_OPS_BASE 固定序取最小、放弃类型消歧，C.7 规格）；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected |
 | `RandomArm` | `new RandomArm(seed, featureSet?)` | `eval/arms.ts` | 已落地 | 同架构 Policy.random(seed) 下界，greedy rollout；同 seed 两次 solve 逐字相同（G1.1 臂） |
 | `TrainedArm` | `new TrainedArm(policy); static fromWeights(path, expect?)` | `eval/arms.ts` | 已落地 | 训练产物臂唯一入口；fromWeights 走 Policy.load arch fail-fast（F.2） |
@@ -122,6 +125,13 @@
 | `Adam` | `class Adam(params); step(params, grads, lr)` | `controller/train_nn.py` | 已落地 | 矩估计优化器；numpy-only；二次函数收敛测试 |
 | `check_numeric_gradient` | `check_numeric_gradient(seed=7, delta=1e-5, verbose=True)` | `controller/train_nn.py` | 已落地 | 变长 mask backward 数值梯度校验：‖∇num−∇ana‖/‖∇num‖ < 1e-5（D 表断言）；CLI 开关 --check-grad |
 | `memory_selftest` | `memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True)` | `controller/train_nn.py` | 已落地 | 记忆 32 例 → train acc ≥ 0.99 的拟合能力自检；CLI 开关 --selftest |
+| `collectReinforceRows` | `collectReinforceRows(policy, tasks, opts?): CollectResult` | `eval/reinforce.ts` | 已落地 | G2.3 采样轨迹 → 优势标签行（非 greedy 需 seed rng；baseline=滑动均值 200、排除当前；单候选步不入集）；行经 recordFromStep/featurizeRecord 唯一口径产出 |
+| `slidingBaseline` | `slidingBaseline(rewards, window=200): number` | `eval/reinforce.ts` | 已落地 | 最近 window 条 rollout 奖励均值；调用方在推入当前奖励前取值，自然排除自身（防优势泄漏） |
+| `ReinforceArm` | `class ReinforceArm { policy; solve(task, graph?); static evaluate(arm, tasks, graph?) }` | `eval/reinforce.ts` | 已落地 | G2.3 对照臂：白手起家随机初始化、greedy 评测走 passAt1；不从 BC checkpoint 热启（A.2）；lr=1e-3/β_ent=0.01/batch=512 在 Python 侧 |
+| `writeReinforceFile` | `writeReinforceFile(path, rows, featureSet?)` | `eval/reinforce.ts` | 已落地 | reinforce.bin 写盘收敛口；obsDim 取自 featureSet，动作表 actionFeatureTable() 唯一源 |
+| `writeReinforceBin / readReinforceBin` | `writeReinforceBin(path, rows, obsDim, actFeats); readReinforceBin(path): ReinforceFile` | `data/reinforce_bin.ts` | 已落地 | reinforce.bin v1 字节契约（magic DGLR）：header 动作表 + 稀疏 obs/掩码 + 采样动作本地下标 + advantage/reward；magic/版本/越界/NaN fail-fast |
+| `backward_reinforce` | `backward_reinforce(params, o, a, mask, action_idx, advantage, beta_ent=0.01): grads` | `controller/reinforce_nn.py` | 已落地 | 策略梯度余量 g=advantage·p−advantage·δ+β·p·(logp+H)，回传链与 BC 反向同构；无 value head、无权重衰减（A.2） |
+| `check_numeric_gradient_reinforce` | `check_numeric_gradient_reinforce(seed=7, delta=1e-6): bool` | `controller/reinforce_nn.py` | 已落地 | 策略梯度链中心差分自检，相对范数差 <1e-5（小维模型逐元素）；CLI `python controller/reinforce_nn.py` 退出码即判 |
 
 ## T2 其余 helper（随各自 Phase 0 文件补齐）
 
@@ -140,7 +150,6 @@
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
 | `plan_bfs` | `planBfs(task, graph, opts?): string[] | null` | `teacher/search.ts` | 已落地 | BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集 |
-| `recordOf / samePrefix` | `recordOf(st, cand, target); samePrefix(hist, plan, k)` | `runner/dagger.ts` | 待 Phase 0 | on-path 判定；off-prefix 不打标；samePrefix 复用 teacher/oracle.isOnPath，禁止第二份判定源 |
 | `structure/*` | `Genome; validate; MUTATIONS; fitness; search; promote` | `structure/*` | 待 Phase 0 | 离线、需求触发、成功非降 + 回滚 |
 | `chat / listFreeModels` | `chat(messages, model); listFreeModels()` | `adapters/llm_gateway.ts` | 待 Phase 0 | Kilo 网关免费档；run 内 pin 死 |
 

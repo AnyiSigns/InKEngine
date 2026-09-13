@@ -12,6 +12,7 @@ import type { Family, Split, Style, Task } from '../../schema.js';
 export type GateId =
   | 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6'
   | 'G1.1' | 'G1.2' | 'G1.3'
+  | 'G2.1' | 'G2.2' | 'G2.3'
   | 'F1' | 'F2' | 'F3' | 'F4';
 
 /** gates.md §0.2 唯一输出 JSON 形状（键名逐字对齐，机器可读证据）。 */

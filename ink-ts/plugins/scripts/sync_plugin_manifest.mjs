@@ -65,6 +65,7 @@ const UI_CANONICAL_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', '
 const NATIVE_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'exec', 'native.generated.ts');
 const PLUGIN_FACES_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'web', 'src', 'app', 'pluginFaces.generated.ts');
 const SETTINGS_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'web', 'src', 'app', 'settings', 'settingsSections.generated.ts');
+const GRAPH_NODES_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'assembly', 'graph_nodes.generated.ts');
 
 /**
  * 命令实现域映射表（group → const/type 名）；顺序 = BRIDGE_METHODS 跨域序
@@ -156,6 +157,17 @@ const SETTINGS_HEADER =
   ' * plugins/scripts/sync_plugin_manifest.mjs 生成（order 升序）；hosts/web 设置浮层\n' +
   ' * 壳读本清单渲染导航与内容（DynamicComponent name=插件 id）；verify:plugin-manifest\n' +
   ' * 强制逐字一致。\n' +
+  ' */\n';
+
+const GRAPH_NODES_HEADER =
+  '// gate: test-exempt - 生成物（verify:plugin-manifest --check 逐字比对守一致性；' +
+  'spec 侧同住测试 graph_nodes/*/faces/logic/index.test.ts 覆盖声明镜像）\n' +
+  '/**\n' +
+  ' * 生成文件勿手改：图节点注册清单派生视图（真源 = plugins/graph_nodes/<id>/spec.json\n' +
+  ' * 的 data.node：type/executor/kind/label/description/flags/config_defaults/contract）。\n' +
+  ' * 由 plugins/scripts/sync_plugin_manifest.mjs 生成；hosts/lib 出厂装配据此清单经\n' +
+  ' * 引擎节点执行体装配槽（register_node_builder，S1-a）建节点（S1-b2 装配通道）。\n' +
+  ' * 移出引擎后执行体内核名集合 = 装配槽注册档；verify:plugin-manifest 强制逐字一致。\n' +
   ' */\n';
 
 async function fail(message) {
@@ -488,7 +500,11 @@ async function derive() {
     }
     if (node.type !== id) await fail(`graph_node 插件 ${id} data.node.type 与目录不符`);
     const row = { type: node.type };
-    if (typeof node.executor === 'string' && node.executor.length > 0) row.executor = node.executor;
+    if (typeof node.executor === 'string' && node.executor.length > 0) {
+      row.executor = node.executor;
+    } else {
+      row.executor = node.type;
+    }
     if (typeof node.kind === 'string' && node.kind.length > 0) row.kind = node.kind;
     if (typeof node.label === 'string' && node.label.length > 0) row.label = node.label;
     if (typeof node.description === 'string' && node.description.length > 0) row.description = node.description;
@@ -863,6 +879,34 @@ function renderSettingsSectionsTs(settings) {
   return lines.join('\n') + '\n';
 }
 
+/** 渲染图节点注册清单派生 TS（真源 = plugins/graph_nodes/<id>/spec.json 的
+ *  data.node；行顺序 = type 升序、键序 = nodeOrder——与 manifest.graph_nodes[] 一致；
+ *  hosts/lib 出厂装配据此清单经引擎节点执行体装配槽建节点，S1-b2 装配通道）。 */
+function renderGraphNodesTs(graphNodes) {
+  const lines = [GRAPH_NODES_HEADER];
+  lines.push('/** 图节点注册声明（spec.data.node 镜像；executor = 共享执行体内核名）。 */');
+  lines.push('export interface GraphNodeDecl {');
+  lines.push('  type: string;');
+  lines.push('  executor: string;');
+  lines.push('  kind: string | null;');
+  lines.push('  label: string | null;');
+  lines.push('  description: string | null;');
+  lines.push('  flags: { terminal?: boolean; loop?: boolean } | null;');
+  lines.push('  config_defaults: Record<string, unknown>;');
+  lines.push('  contract: { input_schema: unknown; output_schema: unknown; safety_tier: number; version: number } | null;');
+  lines.push('}');
+  lines.push('');
+  lines.push('export const GRAPH_NODE_DECLS: readonly GraphNodeDecl[] = [');
+  for (const n of graphNodes) lines.push(`  ${JSON.stringify(n)},`);
+  lines.push('];');
+  lines.push('');
+  lines.push('/** 清单声明的引擎执行体内核名集合（装配槽注册档；S1-b2 装配层用途）。 */');
+  lines.push('export function graphNodeKernels(): readonly string[] {');
+  lines.push('  return [...new Set(GRAPH_NODE_DECLS.map((d) => d.executor))].sort();');
+  lines.push('}');
+  return lines.join('\n') + '\n';
+}
+
 async function fileExists(path) {
   try {
     await readFile(path);
@@ -896,6 +940,7 @@ async function main() {
   const nativeRendered = renderNativeTs(data.native);
   const pluginFacesRendered = renderPluginFacesTs(data.ui_faces);
   const settingsRendered = renderSettingsSectionsTs(data.ui_features.settings);
+  const graphNodesRendered = renderGraphNodesTs(data.graph_nodes);
 
   if (check) {
     const okManifest = await compareFile(MANIFEST, manifestRendered, 'manifest', 'sync_plugin_manifest.mjs');
@@ -930,7 +975,13 @@ async function main() {
       'settingsSections.generated.ts',
       'sync_plugin_manifest.mjs',
     );
-    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative || !okPluginFaces || !okSettings) process.exitCode = 1;
+    const okGraphNodes = await compareFile(
+      GRAPH_NODES_GENERATED,
+      graphNodesRendered,
+      'graph_nodes.generated.ts',
+      'sync_plugin_manifest.mjs',
+    );
+    if (!okManifest || !okCommands || !okUi || !okUiCanonical || !okNative || !okPluginFaces || !okSettings || !okGraphNodes) process.exitCode = 1;
     return;
   }
 
@@ -946,10 +997,12 @@ async function main() {
   await writeFile(PLUGIN_FACES_GENERATED, pluginFacesRendered, 'utf8');
   await mkdir(dirname(SETTINGS_GENERATED), { recursive: true });
   await writeFile(SETTINGS_GENERATED, settingsRendered, 'utf8');
+  await mkdir(dirname(GRAPH_NODES_GENERATED), { recursive: true });
+  await writeFile(GRAPH_NODES_GENERATED, graphNodesRendered, 'utf8');
   console.log(
     `已生成 manifest.json + commands.generated.ts + ui.generated.json + ` +
     `ui_canonical.generated.ts + native.generated.ts + pluginFaces.generated.ts + ` +
-    `settingsSections.generated.ts（${data.plugins.length} 插件：` +
+    `settingsSections.generated.ts + graph_nodes.generated.ts（${data.plugins.length} 插件：` +
     `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
     `${data.commands.length} commands + ` +
     `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +

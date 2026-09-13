@@ -1,5 +1,5 @@
 /**
- * InKling 消息与事件契约类型（与 seed_data/event_types.json 数据形态对齐）。
+ * InKling 消息与事件契约类型（与 engine/schemas/event_types.json 数据形态对齐）。
  *
  * 消息流 = 引擎回合事件在会话侧落位后的可渲染形态；事件 = 绑定协议
  * events.* 通道的原始负载。组件只消费这里声明的形态，不感知传输细节。

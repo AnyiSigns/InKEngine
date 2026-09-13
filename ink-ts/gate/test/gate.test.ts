@@ -228,7 +228,7 @@ describe('gate 规则', () => {
 
   it('JSON 非对象顶层被拒', async () => {
     const root = await makeRoot();
-    await write(root, 'seed_data/bad.json', `[1, 2, 3]\n`);
+    await write(root, 'engine/schemas/bad.json', `[1, 2, 3]\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).toContain('json-valid');
   });
@@ -243,21 +243,21 @@ describe('gate 规则', () => {
 
   it('JSON 奇数空格缩进被拒（非 2 空格格线）', async () => {
     const root = await makeRoot();
-    await write(root, 'seed_data/odd.json', `{\n   "a": 1\n}\n`);
+    await write(root, 'engine/schemas/odd.json', `{\n   "a": 1\n}\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).toContain('json-valid');
   });
 
   it('JSON tab 缩进被拒', async () => {
     const root = await makeRoot();
-    await write(root, 'seed_data/tab.json', `{\n\t"a": 1\n}\n`);
+    await write(root, 'engine/schemas/tab.json', `{\n\t"a": 1\n}\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).toContain('json-valid');
   });
 
   it('JSON 合法且 2 空格缩进通过', async () => {
     const root = await makeRoot();
-    await write(root, 'seed_data/ok.json', `{\n  "a": 1\n}\n`);
+    await write(root, 'engine/schemas/ok.json', `{\n  "a": 1\n}\n`);
     const violations = await scan({ root, config: cfg });
     expect(violations.map((v) => v.rule)).not.toContain('json-valid');
   });

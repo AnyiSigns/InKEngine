@@ -72,6 +72,16 @@
   `hosts/<surface>.spec.json` 校验 implemented=true 后委托 `hosts/cli` 的
   `runCliMain` 执行 stdio/run/serve；直接跑 `hosts/cli/src/index.ts` 为兼容
   入口（cli e2e 不变），composition root 收敛面在 bootstrap。
+- `live/`：**动态执法/实验位**——真进程回合级接线回归（`run_live`/`serve_live`/
+  `stop_live` + `experiment_river`），不是产品层、也不是实验垃圾；**不进产品
+  打包，也不在 root `npm test` 内**（现状已排除）。
+- `models/`：本地模型权重资产（只被插件 spec.data 引用，不进运行时）。
+
+**顶层命名纪律**（顶层 = 一种角色一个家）：运行时 / 能力 / 宿主 / 显示 /
+原生 / 资产 / 门禁 / 文档 / 动态执法。禁止在顶层新增「混合角色」目录；
+**真源与派生物分家**——派生物一律放显式生成物路径（或命以 `*.generated.*`）。
+`seed_data/` 已按此收口（P10）：协议真源并 `engine/schemas/`、夹具并
+`engine/fixtures/`、生成器并 `engine/scripts/`，全仓不再有第二个「种子真源」。
 
 术语：**host（原 backend）** = 宿主装配层 / composition root（物理住
 `hosts/lib/`，@ink-ts/host）；**cli** = 唯一进程载体（含 main + 三形态：
@@ -171,13 +181,13 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
 | adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
-| JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
+| JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 graph/gate/loop/evolve 四机制层——kernel 层三契约 simulation/multipath/spawn 已随 P8+S1 退役清零，现 28 契约）+ runtime 装配闭包 + 同机制层与 core 残部源码（扫描集仍含 kernel 历史目录名，目录已清零） | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
-| 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web 产品壳与 dev 夹具一律经 ui.generated.json 取用，不再有 seed_data/ui_spec.json |
+| 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web 产品壳与 dev 夹具一律经 ui.generated.json 取用，不再有旧 ui_spec 布局树 |
 | canonical 白名单生成物（ui_canonical.generated.ts 禁手改） | `hosts/lib/src/bridge/ui_canonical.generated.ts`（布局树引用组件 type 并集升序，真源同 ui_features 布局） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；host recipe 界面白名单引用之；与旧侧 inkling/manifest.json renderer_components 同值由 gate 对码测试守漂移 |
 | 原生执行件端点派生视图（native.generated.ts 禁手改） | `hosts/lib/src/exec/native.generated.ts`（NATIVE_BINARY_DECLS + NativeBinaryKind 类型，真源 = plugins/endpoints/*/spec.json 的 data.native：二进制文件名 file + env 覆盖键） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/lib/src/exec/binary.ts 据此**按声明定位**（阶段 6：手写 BINARY_ENV/FILE_BY_KIND 两表已删；`_types.NativeBinaryKind` 从生成物派生，禁手写三值联合） |
 | 真 ui 面注册生成物（pluginFaces.generated.ts 禁手改） | `hosts/web/src/app/pluginFaces.generated.ts`（真 ui 面插件注册表 + registerPluginFaces，真源 = plugins/ui_features/*/spec.json 组件节点的 faces.ui entry；设置面板段一并并入） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web 产品壳装配期 registerPluginFaces 静态 import 各 entry 注册显示设备 componentRegistry（注册名 = 插件 id） |
@@ -194,7 +204,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
 全量类型检查，generated satisfies 生效处）→ `tsx gate/src/check.ts`
-（对 engine/hosts(lib·cli·web)/renderer 工作树实际执行全部规则，含 seed_data 与 engine
+（对 engine/hosts(lib·cli·web)/renderer 工作树实际执行全部规则，含 engine
 schemas/fixtures 的 json-valid；行数/UTF-8 另扫带代码的真面插件目录；layer-dag/
 test-protection/no-pending 按 config enforce 位分流 FAIL/WARN（layer-dag 已转强制
 （P7-3）；test-protection 报告模式：仅打 WARN 不阻断；no-pending 保留词表零命中、P0 已转强制），

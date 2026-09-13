@@ -181,7 +181,7 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
   单工具一目录（阶段 3a 定稿：逐工具拆目录而非统一包），spec.json 的
   `data.tool` 逐字承载原工具声明行（name/description/parameters/permissions/
   approval/endpoint/endpoint_config/network_policy/meta），声明源唯一化于
-  plugins/，不再有独立 `seed_data/tools.json`；
+  plugins/，不再有独立工具声明旧件；
 - **分发单位 = 目录/包**：内置工具每工具一个插件目录（npm 包名
   `@ink-ts/plugin-<kebab>`），`plugins/manifest.json` 派生视图聚合 tools 表行
   供消费（hosts/web 壳/renderer 显示面/host 经 manifest 取用，生成物禁手改）；外部/agent

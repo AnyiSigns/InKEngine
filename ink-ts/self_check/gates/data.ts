@@ -3,18 +3,18 @@
  * 数据一致性核 + 引擎发射事件登记核。
  *
  * 核对边：
- * 1. seed_data/event_types.json 事件名集合 == web EVENT_TYPE_NAMES 镜像集合，
+ * 1. engine/schemas/event_types.json 事件名集合 == web EVENT_TYPE_NAMES 镜像集合，
  *    且 EVENT_TYPE_SPECS 声明名与 EVENT_TYPE_NAMES 一一对应（事件名↔spec 一致）；
  * 2. plugins/manifest.json tools 工具 endpoint 使用集 ⊆ engine endpoint_registry
  *    fixture 内置端点集（host_command 工具族例外：endpoint = 宿主注册的引擎
  *    自定义端点，见 HOST_COMMAND_ENDPOINTS），且内置端点全部被使用（双向覆盖）；
- * 3. seed_data/fixtures/tools_os.json 由 plugins 源派生的夹具与派生产物一致
- *    （执行 seed_data/scripts/sync_tools_fixtures.mjs --check）；夹具成员的
+ * 3. engine/fixtures/tools_os.json 由 plugins 源派生的夹具与派生产物一致
+ *    （执行 engine/scripts/sync_tools_fixtures.mjs --check）；夹具成员的
  *    endpoint/permission/sandbox 映射与 plugins 声明自洽（endpoint 映射规则 +
  *    sandbox 结构守卫）；
- * 4. engine/src 内事件发射字面量 ⊆ seed 事件集 ∪ internal 允许表
+ * 4. engine/src 内事件发射字面量 ⊆ 事件事件集 ∪ internal 允许表
  *    （engine_emit_allowlist.txt，data 门禁的发射登记核：新增真实 UI 事件须
- *    登记 seed，引擎内部事件须登 internal 允许表）；
+ *    登记事件表，引擎内部事件须登 internal 允许表）；
  * 5. plugins/manifest.json 派生视图与 plugins/ 各 spec 真源一致
  *    （执行 plugins/scripts/sync_plugin_manifest.mjs --check，防手改 manifest）；
  * 6. 计数一致：事件 48 / 工具 38（含 session_command host_command 3 件）/ 内置
@@ -199,13 +199,13 @@ function loadEmitAllowlist(): Map<string, string> {
 export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const started = Date.now();
   const issues: string[] = [];
-  const seedRoot = join(ctx.inkTsRoot, 'seed_data');
+  const schemaRoot = join(ctx.inkTsRoot, 'engine', 'schemas');
   const engineFixtureRoot = join(ctx.inkTsRoot, 'engine', 'fixtures');
 
-  const events = parseJson<EventTypesFile>(join(seedRoot, 'event_types.json'));
+  const events = parseJson<EventTypesFile>(join(schemaRoot, 'event_types.json'));
   const tools = parseJson<ToolsFile>(join(ctx.inkTsRoot, 'plugins', 'manifest.json'));
   const endpointRegistry = parseJson<EndpointRegistryFile>(join(engineFixtureRoot, 'endpoint_registry.fixture.json'));
-  const toolsOs = parseJson<ToolsOsFile>(join(seedRoot, 'fixtures', 'tools_os.json'));
+  const toolsOs = parseJson<ToolsOsFile>(join(engineFixtureRoot, 'tools_os.json'));
 
   const seedEventNames = events.events.map((e) => e.name);
   const seedUnique = new Set(seedEventNames);
@@ -291,7 +291,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   }
 
   const sync = await runCommand(
-    [process.execPath, join(seedRoot, 'scripts', 'sync_tools_fixtures.mjs'), '--check'],
+    [process.execPath, join(ctx.inkTsRoot, 'engine', 'scripts', 'sync_tools_fixtures.mjs'), '--check'],
     { cwd: ctx.inkTsRoot, timeoutMs: 60_000 },
   );
   if (sync.code !== 0) {
@@ -304,7 +304,7 @@ export async function runGateData(ctx: SelfCheckContext): Promise<GateResult> {
   const notRegistered = [...emitNames].filter((n) => !seedSet.has(n) && !internal.has(n));
   if (notRegistered.length > 0) {
     issues.push(
-      `引擎发射事件未登记：${notRegistered.join(', ')}（新 UI 事件须登记 seed_data/event_types.json；引擎内部事件须登记 self_check/engine_emit_allowlist.txt）`,
+      `引擎发射事件未登记：${notRegistered.join(', ')}（新 UI 事件须登记 engine/schemas/event_types.json；引擎内部事件须登记 self_check/engine_emit_allowlist.txt）`,
     );
   }
   const internalUnused = [...internal.keys()].filter((n) => !emitNames.has(n));

@@ -1,5 +1,5 @@
 {
-  "note": "执行器声明生成物：由 plugins/ 真源（manifest tools 聚合）经 ink-ts/seed_data/scripts/sync_tools_fixtures.mjs 生成（plugins=插件源真源，fixtures=执行器声明，禁手工维护）；成员 = plugins OS 域工具 ∪ 执行工具（shell_exec 为混合级别：白名单内沙箱执行 + 白名单外升级审批放行），漂移由 --check 硬校验。params 为扁平签名形态。",
+  "note": "执行器声明生成物：由 plugins/ 真源（manifest tools 聚合）经 ink-ts/engine/scripts/sync_tools_fixtures.mjs 生成（plugins=插件源真源，fixtures=执行器声明，禁手工维护）；成员 = plugins OS 域工具 ∪ 执行工具（shell_exec 为混合级别：白名单内沙箱执行 + 白名单外升级审批放行），漂移由 --check 硬校验。params 为扁平签名形态。",
   "tools": [
     {
       "name": "file_query",

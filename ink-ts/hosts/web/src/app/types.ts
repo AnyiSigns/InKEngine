@@ -1,7 +1,7 @@
 /**
  * App 视图层共享类型：W4/W5 视图间共享的数据形态。
  *
- * 与 seed_data/*.json 同源契约，前端侧镜像；新增类型先改 seed 数据，
+ * 与 engine/schemas + engine/fixtures 同源契约，前端侧镜像；新增类型先改引擎侧数据，
  * 再镜像到本文件。
  */
 

@@ -63,7 +63,9 @@
     "execution.run",
     "execution.resume",
     "execution.inject",
-    "evolution.crystallize"
+    "execution.branch",
+    "evolution.crystallize",
+    "evolution.evaluate"
   ],
   "legacy_alias_flats": [
     "round_send",

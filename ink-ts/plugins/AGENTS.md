@@ -62,7 +62,7 @@ loader}）+ 第三方开放命名空间 `x-<vendor>.<name>`（目录名即 kind�
 x-* 开放命名空间，不占首方 kind 名）。阶段 3a 已落地 `tools/` 与
 `mcp/` 两域；阶段 3b1 落地 `commands/`（66 命令，方法名真源迁移 plugins）；
 阶段 3b2 落地 `ui_features/`（25 节点插件 + 装配入口，产品主壳布局真源迁移
-plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 6 落地
+plugins，生成物 ui.generated.json 取代旧 ui_spec 布局树）；阶段 6 落地
 `endpoints/`（exec/infer/mcp 三件，原生执行件定位声明真源）；阶段 7b 落地
 真 ui 面全量真身化：web 前端包更名 renderer/ 后阶段 2 再收敛——产品壳（App/
 activate/state/chrome 与插件注册生成物）独立成 `hosts/web/`（@ink-ts/web），
@@ -113,7 +113,7 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
   `data` = name/version/theme + root.$ref；容器节点 `data.node`（kind=
   container/type + props）+ `data.children`（按序 [{ "$ref": "<插件 id>" }]）；
   组件节点 `data.node`（kind=component/type + props/bind，叶子不带 children）。
-  布局树节点内容自 seed_data/ui_spec.json 迁入时逐字保留（props/bind 键序
+  布局树节点内容自旧 ui_spec 布局树迁入时逐字保留（props/bind 键序
   不变）；生成器 DFS 沿 $ref 展开重建完整树（ui.generated.json）+ canonical
   组件白名单（ui_canonical.generated.ts / manifest ui_features.components）；
   删节点插件须同步删父容器 children 里的 $ref，孤儿引用 fail-closed；

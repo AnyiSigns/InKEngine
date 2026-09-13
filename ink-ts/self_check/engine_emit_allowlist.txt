@@ -1,8 +1,8 @@
 # 引擎发射事件 internal 允许表：engine/src 内 emit 发射的事件名允许豁免于
-# seed_data/event_types.json 登记的清单（data 门禁：emit 字面量 ⊆ seed ∪ 本表）。
+# engine/schemas/event_types.json 登记的清单（data 门禁：emit 字面量 ⊆ 事件表 ∪ 本表）。
 #
 # 事件名语义分三类（data 门禁判定）：
-# - bindable：绑定通道面事件，必须在 seed_data/event_types.json 登记（经 web
+# - bindable：绑定通道面事件，必须在 engine/schemas/event_types.json 登记（经 web
 #   EVENT_TYPE_NAMES 镜像白名单），不落本表；
 # - timeline：system=true 时间线事件，同属 seed 登记面（meta.purpose=timeline），
 #   不落本表；

@@ -3,7 +3,7 @@
  * 落在宿主方法面（BRIDGE_METHODS ∪ cli legacy_aliases）内——杜绝回归 -32601。
  *
  * 清单纪律（AGENTS 纪律 3 + CODING §9）：宿主侧允许面清单不再手抄——由
- * seed_data/web_command_surface.json 夹具承载（生成源 = @ink-ts/host
+ * engine/fixtures/web_command_surface.json 夹具承载（生成源 = @ink-ts/host
  * BRIDGE_METHODS + cli legacyAliasTable()，见 self_check/scripts/
  * sync_web_command_surface.ts，宿主侧增删方法/别名后重跑生成）。本文件只
  * 维护 web 侧现役命令面（被测主体）与负向兜底清单（删除命令不复现）。
@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import surface from '../../../../seed_data/web_command_surface.json';
+import surface from '../../../../engine/fixtures/web_command_surface.json';
 
 /** host bridge 点分方法表（@ink-ts/host BRIDGE_METHODS 生成快照）。 */
 const BRIDGE_METHODS = (surface as { bridge_methods: string[] }).bridge_methods;

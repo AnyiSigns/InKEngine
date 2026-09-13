@@ -697,7 +697,7 @@ function render(data) {
 }
 
 /** 渲染 ui.generated.json（产品主壳完整布局树；布局 = 装配入口 data.name/version/
- *  theme + $ref 展开 root。键序与迁移前的 seed_data/ui_spec.json 一致，渲染器 UISpec 同构）。 */
+ *  theme + $ref 展开 root。键序与迁移前的旧 ui_spec 布局树一致，渲染器 UISpec 同构）。 */
 function renderUiLayout(layout) {
   return JSON.stringify(layout, null, 2) + '\n';
 }

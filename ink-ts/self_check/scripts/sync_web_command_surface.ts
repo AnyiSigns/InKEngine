@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * 同步生成 web 命令面契约夹具（seed_data/web_command_surface.json）。
+ * 同步生成 web 命令面契约夹具（engine/fixtures/web_command_surface.json）。
  *
  * 夹具为 web 侧命令面一致性测试的数据真源：把宿主方法面（@ink-ts/host
  * BRIDGE_METHODS）与 cli 扁平旧名别名面（legacy_aliases legacyAliasTable）
@@ -24,8 +24,8 @@ import { BRIDGE_METHODS } from '@ink-ts/host';
 import { legacyAliasTable } from '../../hosts/cli/src/legacy_aliases.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SEED_ROOT = join(here, '..', '..', 'seed_data');
-const FIXTURE = join(SEED_ROOT, 'web_command_surface.json');
+const ENGINE_FIXTURE_ROOT = join(here, '..', '..', 'engine', 'fixtures');
+const FIXTURE = join(ENGINE_FIXTURE_ROOT, 'web_command_surface.json');
 
 const NOTE =
   'web 命令面一致性夹具（生成物）：bridge_methods = @ink-ts/host BRIDGE_METHODS，' +
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     console.log('夹具与宿主方法面/别名面一致');
     return;
   }
-  await mkdir(SEED_ROOT, { recursive: true });
+  await mkdir(ENGINE_FIXTURE_ROOT, { recursive: true });
   await writeFile(FIXTURE, rendered, 'utf8');
   console.log(
     `已生成 ${relative(join(here, '..'), FIXTURE)}（bridge ${BRIDGE_METHODS.length} + alias ${legacyAliasTable().length}）`,

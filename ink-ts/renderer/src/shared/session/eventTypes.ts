@@ -1,8 +1,8 @@
 /**
  * 事件类型注册表（绑定协议 events.* 通道的数据契约）。
  *
- * 与 seed_data/event_types.json 数据形态同源（此处为前端侧镜像契约）：
- * 新增事件类型先改 seed_data/event_types.json，再镜像登记到本表——
+ * 与 engine/schemas/event_types.json 数据形态同源（此处为前端侧镜像契约）：
+ * 新增事件类型先改 engine/schemas/event_types.json，再镜像登记到本表——
  * 未登记的事件类型在 events.* 绑定通道白名单中拒绝。
  */
 

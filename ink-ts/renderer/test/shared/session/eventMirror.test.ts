@@ -8,13 +8,13 @@ interface SeedEventSpec {
 }
 
 /**
- * 事件类型镜像门禁：seed_data/event_types.json（引擎绑定白名单真源）↔
+ * 事件类型镜像门禁：engine/schemas/event_types.json（引擎绑定白名单真源）↔
  * 前端 eventTypes 注册表必须双向一致。新增引擎事件类型时三处同改：
- * 引擎发射点 → seed json 登记 → 前端本表镜像（ingest 落位）；任一侧
+ * 引擎发射点 → 事件表登记 → 前端本表镜像（ingest 落位）；任一侧
  * 漂移（漏登记/多登记/改名）即失败，杜绝「引擎发新事件、前端静默丢弃」。
  */
 describe('事件类型镜像对码门禁', () => {
-  const seedPath = resolve(__dirname, '../../../../seed_data/event_types.json');
+  const seedPath = resolve(__dirname, '../../../../engine/schemas/event_types.json');
   const seed = JSON.parse(readFileSync(seedPath, 'utf8')) as { events: SeedEventSpec[] };
   const seedNames = seed.events.map((e) => e.name);
 

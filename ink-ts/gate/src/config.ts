@@ -53,7 +53,7 @@ export const defaultConfig: GateConfig = {
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
   layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph', 'engine/src/gate', 'engine/src/loop', 'engine/src/evolve'],
   adapterDirs: ['engine/src/adapters'],
-  jsonScanDirs: ['seed_data', 'plugins', 'engine/schemas', 'engine/fixtures'],
+  jsonScanDirs: ['plugins', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',
   coreForbiddenTokens: ['cordis', 'tauri', 'electron', 'vitest', 'react', 'inkling'],
   coreOpaqueTokens: ['inkling.skill/v1'],

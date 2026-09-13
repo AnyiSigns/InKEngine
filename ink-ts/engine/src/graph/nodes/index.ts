@@ -8,6 +8,8 @@
  * （数据图按类型名引用即解析执行）。注册面供 runtime/装配方复用；工厂与
  * seams 绑定细节（_ 前缀内部模块）不随公共面外泄。
  */
+// gate: test-exempt - barrel 只增 re-export（S1-a register_node_builder 的
+// 行为测试在 engine/test/graph/nodes/register.test.ts，覆盖 register.ts 装配槽）
 
 export {
   CFG_OUTPUT_FIELD,
@@ -58,6 +60,7 @@ export {
   register_engine_edge_conditions,
   register_engine_node_type,
   register_engine_node_types,
+  register_node_builder,
   register_route_edge_condition,
   register_route_edge_conditions,
 } from './register.js';

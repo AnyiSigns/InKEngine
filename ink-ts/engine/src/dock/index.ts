@@ -1,4 +1,5 @@
 // gate: 超限(768 行) - 引擎公共面 re-export 注册表（单一不可拆收敛面，计划 §4.5；engine/src/index.ts 只转发本面）
+// gate: test-exempt - 公共面 barrel（只 re-export，行为由 public-api 快照 gate 守一致性；S1-a 增 register_node_builder 由 engine/test/graph/nodes/register.test.ts 覆盖）
 /**
  * @ink-ts/engine 面向宿主的精选公共面（只 re-export，不实现）。
  *
@@ -92,6 +93,7 @@ export {
   is_reserved_output_key,
   parse_output_field_key,
   register_engine_node_types,
+  register_node_builder,
   register_route_edge_condition,
   register_route_edge_conditions,
   route_condition_name,

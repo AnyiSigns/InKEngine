@@ -860,6 +860,7 @@ record_observation:type
 register_adapter:type
 register_engine_node_types:type
 register_mcp_executor:type
+register_node_builder:type
 register_reducer:value
 register_route_edge_condition:type
 register_route_edge_conditions:type

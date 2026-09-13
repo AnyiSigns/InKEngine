@@ -38,13 +38,27 @@ import {
  *  executor 与实例类型键解耦：多个可区分实例（llm_planner/llm_reviewer/
  *  llm_main/router_plan_judge 等）可指向同一内核执行体（如 engine:llm_decider），
  *  实例分化落在 config（output_field/read_fields/routes）与实例契约。
- *  agent = kind=agent 实体收敛执行体（config 引用 entity_id，展开内部回路）。 */
-const _ENGINE_EXECUTORS: Record<string, (box: _EngineNodeSeamsBox) => NodeFactory> = {
+ *  agent = kind=agent 实体收敛执行体（config 引用 entity_id，展开内部回路）。
+ *
+ *  S1-a 起为**可扩展装配槽**：出厂内核由 `register_node_builder` 逐个公开注册
+ *  （幂等：同名覆盖拒绝）；S1-b 由 repo 装配层把 graph_node 插件的节点工厂
+ *  注入本槽（engine 保持不依赖插件，槽填充方 = hosts/lib 出厂装配）。 */
+const _NODE_BUILDERS: Record<string, (box: _EngineNodeSeamsBox) => NodeFactory> = {
   [TYPE_LLM_DECIDER]: make_llm_decider_factory,
   [TYPE_TOOL_PIPELINE]: make_tool_pipeline_factory,
   [TYPE_ROUTER_JUDGE]: make_router_judge_factory,
   [TYPE_AGENT]: make_agent_factory,
 };
+
+/** 公开注册节点执行体构造器（S1-a 节点装配机制）：`executor` 名须非空且未占用，
+ *  成功 = true（重复/空名 = false，不抛——装配槽静默拒重，原语义幂等跳过）。 */
+export function register_node_builder(executor: string, builder: (box: _EngineNodeSeamsBox) => NodeFactory): boolean {
+  if (typeof executor !== 'string' || executor.trim() === '' || _NODE_BUILDERS[executor] !== undefined) {
+    return false;
+  }
+  _NODE_BUILDERS[executor] = builder;
+  return true;
+}
 
 /** 条件边判定：pending 通道是否有待执行工具清单。 */
 function _pending_state(ctx: unknown): unknown {
@@ -103,7 +117,7 @@ export function register_route_edge_conditions(registries: GraphRegistries, keys
 
 /** 该 executor 名是否有引擎内置执行体构建器（声明式登记恢复的解析前提）。 */
 export function has_engine_executor(executor: string): boolean {
-  return _ENGINE_EXECUTORS[executor] !== undefined;
+  return _NODE_BUILDERS[executor] !== undefined;
 }
 
 /** 旧语义兼容：类型名即执行体名（无解耦的既有引擎内置类型按名自绑）。 */
@@ -121,7 +135,7 @@ export function register_engine_node_type(
   seams: EngineNodeSeams | null = null,
   executor: string = type_name,
 ): boolean {
-  const builder = _ENGINE_EXECUTORS[executor];
+  const builder = _NODE_BUILDERS[executor];
   if (builder === undefined) return false;
   if (!registries.nodes.has(type_name)) {
     const box = _seams_box_for(registries.nodes, seams);
@@ -159,7 +173,7 @@ export function register_engine_node_types(
 ): void {
   const box = _seams_box_for(registries.nodes, seams);
   for (const seed of seeds) {
-    const builder = _ENGINE_EXECUTORS[seed.executor ?? seed.type];
+    const builder = _NODE_BUILDERS[seed.executor ?? seed.type];
     if (builder === undefined) continue;
     if (!registries.nodes.has(seed.type)) {
       registries.nodes.register(seed.type, builder(box), seed.contract);
@@ -189,7 +203,7 @@ export function register_agent_node_type(
   } = {},
 ): boolean {
   const type_name = init.type_name ?? TYPE_AGENT;
-  const builder = _ENGINE_EXECUTORS[TYPE_AGENT];
+  const builder = _NODE_BUILDERS[TYPE_AGENT];
   if (builder === undefined) return false;
   if (!registries.nodes.has(type_name)) {
     const box = _seams_box_for(registries.nodes, null);

@@ -14,7 +14,7 @@
  * 以静默收集同一「不阻断」语义（沿 tool_pipeline 等零日志先例）。
  */
 
-import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
+import type { EdgeEvidence } from '../../model/usage_evidence/_types.js';
 import type { EdgeRoundDelta } from '../../evolve/observe/usage_evidence/store.js';
 import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
 import { now } from './_time.js';

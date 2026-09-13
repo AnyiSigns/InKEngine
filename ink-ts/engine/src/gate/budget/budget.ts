@@ -10,46 +10,19 @@
  * 提供只读预检口——check 为 fail-closed 终止式无查询口；预检语义
  * fail-closed（查询故障/超预算 = 不可放行，见 can_afford）。
  *
- * 注：BudgetExceededError 暂居本模块（消息形态与 Python 逐字对齐）——
- * 收敛至 errors.ts（EngineError 继承面）待办，活跃使用方均自本模块导入。
+ * 注：BudgetExceededError 本体归位 model/errors.ts（EngineError 家族，
+ * 消息形态与 Python 逐字对齐）；本模块仅 import 供内部 throw/包装。
  */
 
 import { BudgetRemaining } from './budget_types.js';
 import type { BudgetPolicy, BudgetQuery } from './budget_types.js';
+// P7-2 动作 C5：BudgetExceededError 本体归位 model/errors.ts（EngineError
+// 家族，graph 捕获位经 model 直引、禁 graph→gate）；本模块不再 re-export，
+// dock/index.ts 公共面改从 model/errors.js 直引。
+import { BudgetExceededError } from '../../model/errors.js';
 
 export type { BudgetPolicy, BudgetQuery };
 export { BudgetRemaining };
-
-/**
- * 执行预算超限（步骤上限/轮数上限等，触发图终止）。
- * detail 携带附加说明（如预算策略自身故障的原始异常消息）——缺省 null
- * 时信息形态与早期一致，语义向后兼容。
- */
-export class BudgetExceededError extends Error {
-  readonly kind: string;
-  readonly limit: number;
-  readonly current: number;
-  readonly detail: string | null;
-
-  constructor(
-    kind: string,
-    limit: number,
-    current: number,
-    detail: string | null = null,
-    options?: ErrorOptions,
-  ) {
-    let message = `执行预算超限[${kind}]: ${current} >= ${limit}`;
-    if (detail) {
-      message = `${message}（原始异常: ${detail}）`;
-    }
-    super(message, options);
-    this.name = 'BudgetExceededError';
-    this.kind = kind;
-    this.limit = limit;
-    this.current = current;
-    this.detail = detail;
-  }
-}
 
 /** 取值对象运行时类型名（镜像 Python type(x).__name__，审计留痕可读）。 */
 function runtimeTypeName(value: unknown): string {

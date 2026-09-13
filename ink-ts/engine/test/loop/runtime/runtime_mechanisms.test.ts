@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Runtime, AssemblyRecipe } from '../../../src/loop/runtime/index.js';
 import type { Host } from '../../../src/loop/runtime/index.js';
 import { EDGE_EVIDENCE_COLLECTION } from '../../../src/evolve/observe/usage_evidence/index.js';
-import type { EdgeKey } from '../../../src/evolve/observe/usage_evidence/_types.js';
+import type { EdgeKey } from '../../../src/model/usage_evidence/_types.js';
 import { EnvironmentSpec, RuntimeKind } from '../../../src/core/environments/index.js';
 import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/evolve/proposal/self_edit_tools/index.js';

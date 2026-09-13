@@ -3,7 +3,7 @@
  * 通用夹具；NOW 常量与 evidence 构造器）。
  */
 
-import type { EdgeEvidence, EdgeKey } from '../../../../src/evolve/observe/usage_evidence/_types.js';
+import type { EdgeEvidence, EdgeKey } from '../../../../src/model/usage_evidence/_types.js';
 
 export const NOW = 1_800_000_000;
 

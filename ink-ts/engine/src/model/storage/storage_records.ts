@@ -22,7 +22,11 @@
 
 import { InterruptState } from './interrupt_state.js';
 import { Message, ToolCall } from '../llm/messages.js';
-import { PatchChain } from '../../gate/patch/patchChain.js';
+// P7-2 动作 B：PatchChain 判定/构造改经 chain_codec seam（model 零依赖不直引
+// gate/patch；codec 由 loop/runtime 装配首步注册）。未注册时 isChain 恒假——
+// PatchChain 实例走普通值分支（copyStateValue 的原子保留语义退化为 JSON 化
+// 分支），差异仅限未装配场景，装配正确时行为零变。
+import { chain_codec, has_chain_codec } from './chain_codec.js';
 import { is_sensitive_key, strip_sensitive_text } from './sensitive.js';
 import type { Json, JsonRecord } from '../json.js';
 
@@ -46,7 +50,7 @@ function isPlainObject(value: unknown): value is JsonRecord {
  * to_dict 的 jsonableStrip 阶段进行）。纯 JSON 子树走 core/json.ts deepCopy。
  */
 function copyStateValue(value: unknown): unknown {
-  if (value instanceof PatchChain || value instanceof Message || value instanceof ToolCall) {
+  if ((has_chain_codec() && chain_codec().isChain(value)) || value instanceof Message || value instanceof ToolCall) {
     return value;
   }
   if (Array.isArray(value)) {
@@ -70,11 +74,12 @@ function copyStateValue(value: unknown): unknown {
  * 子树无敏感键且无内联 marker 即返回原对象（checkpoint 热路径零拷贝）。
  */
 export function jsonableStrip(value: unknown): unknown {
-  if (value instanceof PatchChain) {
+  if (has_chain_codec() && chain_codec().isChain(value)) {
+    const codec = chain_codec();
     return {
       [PATCH_CHAIN_MARKER]: true,
-      base: jsonableStrip(value.base),
-      patches: value.patches.map((p) => ({
+      base: jsonableStrip(codec.baseOf(value)),
+      patches: codec.patchesOf(value).map((p) => ({
         op: p.op,
         path: [...p.path],
         value: jsonableStrip(p.value),
@@ -132,7 +137,9 @@ export function jsonableStrip(value: unknown): unknown {
 export function fromJsonable(value: unknown): unknown {
   if (isPlainObject(value)) {
     if (value[PATCH_CHAIN_MARKER] === true) {
-      return PatchChain.from_dict(value as Parameters<typeof PatchChain.from_dict>[0]);
+      // 数据带 marker 即必须能还原：未注册时 chain_codec() fail-fast（codec
+      // 缺失 = 装配缺陷，静默降级会产出半还原脏 state）。
+      return chain_codec().fromDict(value);
     }
     if (value[MESSAGE_MARKER] === true) {
       return Message.from_dict(fromJsonable(value['data']) as Record<string, Json>);

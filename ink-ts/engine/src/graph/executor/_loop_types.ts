@@ -8,7 +8,7 @@
  * _loop_back）读写同一实例——阶段拆分不改变任何语义。
  */
 import { Plan } from '../../model/plan/plan.js';
-import { InterruptState } from '../../loop/interrupt/interrupt_types.js';
+import { InterruptState } from '../../model/storage/interrupt_state.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { SpawnSpec } from '../../kernel/spawn/spawn.js';

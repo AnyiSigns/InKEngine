@@ -19,7 +19,7 @@
  */
 
 import { isRecord } from '../../../model/json.js';
-import { _SOURCE_CREDIBILITY } from '../source_reliability/sourceGrading.js';
+import { _SOURCE_CREDIBILITY } from '../../../model/source_reliability/sourceGrading.js';
 
 /** 时间源 seam（等价 Python time.time）；未注入时按确定值 0。 */
 export type NowFn = () => number;

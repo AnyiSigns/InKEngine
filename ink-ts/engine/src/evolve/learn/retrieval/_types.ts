@@ -26,7 +26,7 @@ import {
   SOURCE_USER,
   SOURCE_WEB,
   _SOURCE_CREDIBILITY,
-} from '../source_reliability/sourceGrading.js';
+} from '../../../model/source_reliability/sourceGrading.js';
 
 // 来源分级重导出（来源分级常量与默认可信度基准 = source_grading 单源；
 // 知识集/记忆消费方沿用 retrieval.SOURCE_* 形态）

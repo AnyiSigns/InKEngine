@@ -8,7 +8,7 @@
  * evidence_count / close）；sqlite 特有的迁移/upsert 由宿主实现负责。
  */
 
-import type { EdgeEvidence } from './_types.js';
+import type { EdgeEvidence } from '../../../model/usage_evidence/_types.js';
 
 /** 单条 evidence 行的 JSON 视图（与 EdgeEvidence.to_dict 同形）。 */
 export type EdgeEvidenceRecord = {
@@ -58,7 +58,7 @@ export interface EdgeEvidenceStorage {
 }
 
 /** 边主键 → 序元（与 Python EdgeKey.key() 形状一致）。 */
-export function edge_key_tuple(key: import('./_types.js').EdgeKey): EdgeKeyTuple {
+export function edge_key_tuple(key: import('../../../model/usage_evidence/_types.js').EdgeKey): EdgeKeyTuple {
   return [
     key.src_type,
     key.dst_type,

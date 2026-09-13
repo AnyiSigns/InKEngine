@@ -24,7 +24,7 @@
 
 import { SandboxViolation } from '../../model/errors.js';
 import { FS_OPERATIONS, type FileOps } from '../../dock/ports/exec.js';
-import { is_absolute, lexical_abs, path_under } from './_path.js';
+import { is_absolute, lexical_abs, path_under } from '../../model/path.js';
 
 const FS_OPS_SET = new Set<string>(FS_OPERATIONS);
 

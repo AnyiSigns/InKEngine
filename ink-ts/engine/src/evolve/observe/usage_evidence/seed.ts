@@ -5,8 +5,8 @@
  * 已存在同键行（运行期证据在先）不覆盖——运行统计是事实，种子只补空白。
  */
 
-import { ORIGIN_SEED } from './_types.js';
-import type { EdgeEvidence, EdgeKey } from './_types.js';
+import { ORIGIN_SEED } from '../../../model/usage_evidence/_types.js';
+import type { EdgeEvidence, EdgeKey } from '../../../model/usage_evidence/_types.js';
 import { edge_key_from_dict } from './store.js';
 import type { EdgeEvidenceStore } from './store.js';
 

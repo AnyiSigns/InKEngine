@@ -30,8 +30,8 @@
  * 可用但不经引擎自动触发；BuildFs 须宿主注入）。
  */
 import { GraphDefinitionError } from '../../model/errors.js';
-import { is_absolute } from '../../gate/sandbox/_path.js';
-import { ProcessSandbox } from '../../gate/sandbox/index.js';
+import { is_absolute } from '../../model/path.js';
+import type { ProcessSandboxLike } from '../../dock/ports/exec.js';
 import { sha256_hex } from './_sha256.js';
 import {
   BuildArtifact,
@@ -83,10 +83,10 @@ function _join_path(base: string, child: string): string {
 /** 构建沙箱副本：工作目录限定 + 按声明超时（dataclasses.replace 镜像，
  *  副本语义收在 ProcessSandbox.derived）。 */
 function _sandbox_with(
-  sandbox: ProcessSandbox,
+  sandbox: ProcessSandboxLike,
   cwd: string,
   timeout: number,
-): ProcessSandbox {
+): ProcessSandboxLike {
   return sandbox.derived({ cwd, timeout });
 }
 
@@ -123,13 +123,13 @@ function unavailable_fs(): BuildFs {
  * （保留现状 + 调用方留痕）。
  */
 export class Builder {
-  private readonly _sandbox: ProcessSandbox;
+  private readonly _sandbox: ProcessSandboxLike;
   private readonly _artifact_dir: string;
   private readonly _fs: BuildFs;
   private readonly _now: () => number;
 
   constructor(
-    sandbox: ProcessSandbox,
+    sandbox: ProcessSandboxLike,
     artifact_dir: string,
     options: { fs?: BuildFs; now?: () => number } = {},
   ) {

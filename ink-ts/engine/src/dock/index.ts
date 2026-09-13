@@ -207,11 +207,11 @@ export {
 } from '../model/event_types/eventTypeSpecs.js';
 
 // 恢复 / 中断 / 预算（ResumeResolution/InterruptCoordinator/BudgetManager；
-// BudgetExceededError = 预算硬检查终止错误，属预算机制本模块）
+// BudgetExceededError = 预算硬检查终止错误，本体在 model/errors.js）
 export * from '../loop/recovery/index.js';
 export * from '../loop/interrupt/interrupt.js';
+export { BudgetExceededError } from '../model/errors.js';
 export {
-  BudgetExceededError,
   BudgetManager,
   BudgetRemaining,
   can_afford,

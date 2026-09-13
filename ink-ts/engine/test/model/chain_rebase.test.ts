@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { CompactionPlan, maybe_compact_chain, plan_compaction } from '../../../src/gate/chain_rebase/chain_rebase.js';
-import type { ChainLink, Storage } from '../../../src/gate/chain_rebase/chain_rebase.js';
+import { CompactionPlan, maybe_compact_chain, plan_compaction } from '../../src/model/chain_rebase.js';
+import type { ChainLink, Storage } from '../../src/model/chain_rebase.js';
 
 function link(cid: number, parent: number | null, seq?: number, path: readonly string[] = [], reason: string | null = null): ChainLink {
   return {

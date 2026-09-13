@@ -34,7 +34,7 @@ export * from './learn/memory/index.js';
 export * from './learn/memory_extract/index.js';
 export * from './learn/retrieval/index.js';
 export * from './learn/signals/index.js';
-export * from './learn/source_reliability/sourceGrading.js';
+export * from '../model/source_reliability/sourceGrading.js';
 
 export * from './observe/inspection/index.js';
 export * from './observe/usage_evidence/index.js';

@@ -29,9 +29,9 @@ export {
   ZERO_EVIDENCE_P,
   ZERO_EVIDENCE_TAU,
   ZERO_EVIDENCE_WEIGHT,
-} from './_types.js';
+} from '../../../model/usage_evidence/_types.js';
 
-export type { EdgeEvidence, EdgeKey, EdgeScore } from './_types.js';
+export type { EdgeEvidence, EdgeKey, EdgeScore } from '../../../model/usage_evidence/_types.js';
 
 export { now, set_now } from './_time.js';
 

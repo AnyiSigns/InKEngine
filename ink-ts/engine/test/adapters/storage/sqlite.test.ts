@@ -1,4 +1,5 @@
 // gate: 超限(365 行) - sqlite 全后端行为契约单文件成组（版本链/事件/records/序列化 marker），便于对照 pytest 参数化
+// gate: test-exempt - P7-2 codec seam 装配注册（测试侧 setup 新增，src 同批改动分居 P6/P7-2 两波）
 /**
  * SqliteStorage 后端行为测试（:memory: 库）：checkpoint 版本链 + 乐观锁、链一致性不变量、
  * 事件日志 append-only + 截断、structured records、安全剥离与 marker 内联还原。对标 pytest
@@ -15,6 +16,10 @@ import type { JsonRecord } from '../../../src/model/json.js';
 import { validate_chain } from '../../../src/dock/ports/storage.js';
 import { CheckpointRecord } from '../../../src/model/storage/storage_records.js';
 import { SqliteStorage } from '../../../src/adapters/storage/sqlite.js';
+import { register_test_chain_codec } from '../../_setup/chain_codec.js';
+
+// P7-2 B5：本文件不经 Runtime 装配流经补丁链 marker 序列化/还原，注册与装配同一 codec。
+register_test_chain_codec();
 
 type CpInit = ConstructorParameters<typeof CheckpointRecord>[0];
 

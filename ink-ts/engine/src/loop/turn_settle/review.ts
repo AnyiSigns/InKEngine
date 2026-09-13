@@ -14,8 +14,8 @@
  */
 
 import { EdgeEvidenceStore } from '../../evolve/observe/usage_evidence/store.js';
-import { ORIGIN_RUNTIME } from '../../evolve/observe/usage_evidence/_types.js';
-import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
+import { ORIGIN_RUNTIME } from '../../model/usage_evidence/_types.js';
+import type { EdgeEvidence } from '../../model/usage_evidence/_types.js';
 import { EVENT_AUDIT_POLICY_REVIEW } from '../../model/event_types/eventTypeSpecs.js';
 import { laplace_success } from '../../evolve/observe/usage_evidence/tier_model.js';
 import { now } from './_time.js';

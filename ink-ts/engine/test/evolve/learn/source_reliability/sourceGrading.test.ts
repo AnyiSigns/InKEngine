@@ -14,7 +14,7 @@ import {
   _SOURCE_CREDIBILITY,
   default_credibility,
   grade_level_for_credibility,
-} from '../../../../src/evolve/learn/source_reliability/sourceGrading.js';
+} from '../../../../src/model/source_reliability/sourceGrading.js';
 
 describe('来源常量', () => {
   it('四档来源字面量正确', () => {

@@ -33,9 +33,7 @@
  */
 
 import { isRecord } from '../json.js';
-import type { Json } from '../json.js';
-import { PatchChain } from '../../gate/patch/patchChain.js';
-import type { Patch } from '../../gate/patch/types.js';
+import { chain_codec, has_chain_codec } from './chain_codec.js';
 
 // 敏感键（大小写不敏感匹配）：出现即从持久化数据中整体移除。
 // 含常见驼峰凭据键的小写形态（clientSecret/openAiKey/authToken 等）——
@@ -183,7 +181,7 @@ export function is_sensitive_key(key: unknown): boolean {
  * 遍历合一，热路径零拷贝语义不变（无命中的字符串原样返回）。
  */
 function stripSensitiveUnknown(value: unknown): unknown {
-  if (value instanceof PatchChain) return stripPatchChain(value);
+  if (has_chain_codec() && chain_codec().isChain(value)) return stripPatchChain(value);
   if (value instanceof Set) {
     let changed = false;
     const out = new Set<unknown>();
@@ -232,19 +230,18 @@ function stripDict(data: Record<string, unknown>): Record<string, unknown> {
 }
 
 // PatchChain 是引擎主内容通道：base 按 dict 语义剥离，每条补丁 value 递归
-// 剥离。剥离是纯函数（不改原结构，PatchChain 返回新链）。
-function stripPatchChain(chain: PatchChain): PatchChain {
-  const base = stripDict(chain.base) as {
-    [key: string]: Json;
-  };
-  const patches: Patch[] = chain.patches.map((p) => ({
+// 剥离。剥离是纯函数（不改原结构，PatchChain 返回新链）。链的识别/拆包/重建
+// 全程经 chain_codec seam（P7-2 动作 B：model 零依赖不直引 gate/patch）；
+// 未注册时上游判定短路、不会到达此分支，按普通 dict 处理。
+function stripPatchChain(chain: unknown): unknown {
+  const codec = chain_codec();
+  const base = stripDict(codec.baseOf(chain));
+  const patches = codec.patchesOf(chain).map((p) => ({
     op: p.op,
     path: p.path,
-    value: (p.value === undefined ? undefined : stripSensitiveUnknown(p.value)) as
-      | Json
-      | undefined,
+    value: p.value === undefined ? undefined : stripSensitiveUnknown(p.value),
   }));
-  return new PatchChain(base, patches);
+  return codec.makeChain(base, patches);
 }
 
 /**

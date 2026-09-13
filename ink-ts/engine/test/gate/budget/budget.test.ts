@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { BudgetExceededError } from '../../../src/model/errors.js';
 import {
-  BudgetExceededError,
   BudgetManager,
   BudgetRemaining,
   can_afford,

@@ -19,8 +19,8 @@ import {
   type EvolutionStorage,
 } from '../../proposal/evolution_writer/evolution_writer.js';
 
-import { EDGE_TIER_OVERRIDE_COLLECTION, TIER_OBSERVING, TIER_REGULAR } from './_types.js';
-import type { EdgeKey } from './_types.js';
+import { EDGE_TIER_OVERRIDE_COLLECTION, TIER_OBSERVING, TIER_REGULAR } from '../../../model/usage_evidence/_types.js';
+import type { EdgeKey } from '../../../model/usage_evidence/_types.js';
 import { edge_evidence_to_dict } from './store.js';
 import { derive_edge_tier } from './tier_model.js';
 import { now } from './_time.js';

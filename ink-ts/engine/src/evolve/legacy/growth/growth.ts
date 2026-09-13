@@ -44,7 +44,7 @@ import {
   LEVEL_WORK,
   SOURCE_MODEL,
 } from '../../../core/knowledge_set/index.js';
-import { default_credibility } from '../../learn/source_reliability/sourceGrading.js';
+import { default_credibility } from '../../../model/source_reliability/sourceGrading.js';
 import {
   DistillConfig,
   ExecutionSignal,

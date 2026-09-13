@@ -16,7 +16,7 @@ import type { EngineTransport } from '../../../src/dock/ports/events.js';
 import { CollectorTransport } from '../../../src/dock/ports/events.js';
 import type { JsonRecord } from '../../../src/model/json.js';
 import type { BudgetPolicy } from '../../../src/gate/budget/budget_types.js';
-import { BudgetExceededError } from '../../../src/gate/budget/budget.js';
+import { BudgetExceededError } from '../../../src/model/errors.js';
 
 /** 内存 Storage（自增 id/seq；链一致性写入校验；fork 首写跳过校验）。 */
 export class MemoryStorage implements Storage {

@@ -19,13 +19,13 @@ import {
   TIER_REGULAR,
   TIER_TAU,
   ZERO_EVIDENCE_WEIGHT,
-} from '../../../../src/evolve/observe/usage_evidence/_types.js';
+} from '../../../../src/model/usage_evidence/_types.js';
 import {
   cold_start_index,
   is_exploration_mode,
   multi_path_trigger,
 } from '../../../../src/evolve/observe/usage_evidence/derived.js';
-import { EXPLORATION_INDEX_THRESHOLD, MULTIPATH_GAP } from '../../../../src/evolve/observe/usage_evidence/_types.js';
+import { EXPLORATION_INDEX_THRESHOLD, MULTIPATH_GAP } from '../../../../src/model/usage_evidence/_types.js';
 import { makeCandidate, makeEvidence, NOW } from './helpers.js';
 
 describe('Score formula monotonicity', () => {

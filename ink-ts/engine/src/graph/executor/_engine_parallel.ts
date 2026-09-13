@@ -19,7 +19,7 @@
  * 丢失败。
  */
 import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
-import { BudgetExceededError } from '../../gate/budget/budget.js';
+import { BudgetExceededError } from '../../model/errors.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { current_node_context } from '../../loop/llm/guard.js';
 import { PLAN_KEY, PlanStep } from '../../model/plan/plan.js';

@@ -13,8 +13,8 @@ import {
   DEFAULT_CONTRACT_VERSION,
   ORIGIN_POLICY,
   ORIGIN_RUNTIME,
-} from './_types.js';
-import type { EdgeEvidence, EdgeKey } from './_types.js';
+} from '../../../model/usage_evidence/_types.js';
+import type { EdgeEvidence, EdgeKey } from '../../../model/usage_evidence/_types.js';
 import {
   EdgeEvidenceStorage,
   edge_key_tuple,

@@ -1,3 +1,4 @@
+// gate: test-exempt - P7-2 codec seam 装配注册（测试侧 setup 新增，src 同批改动分居 P6/P7-2 两波）
 /**
  * security.is_sensitive_key / strip_sensitive 测试——驼峰与无下划线后缀覆盖。
  * 对标 ink_engine/tests/test_security.py，逐条同名同义移植；另含本实现
@@ -16,6 +17,12 @@ import {
   strip_sensitive,
   strip_sensitive_text,
 } from '../../../src/gate/security/security.js';
+import { register_test_chain_codec } from '../../_setup/chain_codec.js';
+
+// P7-2 B5：strip_sensitive 的 PatchChain 分支现经 chain_codec seam 判定；本文件
+// 不经 Runtime 装配，注册与装配同一 codec 以真正走到链分支（返回新链而非退化
+// 为普通 dict）。
+register_test_chain_codec();
 
 // 凭据形态（与 pytest 参数表同集）：精确集合 + 下划线后缀 + 驼峰词尾
 const CREDENTIAL_KEYS: readonly string[] = [

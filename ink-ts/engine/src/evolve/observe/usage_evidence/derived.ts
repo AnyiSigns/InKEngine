@@ -19,8 +19,8 @@ import {
   EXPLORATION_INDEX_THRESHOLD,
   MULTIPATH_GAP,
   MULTIPATH_MIN_N,
-} from './_types.js';
-import type { EdgeEvidence } from './_types.js';
+} from '../../../model/usage_evidence/_types.js';
+import type { EdgeEvidence } from '../../../model/usage_evidence/_types.js';
 import { edge_score } from './tier_model.js';
 
 /**

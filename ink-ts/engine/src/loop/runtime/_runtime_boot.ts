@@ -7,6 +7,8 @@
  * 不启用；ToolVectorIndex 以关键词基线构建。
  */
 import { PermissionGate } from '../../gate/permissions/permissions.js';
+import { PatchChain, type PatchChainSerialized } from '../../gate/patch/patchChain.js';
+import { register_chain_codec } from '../../model/storage/chain_codec.js';
 import { ALL_MECHANISM_CONTRACTS, seal_mechanism_registry } from '../../dock/registry/index.js';
 import type { InterruptPolicy } from '../../gate/approval/approval.js';
 import { register_perception_nodes } from '../../model/perception/perception.js';
@@ -58,6 +60,22 @@ import { _RoundStepsRecorder } from './_round_steps_recorder.js';
 /** 装配基座（步骤 ①–⑰ 实现；boot 失败清理见状态机层）。 */
 export abstract class RuntimeBoot extends RuntimeNodeRegistrar {
   protected async _assemble(host: Host, recipe: AssemblyRecipe): Promise<void> {
+    // 装配首步注册补丁链 codec（P7-2 动作 B）：model/storage/{sensitive,
+    // storage_records}.ts 的链分支经 chain_codec seam 判定，实现由 gate/patch
+    // 侧在本处注入（loop→gate 骨架边，§14 预登记）；必须在任何依赖 PatchChain
+    // 的构建（内容工作区/checkpoint 序列化）之前完成。
+    register_chain_codec({
+      isChain: (v) => v instanceof PatchChain,
+      baseOf: (c) => (c as PatchChain).base,
+      patchesOf: (c) => (c as PatchChain).patches,
+      fromDict: (d) => PatchChain.from_dict(d as Partial<PatchChainSerialized>),
+      toDict: (c) => (c as PatchChain).to_dict(),
+      makeChain: (b, p) =>
+        new PatchChain(
+          b as ConstructorParameters<typeof PatchChain>[0],
+          p as ConstructorParameters<typeof PatchChain>[1],
+        ),
+    });
     // 装配密封（boot 静态门禁）：全量机制契约 DAG 校验（依赖单向/装配完整/
     // 循环拒绝）失败即抛错——半装配/带环依赖的运行时不允许进入装配流程。
     // 密封纯静态（契约 const + Tarjan/topo），零 IO 零副作用。

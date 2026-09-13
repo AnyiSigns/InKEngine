@@ -1,3 +1,4 @@
+// gate: test-exempt - P7-2 codec seam 装配注册（测试侧 setup 新增，src 同批改动分居 P6/P7-2 两波）
 /**
  * CheckpointRecord to_dict/from_dict 序列化往返 + 敏感键剥离 +
  * PatchChain/Message/ToolCall 内联 marker 还原 + 嵌套 copy-on-write。
@@ -21,6 +22,10 @@ import {
   PATCH_CHAIN_MARKER,
   TOOL_CALL_MARKER,
 } from '../../../src/model/storage/storage_constants.js';
+import { register_test_chain_codec } from '../../_setup/chain_codec.js';
+
+// P7-2 B5：本文件不经 Runtime 装配流经补丁链分支，注册与装配同一 codec。
+register_test_chain_codec();
 
 function makeCheckpoint(state: Record<string, unknown>): CheckpointRecord {
   return new CheckpointRecord({

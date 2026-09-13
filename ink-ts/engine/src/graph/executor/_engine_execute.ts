@@ -24,7 +24,7 @@
 import { Plan } from '../../model/plan/plan.js';
 import { RunOptions, RunResult } from '../../core/run_result/run_result.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import { InterruptState } from '../../loop/interrupt/interrupt_types.js';
+import { InterruptState } from '../../model/storage/interrupt_state.js';
 import { resolve_resume } from '../../loop/recovery/index.js';
 import type { CheckpointRecord } from '../../model/storage/storage_records.js';
 import type { JsonRecord } from '../../model/json.js';

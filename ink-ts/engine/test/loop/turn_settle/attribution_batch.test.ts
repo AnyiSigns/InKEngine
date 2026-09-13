@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { EdgeEvidence, EdgeKey } from '../../../src/evolve/observe/usage_evidence/_types.js';
+import type { EdgeEvidence, EdgeKey } from '../../../src/model/usage_evidence/_types.js';
 import { EdgeEvidenceStore } from '../../../src/evolve/observe/usage_evidence/store.js';
 import type { EdgeEvidenceStorage, EdgeKeyTuple } from '../../../src/evolve/observe/usage_evidence/storage_seam.js';
 import { EdgeEvidenceSettleHook } from '../../../src/loop/turn_settle/hooks.js';

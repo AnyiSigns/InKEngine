@@ -10,8 +10,8 @@
  * record_failure 为读改写（records 通道无原子自增，量级可忽略）。
  */
 
-import type { EdgeEvidence } from './_types.js';
-import { ORIGIN_POLICY, ORIGIN_RUNTIME } from './_types.js';
+import type { EdgeEvidence } from '../../../model/usage_evidence/_types.js';
+import { ORIGIN_POLICY, ORIGIN_RUNTIME } from '../../../model/usage_evidence/_types.js';
 import {
   EdgeEvidenceStorage,
   EdgeKeyTuple,

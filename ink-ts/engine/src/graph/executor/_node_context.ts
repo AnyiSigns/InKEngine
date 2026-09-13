@@ -17,7 +17,7 @@ import { SpawnSpec } from '../../kernel/spawn/spawn.js';
 import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { interrupt_key_matches } from '../../loop/interrupt/interrupt.js';
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
-import { strip_sensitive } from '../../gate/security/security.js';
+import { strip_sensitive } from '../../model/storage/sensitive.js';
 import { isRecord, type JsonRecord } from '../../model/json.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { TraceStep } from '../../loop/turn_settle/index.js';

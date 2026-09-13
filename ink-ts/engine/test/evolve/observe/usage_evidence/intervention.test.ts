@@ -10,7 +10,7 @@ import {
   EdgeKey,
   TIER_PROMOTED,
   TIER_REGULAR,
-} from '../../../../src/evolve/observe/usage_evidence/_types.js';
+} from '../../../../src/model/usage_evidence/_types.js';
 import { EdgeEvidenceStore } from '../../../../src/evolve/observe/usage_evidence/store.js';
 import {
   downgrade_edge_tier,

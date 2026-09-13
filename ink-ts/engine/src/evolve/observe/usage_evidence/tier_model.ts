@@ -30,8 +30,8 @@ import {
   ZERO_EVIDENCE_WEIGHT,
   ORIGIN_SEED,
   ORIGIN_RUNTIME,
-} from './_types.js';
-import type { EdgeEvidence, EdgeScore } from './_types.js';
+} from '../../../model/usage_evidence/_types.js';
+import type { EdgeEvidence, EdgeScore } from '../../../model/usage_evidence/_types.js';
 import { now } from './_time.js';
 
 // ── 数据驱动注入锚点（注入即权威；不传 = 出厂默认）──

@@ -50,6 +50,29 @@ export interface SpawnSeam {
 }
 
 /**
+ * 进程沙箱消费面（P7-2 动作 C2）：graph/builder 只用「白名单查询 →
+ * 派生副本 → 执行」三位；gate/sandbox 的 ProcessSandbox 以结构化满足本
+ * 接口（形状兼容由 tsc 把关，类型位替换、运行零变），builder 不再直引
+ * 机制类。
+ */
+export interface ProcessSandboxLike {
+  /** 命令白名单（构建/冒烟执行前查许可）。 */
+  readonly allowlist: readonly string[];
+  /** 派生副本（覆盖 cwd/timeout，副本语义收在机制类）。 */
+  derived(options?: { cwd?: string | null; timeout?: number }): ProcessSandboxLike;
+  /** 守卫后执行（返回结果消费面：退出码/输出流/超时标记）。 */
+  run(
+    command: string,
+    args?: readonly string[],
+  ): Promise<{
+    readonly exit_code: number;
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly timed_out: boolean;
+  }>;
+}
+
+/**
  * 文件系统 seam：os/shutil/tempfile 动作的注入面（核心零 IO）。真实实现由
  * 宿主注入（node:fs 后端）；本模块只按这些原语表达拷贝/快照/diff 机制。
  * 路径一律以字符串表达；mkdtemp/rmtree/copy2/symlink_to 对齐对应 stdlib 语义。

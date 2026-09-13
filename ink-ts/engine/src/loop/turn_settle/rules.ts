@@ -7,7 +7,7 @@
  * 决定/草案数据；钩子层负责登记与落库。
  */
 
-import type { EdgeEvidence } from '../../evolve/observe/usage_evidence/_types.js';
+import type { EdgeEvidence } from '../../model/usage_evidence/_types.js';
 import { laplace_success } from '../../evolve/observe/usage_evidence/tier_model.js';
 import { SchemaField, SchemaSpec } from '../../model/schema/schemaValidator.js';
 import {

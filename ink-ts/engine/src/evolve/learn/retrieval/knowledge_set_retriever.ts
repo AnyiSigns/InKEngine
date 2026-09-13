@@ -16,7 +16,7 @@
  */
 
 import { KnowledgeSet } from '../../../core/knowledge_set/knowledge_set.js';
-import { grade_level_for_credibility } from '../source_reliability/sourceGrading.js';
+import { grade_level_for_credibility } from '../../../model/source_reliability/sourceGrading.js';
 import { INJECTION_EXCLUDED_KINDS, MAX_LIMIT, RetrievedChunk } from './_types.js';
 
 /** 知识集 → 检索源适配（name = 注册表内唯一标识，知识源固定名）。 */

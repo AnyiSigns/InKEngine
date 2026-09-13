@@ -98,3 +98,36 @@ export class SimulationError extends EngineError {
     this.name = 'SimulationError';
   }
 }
+
+/**
+ * 执行预算超限（步骤上限/轮数上限等，触发图终止）。P7-2 动作 C5 自
+ * gate/budget/budget.ts 同址归位（graph 执行器捕获位需要，禁 graph→gate）；
+ * budget.ts 保留 re-export，dock 公共面逐字不变。
+ * detail 携带附加说明（如预算策略自身故障的原始异常消息）——缺省 null
+ * 时信息形态与早期一致，语义向后兼容。
+ */
+export class BudgetExceededError extends Error {
+  readonly kind: string;
+  readonly limit: number;
+  readonly current: number;
+  readonly detail: string | null;
+
+  constructor(
+    kind: string,
+    limit: number,
+    current: number,
+    detail: string | null = null,
+    options?: ErrorOptions,
+  ) {
+    let message = `执行预算超限[${kind}]: ${current} >= ${limit}`;
+    if (detail) {
+      message = `${message}（原始异常: ${detail}）`;
+    }
+    super(message, options);
+    this.name = 'BudgetExceededError';
+    this.kind = kind;
+    this.limit = limit;
+    this.current = current;
+    this.detail = detail;
+  }
+}

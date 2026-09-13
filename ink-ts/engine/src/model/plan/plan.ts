@@ -15,7 +15,8 @@
  *
  * 工作流约束域：计划引用的节点必须存在于当前图（计划落在「可执行的
  * 计划空间」内）；宽松域 = 任意已注册节点，严格序 = 每一步节点须与
- * 上一步存在图边关联（策略由 RunOptions.plan_policy 配置）。
+ * 上一步存在图边关联。数据面保留（harness 编排模板校验用）；executor
+ * 的 `__plan__` 展开机制已随 P8+S1 退役，本模块不再被执行器消费。
  */
 
 import { GraphDefinitionError } from '../errors.js';

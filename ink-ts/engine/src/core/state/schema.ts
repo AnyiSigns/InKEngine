@@ -131,28 +131,3 @@ export function subgraph_overlay_delta(
   }
   return delta;
 }
-
-/** spawn 实例回流增量（父结构键保护：声明结果通道才回流）。 */
-export function subgraph_flowback_overlay(
-  entryState: Record<string, unknown>,
-  finalState: Record<string, unknown>,
-  subSchema: StateSchema | null,
-  parentSchema: StateSchema | null,
-): Record<string, unknown> {
-  if (subSchema === null) return { ...finalState };
-  const delta = subgraph_overlay_delta(entryState, finalState, subSchema);
-  if (Object.keys(delta).length === 0) return {};
-  const overlay: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(delta)) {
-    const channel = subSchema.channels[key];
-    if (channel === undefined) continue; // 未声明通道 = 子图内部结构键，不回流
-    if (is_additive_reducer(channel.reducer)) {
-      const parentChannel = parentSchema?.channels[key];
-      if (parentChannel === undefined || !is_additive_reducer(parentChannel.reducer)) {
-        continue; // 父无 additive 承接：丢弃，防整链/增量替换父历史
-      }
-    }
-    overlay[key] = value;
-  }
-  return overlay;
-}

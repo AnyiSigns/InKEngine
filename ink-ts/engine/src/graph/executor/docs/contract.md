@@ -59,10 +59,11 @@ spawn 实例/推演分支/多径展开/计划推进四类展开段已随 P8+S1 �
 
 ## 测试
 
-`test/graph/executor/` 镜像测试 7 文件（6 `.test.ts` + `helpers.ts`）：
+`test/graph/executor/` 镜像测试 8 文件（7 `.test.ts` + `helpers.ts`）：
 
 - `executor.test.ts` — 线性/条件边/循环执行、checkpoint 恢复与 StorageError、terminate 语义、异常脱敏/重试/预算/max_cycle 护栏、编辑重放与 event_seq 增量重放、跨实例恢复。
 - `executor_chain_regression.test.ts` — P8+S1 摘链回归锁：单节点/多节点线性/条件边/嵌套子图/挂起注入重入/checkpoint 恢复/流式事件序/异常快照（摘链前后皆须全绿）。
+- `executor_parallel_group.test.ts` — 并行组批量执行直调（S1 折入保留面）：声明序合并/失败剔除/首信号收口/预算信号/并发限流。
 - `executor_loop_edges.test.ts` — kind=loop 回边执行/失控截止/单节点自环。
 - `executor_subgraph.test.ts` — graph_path/回流/共享 coordinator 中断/ERROR 上抛/事件计入锚点/additive·merge 通道/digest 缓存/schema 继承拒绝/子图恢复。
 - `executor_recovery.test.ts` — 挂起持久化+注入重入、敏感键剥离、注入一次性清理。

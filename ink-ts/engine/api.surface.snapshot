@@ -894,7 +894,6 @@ stateEquals:value
 state_from_dict:value
 state_to_dict:value
 strip_quality:value
-subgraph_flowback_overlay:value
 subgraph_overlay_delta:value
 success_rate:type
 suggest_downranks:type

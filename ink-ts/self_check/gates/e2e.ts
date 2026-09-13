@@ -26,7 +26,7 @@ function tempDir(): string {
 }
 
 async function startServe(ctx: SelfCheckContext): Promise<{ listen: ListenLine; stop: () => Promise<void> }> {
-  const cliEntry = join(ctx.inkTsRoot, 'cli', 'src', 'index.ts');
+  const cliEntry = join(ctx.inkTsRoot, 'hosts', 'cli', 'src', 'index.ts');
   const token = `self-check-${randomBytes(6).toString('hex')}`;
   const child = spawnLong([process.execPath, '--import', 'tsx', cliEntry, 'serve', '--port', '0', '--data-dir', tempDir(), '--token', token], {
     cwd: ctx.inkTsRoot,

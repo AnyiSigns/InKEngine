@@ -4,7 +4,7 @@
 
 ## 定位
 
-状态 = 通道字典；每通道可挂 reducer（按名引用），未挂 = 裸 LastValue（覆盖语义）。reducer 族对齐补丁链心智模型：累积型 `add_messages`（每条消息 = 一个补丁，append/替换/删除语义）、内容型 `patch_chain`（通道值 = PatchChain 基础 + 补丁链）、合并型 `merge_dicts`/`merge_metrics`、覆盖型 `last_value`。`StateSchema` 是节点增量 overlay 进状态的合并入口；`subgraph_overlay_delta`/`subgraph_flowback_overlay` 供嵌套子图与实例共用（spawn/模拟回流消费侧已随 P8+S1 展开段退役；原语减少回流噪音）。常量字符串与 Python core/state.py 同源（镜像），注册表开放扩展。
+状态 = 通道字典；每通道可挂 reducer（按名引用），未挂 = 裸 LastValue（覆盖语义）。reducer 族对齐补丁链心智模型：累积型 `add_messages`（每条消息 = 一个补丁，append/替换/删除语义）、内容型 `patch_chain`（通道值 = PatchChain 基础 + 补丁链）、合并型 `merge_dicts`/`merge_metrics`、覆盖型 `last_value`。`StateSchema` 是节点增量 overlay 进状态的合并入口；`subgraph_overlay_delta` 供嵌套子图回流（减少回流噪音；`subgraph_flowback_overlay` 父结构键保护版已随 spawn 展开段退役删除，P8+S1）。常量字符串与 Python core/state.py 同源（镜像），注册表开放扩展。
 
 ## 文件与职责
 
@@ -15,7 +15,7 @@
 
 ## 对外契约面
 
-- 目录导出：`Reducer`、`add_messages`、`merge_dicts`、`merge_metrics`、`patch_chain_reducer`、`last_value`、`REDUCER_REGISTRY`、`ADDITIVE_REDUCERS`、`MERGE_REDUCERS`、`register_reducer`、`is_additive_reducer`、`is_merge_reducer`、`get_reducer`；`Channel`、`ChannelSpec`、`stateEquals`、`StateSchema`、`subgraph_overlay_delta`、`subgraph_flowback_overlay`。
+- 目录导出：`Reducer`、`add_messages`、`merge_dicts`、`merge_metrics`、`patch_chain_reducer`、`last_value`、`REDUCER_REGISTRY`、`ADDITIVE_REDUCERS`、`MERGE_REDUCERS`、`register_reducer`、`is_additive_reducer`、`is_merge_reducer`、`get_reducer`；`Channel`、`ChannelSpec`、`stateEquals`、`StateSchema`、`subgraph_overlay_delta`。
 - 公共面：`export * from './core/state/reducers.js'` + `export * from './core/state/schema.js'`（全量直通）。
 
 ## 数据形态

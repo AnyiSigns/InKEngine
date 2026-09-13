@@ -81,7 +81,10 @@ const SANDBOX_MODES = [
  * session_command 工具接线模块；本集合是 self_check 对宿主自定义端点的
  * 登记面（放行其出现在 plugin 工具行，其余仍须 ⊆ 内置端点）。
  */
-const HOST_COMMAND_ENDPOINTS: ReadonlySet<string> = new Set(['session_command']);
+const HOST_COMMAND_ENDPOINTS: ReadonlySet<string> = new Set([
+  'session_command',
+  'plugin_command', // B6：agent 侧插件管理工具族（hosts/lib/src/plugin_command.ts）
+]);
 
 function isNonEmptyStringArray(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'string');

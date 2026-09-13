@@ -21,7 +21,7 @@
 
 - `build_workflow_graph(spec, registry) → Graph`（未编译；宿主可继续追加
   节点/边——如挂接收尾节点——再经 Engine 构造触发完整编译校验）。
-- 数据形态三类（供 plan/run_result 等消费）。
+- 数据形态三类（供 plan 等消费）。
 - **公共面零导出**（src/index.ts 逐名 grep 核对）——纯引擎内部面。
 - 抛错统一 `GraphDefinitionError`（重复 id/未知类型/悬空边/回路/入口歧义/
   入口不存在/入口不可达）。
@@ -42,8 +42,8 @@
 ## 装配与消费
 
 - 消费方：`model/plan`（WorkflowNodeSpec/WorkflowEdgeSpec/WorkflowSpec——
-  计划步的工作流约束域）、`core/run_result`（RunOptions.plan_workflow 类型
-  引用）。
+  计划步的工作流约束域）。`core/run_result` 的 plan_workflow 引用已随
+  P8+S1 展开段退役删除。
 - `build_workflow_graph` 编译入口当前 src/hosts 内零消费（头注自述：机制
   就绪 / 宿主接线点待定，配方引用 WorkflowSpec 时才编译执行；当前 plan 仅
   消费 workflow_types 数据形态，编译产物未接入任何运行时装配）。

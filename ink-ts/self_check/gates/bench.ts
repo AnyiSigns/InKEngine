@@ -25,7 +25,7 @@ function tempDir(): string {
 
 export async function runGateBench(ctx: SelfCheckContext): Promise<GateResult> {
   const started = Date.now();
-  const cliEntry = join(ctx.inkTsRoot, 'cli', 'src', 'index.ts');
+  const cliEntry = join(ctx.inkTsRoot, 'hosts', 'cli', 'src', 'index.ts');
   const token = `self-check-bench-${randomBytes(6).toString('hex')}`;
   const child = spawnLong([process.execPath, '--import', 'tsx', cliEntry, 'serve', '--port', '0', '--data-dir', tempDir(), '--token', token], {
     cwd: ctx.inkTsRoot,

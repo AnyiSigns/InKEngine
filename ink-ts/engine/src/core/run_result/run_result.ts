@@ -13,7 +13,11 @@
  *
  * Python 差异：
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
- * - ``settle`` 引用 settle.SettleHooks 注册体、``plan_workflow`` 引用 workflow.WorkflowSpec。
+ * - ``settle`` 引用 settle.SettleHooks 注册体。
+ * - spawn/推演/计划/多径相关字段已随 P8+S1 展开段退役移除（max_spawns/
+ *   spawn_concurrency/simulate_max_branch_steps/plan_policy/max_plan_steps/
+ *   plan_workflow/evaluator/branch_mixer/max_simulations/simulate_concurrency/
+ *   multipath_enabled/branch_pick）。
  */
 import type { Storage } from '../../dock/ports/storage.js';
 import type { StateSchema } from '../state/schema.js';

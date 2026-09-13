@@ -4,7 +4,7 @@
 
 ## 文件
 - `index.ts` — 汇出口：`Engine`/`EngineBase`/`ExecuteOptions`/`run_subgraph`/`run_agent_scope`/`_validate_subgraph_schema_inheritance`/`_NodeContextImpl`/`NodeContext`/`_select_next_node`/`_locate_next` + core `RunOptions`/`RunResult` re-export；头注为文件拆分纪律
-- `contract.ts` — 机制契约 `executor_contract`：effects=[storage_seam]，depends=[budget,interrupt,llm,recovery,settle]
+- `contract.ts` — 机制契约 `executor_contract`：effects=[storage_seam]，depends=[budget,interrupt,llm,recovery,turn_settle]
 - `_engine_base.ts` — 分层链根：`EngineBase` 抽象基座（构造/全部实例字段/`_new_engine`；抽象 `_execute`/`_publish`/`_trace_add_tokens`）+ `ExecuteOptions`
 - `_engine_events.ts` — `EngineEvents extends EngineBase`：事件发布（事件锁内分配 seq）、按 seq 保序传输、`update_state` 外部状态补丁、`get_latest_interrupt`、`publish_event`、`_maybe_compact_chain` 链级 rebase
 - `_engine_trace.ts` — `EngineTrace extends EngineEvents`：结点级成败留痕（open/mark_failed/mark_skipped/close_pending/add_tokens/append_member/merge_from）+ `_settle_run` 沉淀钩子
@@ -21,5 +21,5 @@
 - `_internals.ts` — 内部件集中层：日志留痕 seam、确定性时钟/id seam、`_Mutex`/`_AsyncQueue`/`_QueueTransport`/`_TransportSequencer`、`_PlanWorkOutcome`（并行组结果形态）、`NodeContext` 协议、边出口定位（`_select_next_node`/`_locate_next`）、恢复判据、`_merge_overlay`
 
 ## 依赖
-- 上游（本目录实际 import）：core（json/errors/events/graph/graph_types/plan/state schema+reducers/storage+storage_records/run_result/security/chain_rebase/context_types/contracts；assembly+input_assembler 消费已随组装链路退役删除 W7-B；fanout 随 P8+S1 退役）；机制层（budget/interrupt/llm guard+_guard_types/recovery/settle——multipath/simulation/spawn 依赖已随展开段退役，P8+S1；registry/contract_types+ports 契约面）
+- 上游（本目录实际 import）：core（json/errors/events/graph/graph_types/state schema+reducers/storage+storage_records/run_result/security/chain_rebase/context_types/contracts；assembly+input_assembler 消费已随组装链路退役删除 W7-B；fanout/plan 随 P8+S1 退役）；机制层（budget/interrupt/llm guard+_guard_types/recovery/turn_settle——multipath/simulation/spawn 依赖已随展开段退役，P8+S1；registry/contract_types+ports 契约面）
 - 下游（实际 import 本目录）：`src/index.ts`（公共面）；`dock/registry/contracts.ts`（`executor_contract` 入 28 项清单）；`loop/runtime`（engine_turn_runner 建引擎跑回合）；`test/graph/executor/`；hosts 经 `@ink-ts/engine` 公共面（`kernel/path_assembler/canary.ts` 试跑等消费已随组装链路退役删除，W7-B）

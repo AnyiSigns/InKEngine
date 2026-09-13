@@ -10,7 +10,7 @@ import type { GateResult } from '../_report.js';
 import { runCommand } from '../_proc.js';
 import type { SelfCheckContext } from '../index.js';
 
-const PACKAGES = ['gate', 'cli', 'engine', 'host', 'renderer'] as const;
+const PACKAGES = ['gate', 'hosts/cli', 'engine', 'hosts/lib', 'renderer'] as const;
 
 export async function runGateVitest(ctx: SelfCheckContext): Promise<GateResult> {
   const started = Date.now();
@@ -42,7 +42,7 @@ export async function runGateVitest(ctx: SelfCheckContext): Promise<GateResult> 
   return {
     key: 'vitest',
     label: '各包 vitest（gate/cli/engine/host/renderer）',
-    command: 'vitest run --root <gate|cli|engine|host|renderer>',
+    command: 'vitest run --root <gate|hosts/cli|engine|hosts/lib|renderer>',
     passed,
     seconds,
     summary: summaries.join('；'),

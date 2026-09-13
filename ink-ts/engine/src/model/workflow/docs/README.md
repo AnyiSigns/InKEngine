@@ -17,7 +17,7 @@
 
 ## 依赖
 - 上游：`model/graph`（Graph/NodeTypeRegistryLike）、`model/errors`。
-- 下游：`model/plan`（三形态 import）、`core/run_result`（type WorkflowSpec）；
+- 下游：`model/plan`（三形态 import；`core/run_result` 的 plan_workflow 引用已随 P8+S1 退役删除）；
   `build_workflow_graph` 编译入口 src/hosts 内零消费（头注自述机制就绪/
   宿主接线点待定——当前 plan 仅消费 workflow_types 数据形态）；公共面
   零导出（grep 核对）；`test/model/workflow/`。

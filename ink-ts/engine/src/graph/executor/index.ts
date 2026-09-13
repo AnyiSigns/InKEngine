@@ -16,7 +16,9 @@
  * - _engine_instance：子引擎配置继承；
  * - _engine_checkpoint：统一 checkpoint 写入；
  * - _engine_execute_helpers：节点重试/VTM 验证门控子过程 + 并行组批量执行；
- * - _engine_execute：主执行循环（Engine 叶节点）；
+ * - _engine_loop_front/_engine_loop_back：主循环前/后半段；
+ * - _loop_types：循环局部状态（LoopState）；
+ * - _engine_execute：主执行循环入口（Engine 叶节点）；
  * - run_subgraph：嵌套图包装执行 + schema 继承检查。
  */
 export { Engine } from './_engine_execute.js';

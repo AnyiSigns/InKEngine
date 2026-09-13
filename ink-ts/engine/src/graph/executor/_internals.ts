@@ -166,7 +166,7 @@ export class _QueueTransport {
   }
 }
 
-/** 事件推送保序协调器（父引擎与 spawn 实例/嵌套子图共享）。 */
+/** 事件推送保序协调器（父引擎与嵌套子图/实例共享）。 */
 export class _TransportSequencer {
   readonly lock = new _Mutex();
   pending = new Map<number, EngineEvent>();

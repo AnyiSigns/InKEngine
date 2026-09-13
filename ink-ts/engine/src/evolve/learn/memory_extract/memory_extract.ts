@@ -36,11 +36,11 @@ import type { StorageBackedMemoryStore } from '../memory/store.js';
 // 归约保留口径），抽取只消费其中 CONFIRMATION_EVENTS 子集。
 
 export const ROUND_FACT_EVENTS: readonly string[] = [
-  // 执行轨迹事实（账本归约保留的步骤要点；TS 账本归约 = node/error 两型）
+  // 执行轨迹事实（账本归约保留的步骤要点；TS 账本归约 = node/error 两型；
+  // spawn_start 已随 P8+S1 展开段退役）
   'tool_start',
   'tool_end',
   'plan_start',
-  'spawn_start',
   'error',
   'node_error',
   'tool_error',

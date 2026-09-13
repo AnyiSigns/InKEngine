@@ -4,7 +4,7 @@
 
 ## 文件
 - `reducers.ts` — reducer 函数族与注册表：`add_messages`（累积型）/`merge_dicts`/`merge_metrics`（合并型）/`patch_chain_reducer`（内容型）/`last_value`（覆盖型）、`REDUCER_REGISTRY`、`ADDITIVE_REDUCERS`/`MERGE_REDUCERS` 族集合、`register_reducer`/`is_additive_reducer`/`is_merge_reducer`/`get_reducer`。
-- `schema.ts` — `Channel`/`ChannelSpec` 通道定义、`StateSchema`（通道表 + `apply` 合并 + `to_dict`/`from_dict`）、`stateEquals`、子图回流增量 `subgraph_overlay_delta`、回流 overlay `subgraph_flowback_overlay`（spawn/模拟回流的消费侧已随 P8+S1 展开段退役，原语保留供子图/实例链使用）。
+- `schema.ts` — `Channel`/`ChannelSpec` 通道定义、`StateSchema`（通道表 + `apply` 合并 + `to_dict`/`from_dict`）、`stateEquals`、子图回流增量 `subgraph_overlay_delta`（`subgraph_flowback_overlay` 父结构键保护版已随 spawn 展开段退役删除，P8+S1）。
 
 ## 依赖
 - 上游（本目录实际 import）：`model/errors.ts`（`GraphDefinitionError`）、`model/json.ts`（`deepCopy`/`deepEqual`/`isRecord`/`stableStringify`/`Json`/`typeName`）、`gate/patch/patchChain.ts`（`PatchChain`）、`gate/patch/types.ts`（`Patch`，仅 reducers）；目录内 `schema.ts` → `reducers.ts`。

@@ -127,7 +127,6 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   let next: Partial<typeof state> = {};
   // 桶内回合状态（归约目标 = 对应会话窗口）
   let roundSteps = bucket.roundSteps;
-  let simulations = bucket.simulations;
   let incubation = bucket.incubation;
   let sourceTraces = bucket.sourceTraces;
   let patchChain = bucket.patchChain;
@@ -329,40 +328,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     }
-    case 'spawn_start': {
-      // 引擎发射 {spawns: [{id, nodes[], parallel, label}]}（展示形态）；
-      // 展示标签取首个分组的 label/id，节点关联取首个分组 id
-      const spawns = Array.isArray(payload.spawns) ? (payload.spawns as Array<Record<string, unknown>>) : [];
-      const first = spawns[0] ?? {};
-      const spawnLabel = typeof first.label === 'string' && first.label.trim() !== ''
-        ? first.label
-        : (typeof payload.label === 'string' ? payload.label : undefined);
-      const spawnId = typeof first.id === 'string' && first.id.trim() !== ''
-        ? first.id
-        : (typeof payload.spawn_id === 'string' ? payload.spawn_id : undefined);
-      upsertStep(
-        { stepId, type: 'spawn', label: String(spawnLabel ?? spawnId ?? '子代理'), status: 'running' },
-        (s) => ({ ...s, status: 'running' as const }),
-      );
-      upsert(
-        {
-          kind: 'spawn',
-          nodeId: spawnId ?? (payload.node_id as string | undefined),
-          label: spawnLabel as string | undefined,
-          status: 'running',
-          id: nextId(),
-        },
-        (m) => (m.kind === 'spawn' ? { ...m, status: 'running' as const } : m),
-      );
-      break;
-    }
-    case 'spawn_end':
-      upsertStep({ stepId, type: 'spawn', label: '子代理', status: 'completed' }, (s) => ({ ...s, status: 'completed' as const }));
-      upsert(
-        { kind: 'spawn', nodeId: payload.node_id as string | undefined, status: 'completed', id: nextId() },
-        (m) => (m.kind === 'spawn' ? { ...m, status: 'completed' as const } : m),
-      );
-      break;
+    case 'execution_started':
     case 'review_card': {
       upsertStep({ stepId, type: 'review', label: '审批', status: 'running' }, (s) => ({ ...s, status: 'running' as const }));
       messages = [...messages, { kind: 'review_card', payload: { ...payload }, live: true, id: nextId(), stepId: stepId || undefined, roundId }];
@@ -455,42 +421,6 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
       );
       break;
     }
-    case 'simulate_decision': {
-      // 引擎实际发射（executor simulate 决策留痕）：branches = [{index,
-      // description, score, passed, note}]，selected = 选中分支索引数组。
-      const selectedIdx = Array.isArray(payload.selected) ? (payload.selected as unknown[]) : [];
-      const branches = Array.isArray(payload.branches)
-        ? payload.branches.map((b, index) => {
-            const branch = b as Record<string, unknown>;
-            return {
-              branchId: String(branch.branch_id ?? branch.index ?? `b${index + 1}`),
-              label: String(branch.label ?? branch.description ?? `分支 ${index + 1}`),
-              score: Number(branch.score ?? 0),
-              rationale: (branch.rationale ?? branch.note) as string | undefined,
-              steps: Array.isArray(branch.steps) ? (branch.steps as Array<{ node: string; status: string; note?: string }>) : [],
-              selected:
-                selectedIdx.includes(branch.index) ||
-                (branch.selected === true) ||
-                (selectedIdx.length === 0 && index === 0),
-            };
-          })
-        : [];
-      simulations = branches;
-      break;
-    }
-    case 'branch_result':
-      simulations = simulations.map((branch) =>
-        branch.branchId === payload.branch_id
-          ? { ...branch, score: Number(payload.score ?? branch.score), rationale: payload.rationale as string | undefined }
-          : branch,
-      );
-      break;
-    case 'swap_branch':
-      simulations = simulations.map((branch) => ({
-        ...branch,
-        selected: branch.branchId === payload.branch_id,
-      }));
-      break;
     case 'mutation_proposed': {
       const list = [...incubation];
       list.push({
@@ -583,8 +513,6 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     case 'execution_started':
       // 时间线标记：组装链路退役（W7-B）后无组装步骤，本事件仅作回合边界留痕
       break;
-    case 'junction_verdict':
-    case 'junction_verdict_audit':
     case 'policy_edge_review_audit':
     case 'recommended_prior_promotion':
     case 'node_start':
@@ -681,7 +609,6 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
   const nextBucket: ThreadBucket = {
     roundId: nextRoundId,
     roundSteps,
-    simulations,
     incubation,
     sourceTraces,
     patchChain,
@@ -705,7 +632,7 @@ export function ingestEvent(hub: ChannelHub, event: HubEvent): void {
     roundId: isActive ? state.roundId ?? nextRoundId : state.roundId,
     ...(isActive ? { taskState } : {}),
     // 当前会话桶 → 全局镜像（既有组件零改动读快照即得当前会话数据）
-    ...(isActive ? { roundSteps, simulations, incubation, sourceTraces, patchChain, executionRuns: nextBucket.executionRuns } : {}),
+    ...(isActive ? { roundSteps, incubation, sourceTraces, patchChain, executionRuns: nextBucket.executionRuns } : {}),
   });
 }
 

@@ -23,6 +23,6 @@
 - 下游（实际 import 本目录）：
   - `dock/index.ts:235`（经 `src/index.ts` re-export 收口出面；公共面仅 `export type { StepRecord }`）
   - `loop/runtime/runtime.ts`、`loop/runtime/_round_steps_recorder.ts`（均仅 type import `StepRecord`，不入 runtime depends）
-  - `dock/registry/contracts.ts:67`（`round_steps_contract` 入 31 项全量契约清单）
+  - `dock/registry/contracts.ts:67`（`round_steps_contract` 入 28 项全量契约清单）
   - `test/loop/round_steps/`（`round_steps_basic.test.ts`、`round_steps_extra.test.ts`，经 index.js 值 import `RoundSteps`）
   - hosts 侧无直接 import

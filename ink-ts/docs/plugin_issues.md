@@ -35,7 +35,7 @@
   skill 检索消费保留 + 标注（触发器运行恒空观测位属现状，非死读面误判）。
 - **数字基线（2026-09-12 终检，7F 复核复现）**：engine 244 文件 / 2592 passed / 2
   skipped；hosts/lib 42 文件 / 282 passed / 0 failed（链 cwd 口径；仓库根命令式现
-  host_spec×4 + retrieval×1 = 既有环境假阳性名单成员，见 w7b.md §7）；机制契约 31 项；
+  host_spec×4 + retrieval×1 = 既有环境假阳性名单成员，见 w7b.md §7）；机制契约：现 28 项（终检基线的 simulation/multipath/spawn 三契约已随 P8+S1 退役）；
   插件 146 = tool 42 + mcp 5 + command 64 + ui_feature 32 + endpoint 3。来源 = 波次
   终检复跑（vitest 双根 / verify:mechanisms / `sync_plugin_manifest.mjs --check`）；
   历史数字演进链（159→144→145→146、62→63→64 等）以 w7b/w8c/w8d 报告为准。

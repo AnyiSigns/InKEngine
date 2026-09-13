@@ -221,16 +221,6 @@ export interface RoundStep {
 export type GearTier = 'main' | 'router';
 export type ModeTier = 'default' | 'observe' | 'review' | 'sandbox';
 
-/** 推演轨迹（simulate_decision 分支对比 + swap_branch 换选）。 */
-export interface SimulationBranch {
-  branchId: string;
-  label: string;
-  score: number;
-  rationale?: string;
-  steps: Array<{ node: string; status: string; note?: string }>;
-  selected?: boolean;
-}
-
 /** 孵化流水（信号 → 蒸馏 → 闸门）。 */
 export interface IncubationEntry {
   id: string;

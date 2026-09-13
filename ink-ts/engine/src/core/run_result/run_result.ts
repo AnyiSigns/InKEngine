@@ -2,14 +2,14 @@
  * 运行结果契约与执行选项（纯数据形态，引擎执行语义在 executor）——run_result.py
  * 移植。
  *
- * 本模块承载单次 run 的**配置面**（RunOptions：存储/传输/预算/schema/计划/推演/
- * 调配全部注入式，引擎不持有产品实现）与**结果面**（RunResult：最终状态 +
+ * 本模块承载单次 run 的**配置面**（RunOptions：存储/传输/预算/schema/护栏
+ * 全部注入式，引擎不持有产品实现）与**结果面**（RunResult：最终状态 +
  * 终止原因 + 中断点 + 事件统计）——两类纯数据契约独立成模块，executor 与其
  * 消费方共用同一形态。
  *
- * 依赖方向：本模块只依赖其他 core 契约模块（plan/simulation/storage/state/
- * budget/events/registry/assembly/tuning/interrupt），不依赖 executor 执行
- * 语义——供引擎重建装配（runtime）、测试与宿主导入而不必携带执行实现。
+ * 依赖方向：本模块只依赖其他 core 契约模块（storage/state/budget/events/
+ * registry/tuning/interrupt），不依赖 executor 执行语义——供引擎重建装配
+ * （runtime）、测试与宿主导入而不必携带执行实现。
  *
  * Python 差异：
  * - ``system_events`` 的 frozenset 以 ReadonlySet 承载（构造传 Set/ReadonlySet）；
@@ -21,12 +21,8 @@ import type { BudgetManager } from '../../gate/budget/budget.js';
 import type { EngineTransport } from '../../dock/ports/events.js';
 import type { InterruptState } from '../../loop/interrupt/interrupt_types.js';
 import type { GraphRegistries } from '../../graph/registry/registry.js';
-import type { BranchMixer, Evaluator } from '../../kernel/simulation/simulation_types.js';
 import type { TurnMetrics } from '../../evolve/param_tuning/_turn_metrics.js';
 import type { SettleHooks } from '../../loop/turn_settle/index.js';
-import type { WorkflowSpec } from '../../model/workflow/workflow_types.js';
-import { DEFAULT_MAX_PLAN_STEPS } from '../../model/plan/plan.js';
-import { DEFAULT_MAX_SIMULATIONS } from '../../kernel/simulation/simulation.js';
 
 /**
  * RunOptions 构造选项（对齐 Python dataclass 关键字参：字段同名可选；
@@ -61,19 +57,9 @@ export class RunOptions {
    *  （reason=stop 语义由业务边决定）。 */
   error_on_exception: boolean = true;
 
-  /** 单次展开的子任务清单数量上限（成本护栏：清单超限即节点失败，防拆解爆炸）。 */
-  max_spawns: number = 16;
-
-  /** spawn 实例并发上限（fan_out 限流）。 */
-  spawn_concurrency: number = 4;
-
-  /** 子链嵌套深度上限（成本护栏：子图/实例/分支外再展开子单元时校验，超限即
+  /** 子链嵌套深度上限（成本护栏：子图/实例外再展开子单元时校验，超限即
    *  节点失败——fail-closed，防递归嵌套成本爆炸）。0 = 允许任意深度。 */
   spawn_max_depth: number = 2;
-
-  /** 子链执行步数上限（成本护栏：推演分支/多径支流/spawn 实例执行步数超限 =
-   *  该子单元失败（剔除，不静默提交）——fail-closed）。0 = 不校验。 */
-  simulate_max_branch_steps: number = 16;
 
   /** 执行回路护栏（成本护栏：纯静态边回路无可达出口时 compile 不拒绝，执行器
    *  按单节点访问次数兜底截止——不依赖预算钩子注入，0 = 不校验）。条件边驱动的
@@ -81,7 +67,7 @@ export class RunOptions {
    *  回路。 */
   max_cycle: number = 64;
 
-  /** 当前子链深度（内部传播字段：子图/实例/分支执行引擎经构造继承，作为嵌套
+  /** 当前子链深度（内部传播字段：子图/实例执行引擎经构造继承，作为嵌套
    *  校验的基准；非用户配置，由装配默认 0 = 根图）。 */
   spawn_depth: number = 0;
 
@@ -94,43 +80,11 @@ export class RunOptions {
    *  回合步骤序列（机制层默认空——不预置任何领域事件名）。 */
   system_events: ReadonlySet<string> = new Set<string>();
 
-  /** 运行时重规划（__plan__）配置：loose = 计划落在约束域内任意节点；
-   *  strict = 计划须满足约束域边序。 */
-  plan_policy: string = 'loose';
-
-  /** 计划步数上限（成本护栏，0 = 禁用计划）。 */
-  max_plan_steps: number = DEFAULT_MAX_PLAN_STEPS;
-
-  /** 工作流约束域（WorkflowSpec：计划节点/边须落在其内；null = 按图校验）。 */
-  plan_workflow: WorkflowSpec | null = null;
-
   /** 并行节点组并发上限。 */
   parallel_concurrency: number = 4;
 
-  /** 建图注册表（spawn 子图数据/计划条件的解析来源；null = 不启用数据形态）。 */
+  /** 建图注册表（声明式节点/条件边的解析来源；null = 不启用数据形态）。 */
   registries: GraphRegistries | null = null;
-
-  /** 分支评估器（null = 节点返回 __simulate__ 时拒绝）。 */
-  evaluator: Evaluator | null = null;
-
-  /** 分支调配策略（null = BestBranchMixer 单选）。 */
-  branch_mixer: BranchMixer | null = null;
-
-  /** 推演分支数上限（成本护栏，0 = 禁用）。 */
-  max_simulations: number = DEFAULT_MAX_SIMULATIONS;
-
-  /** 推演分支并发上限。 */
-  simulate_concurrency: number = 2;
-
-  /** 多径展开机制开关（引擎级：默认关 = 零触发）。开启后引擎把编排节点产出的
-   *  ``__multipath__`` 候选交给 MultipathRunner 执行（k≥2 支流并行 + 汇流裁决）；
-   *  关闭时同类数据按防御性单径降级（执行首候选，候选不静默丢弃）。由 runtime
-   *  装配层按配方开关注入（本字段不随子引擎传播——子链内多径以显式配置为准）。 */
-  multipath_enabled: boolean = false;
-
-  /** 换选分支序号（null = 正常择优）：回溯换选时强制改选指定分支——经
-   *  Engine.swap_branch 设置，重放期间决策点按该分支提交主线。 */
-  branch_pick: number | null = null;
 
   /*   * 回合指标聚合（引擎自承载的观测件）：注入后顶层 run 收尾时自动记录回合成败
    *  与错误摘要（角色槽调用由使用方按事件语义填报——引擎只采集

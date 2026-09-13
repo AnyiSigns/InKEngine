@@ -48,7 +48,13 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
 
 ## 装配与消费
 
-- guard 包装在 runtime 装配：`kernel/runtime/_runtime_engine` 以 `CompressingLLM`/`UsageTrackingLLM` 包装注入模型；`kernel/executor`（`_engine_parallel`/`_engine_execute_helpers`）在节点边界 set/reset `current_node_context`；`_node_context`/`_engine_base`/`run_subgraph` 经 `_guard_types` 视图持 `AsyncLLM`。
+- guard 无 runtime 默认装配：`CompressingLLM`/`UsageTrackingLLM` 为机制件
+  形态供装配侧按需包装（曾记「`kernel/runtime/_runtime_engine` 装配自动
+  包装注入模型」，该包装段已随 P8+S1 执行段瘦身移除，现 src 内无构造
+  点、仅镜像测试消费）；`graph/executor` 的 `_engine_execute_helpers`
+  （原 `_engine_parallel` 捕获/上下文段已随 P8+S1 折入该文件）在节点边界
+  set/reset `current_node_context`；`_node_context`/`_engine_base`/
+  `run_subgraph` 经 `_guard_types` 视图持 `AsyncLLM`。
 - core 侧：`graph/nodes`（llm_decider/router/agent/seams/tool_pipeline）经 `_guard_types` 视图消费 `AsyncLLM`、直用 `messages`/`tools`/`base.LLMParams`；`core/context`（window/compression）复用 `message_role`；`core/storage/storage_records` 复用 `Message`/`ToolCall`；tool_index/tool_orchestrator/harness/declarative_tools/self_tools/introspection 消费 `ToolSpec`。
 - hosts/lib：`host.ts` 单配置 `create_llm` 直建、多配置 `new ModelChain(...)`（fallback 链由 llm 层承载）；`bridge/rounds.ts` 用 `project_history_baseline` 重建分支/试跑基线。
 - `adapters/llm` 全部适配器（openai_compat/openai_response/anthropic）实现 base `AsyncLLM` 并注册于 adapters registry；重试唯一权威：适配器默认单次（内部重试关闭），`RetryPolicy` 是瞬时故障重试单一配置点，不叠加放大。

@@ -47,11 +47,14 @@ adapters/storage（sqlite 行还原 InterruptState.from_dict）接线。
 
 ## 装配与消费
 
-消费面最广的原语目录之一：executor 13 个分层文件（协调器持有于
-_engine_base、信号捕获贯穿 loop_front/loop_back/plan/parallel/spawn/
-simulate/multipath/run_subgraph）、core/storage/storage_records
-（CheckpointRecord.interrupt 字段）、core/run_result（type 形态）、
-multipath runner、adapters/storage（sqlite_checkpoints 行→InterruptState）。
+消费面最广的原语目录之一：`graph/executor`（协调器持有于 _engine_base、
+信号捕获于 _engine_execute_helpers；原 loop_front/loop_back/plan/parallel/
+spawn/simulate/multipath/run_subgraph 多点捕获中，plan/parallel/spawn/
+simulate/multipath 捕获面已随 P8+S1 展开段退役收敛），`model/storage`
+（storage_records/interrupt_state：CheckpointRecord.interrupt 字段）、
+core/run_result（type 形态）、adapters/storage（sqlite_checkpoints 行→
+InterruptState）；原 multipath runner 消费与 `kernel/multipath/_runner_base`
+已随 P8+S1 展开段退役删除。
 
 ## 不变式与门禁
 

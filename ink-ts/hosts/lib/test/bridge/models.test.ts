@@ -355,7 +355,7 @@ describe('policy.route（确定性路由预览）', () => {
     for (const handle of list) await handle.dispose();
   });
 
-  it('开发强信号优先；直答无关键词；tier 白名单校验', async () => {
+  it('开发强信号优先；直答无关键词；tier 透传（推演档位语义已退役）', async () => {
     const ctx = tempContext();
     const handle = await createHost(
       { data_dir: ctx.dir, events_dir: ctx.events });
@@ -391,9 +391,12 @@ describe('policy.route（确定性路由预览）', () => {
     )) as { kind: string };
     expect(direct.kind).toBe('direct_answer');
 
-    await expect(
-      handle.bridge.get('policy.route')!({ text: 'x', tier: 'max' }, { autoApprove: false }),
-    ).rejects.toMatchObject({ code: 'invalid_params' });
+    // 推演档位语义已随推演机制退役（P8+S1）：tier 仅透传回显，不再白名单校验
+    const passthrough = (await handle.bridge.get('policy.route')!(
+      { text: 'x', tier: 'max' },
+      { autoApprove: false },
+    )) as { kind: string; policy: { tier: string } };
+    expect(passthrough.policy.tier).toBe('max');
     await expect(
       handle.bridge.get('policy.route')!({ tier: 'light' }, { autoApprove: false }),
     ).rejects.toMatchObject({ code: 'invalid_params' });

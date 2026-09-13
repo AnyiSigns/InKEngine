@@ -8,7 +8,7 @@
  *
  * 本文件承载入口装配：每轮执行独立计数/seq 锚点/回路护栏/轨迹复位、
  * 恢复解析（checkpoint 快照 + 增量日志重放）、节点上下文构造、恢复起点
- * 定位（中断/异常/正常/计划 checkpoint 的重入判据）与收尾（挂起卡事件/
+ * 定位（中断/异常/正常 checkpoint 的重入判据）与收尾（挂起卡事件/
  * 终态 checkpoint/RunResult）。循环单迭代的前/后半段见 _engine_loop_front/
  * _engine_loop_back（按 Python 方法边界拆分，语义零变化）。
  *
@@ -16,12 +16,8 @@
  * - 中断 checkpoint（reason=interrupted）：重入中断节点（注入值分支）；
  * - 异常 checkpoint（reason=error）：重入失败节点（该节点未完成，恢复即
  *   重试；error_on_exception=False 的跳过语义不落 error 终态）；
- * - 正常 checkpoint（节点已完成）：从已完成节点的下一节点继续；
- * - 计划 checkpoint：从计划的剩余步骤续跑（工作步中断 = 重入计划步本身，
- *   顺序节点步中断 = 重入该节点——显式 work_step 标记优先，旧存档回落
- *   节点名判据兼容）。
+ * - 正常 checkpoint（节点已完成）：从已完成节点的下一节点继续。
  */
-import { Plan } from '../../model/plan/plan.js';
 import { RunOptions, RunResult } from '../../core/run_result/run_result.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import { InterruptState } from '../../model/storage/interrupt_state.js';
@@ -34,13 +30,7 @@ import { EngineLoopBack } from './_engine_loop_back.js';
 import type { EngineBase, ExecuteOptions } from './_engine_base.js';
 import { _install_subgraph_runners } from './run_subgraph.js';
 import { LoopState } from './_loop_types.js';
-import {
-  _locate_next,
-  _node_in_plan_steps,
-  _now_epoch,
-  _plan_snapshot_is_work_step,
-  _select_next_node,
-} from './_internals.js';
+import { _now_epoch, _select_next_node } from './_internals.js';
 
 /**
  * 执行引擎实例（分层链叶节点：字段/事件/轨迹/入口/实例/checkpoint/展开/
@@ -147,30 +137,13 @@ export class Engine extends EngineLoopBack {
 
     // ── 恢复起点定位（见文件头注）──────────────────────────────────────
     let skip_first_node = false;
-    let plan_pending = false;
-    let active_plan: Plan | null = null;
     if (continue_chain) {
       // 新回合续链：从图入口执行，不做链尾节点定位（recovery 契约：链尾仅
       // 作状态基底——图是数据可被任意修改，从入口执行只依赖 entry 契约）
     } else if (last_checkpoint !== null && last_checkpoint.node) {
       if (last_checkpoint.reason === 'interrupted' || last_checkpoint.reason === TerminateReason.ERROR) {
+        // 中断/失败重入该节点（该节点未完成）
         current = last_checkpoint.node;
-        // 中断/失败发生在计划执行中：计划快照随 checkpoint 落盘——工作步
-        // 中断 = 重入计划步本身（plan_pending 直达计划推进）；顺序节点步 =
-        // 重入该节点。显式 work_step 标记优先，旧存档回落节点名判据。
-        if (last_checkpoint.plan !== null && this.options.max_plan_steps > 0) {
-          active_plan = Plan.fromDict(last_checkpoint.plan as unknown as Record<string, unknown>);
-          if (
-            _plan_snapshot_is_work_step(last_checkpoint.plan as unknown as Record<string, unknown> | null) ||
-            !_node_in_plan_steps(current, active_plan)
-          ) {
-            plan_pending = true;
-          }
-        }
-      } else if (last_checkpoint.plan !== null && this.options.max_plan_steps > 0) {
-        // 普通计划 checkpoint：产出节点已完成，直接从计划剩余步骤续跑
-        active_plan = Plan.fromDict(last_checkpoint.plan as unknown as Record<string, unknown>);
-        plan_pending = true;
       } else {
         const nxt = await _select_next_node(graph, ctx, last_checkpoint.node);
         if (nxt !== null) {
@@ -198,8 +171,6 @@ export class Engine extends EngineLoopBack {
       first_timeline_emit,
     });
     ls.skip_first_node = skip_first_node;
-    ls.plan_pending = plan_pending;
-    ls.active_plan = active_plan;
     ls.events_before = this._event_counter;
 
     // ── 主循环（单迭代 = 前/后半段；前/后半段按 'break' 信号收敛）──
@@ -222,17 +193,8 @@ export class Engine extends EngineLoopBack {
       await ctx.emit('review_card', cardPayload as Record<string, unknown>);
     }
 
-    // ── 终态 checkpoint（携带终止原因/异常快照/计划快照，入轨迹与审计）──
+    // ── 终态 checkpoint（携带终止原因/异常快照，入轨迹与审计）──
     if (storage !== null) {
-      let plan_snapshot: Record<string, unknown> | null = null;
-      if (ls.active_plan !== null) {
-        plan_snapshot = ls.active_plan.toDict();
-        if (ls.work_step_signal) {
-          // 工作步内中断/失败标记：恢复时据此重入计划步本身（显式信号，
-          // 不依赖 checkpoint.node 的节点名猜测）
-          plan_snapshot = { ...plan_snapshot, work_step: true };
-        }
-      }
       const written = await this._write_checkpoint({
         storage,
         thread_id,
@@ -247,7 +209,6 @@ export class Engine extends EngineLoopBack {
         // 挂起卡状态随终态快照持久化：reason=interrupted 时携带中断键与卡
         // 负载（续流恢复定位锚点，宿主据此注入决策值）
         interrupt: ls.interrupt_state,
-        plan: plan_snapshot as JsonRecord | null,
       });
       last_checkpoint = written[0];
     }

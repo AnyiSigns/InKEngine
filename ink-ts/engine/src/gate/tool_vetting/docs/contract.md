@@ -30,7 +30,7 @@ MCP/外挂工具挂载前的可信度闸门（`tool_vetting.py` 移植）：清�
 `VettingVerdict`；函数 `code_files_exist`；类型 `FsSeam`/`ShadowExecutor`/
 `StaticHook`/`ToolSourceValue`。`_types.ts` 另导出 `pyRepr`（未随
 `tool_vetting.ts` 转出）。机制契约 `tool_vetting_contract` 经
-`dock/registry/contracts.ts` 入全量注册表（31 机制）。
+`dock/registry/contracts.ts` 入全量注册表（28 机制）。
 
 ## 数据形态
 

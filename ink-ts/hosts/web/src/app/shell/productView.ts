@@ -10,7 +10,7 @@ import type { BackendAdapter, ModelArchiveSnapshot, SessionBranchTree } from '@/
 import type { ApprovalPose } from '@/shared/backend/backendAdapter';
 import type { ChannelHub } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
-import type { InkMessage, RoundStep, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage, RoundStep } from '@/shared/session/types';
 import type { AttachmentAsset } from '@/shared/session/eventIngest';
 import type { SpawnInstance } from '../../../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../../../plugins/ui_features/task_capsule/faces/ui/types';
@@ -33,7 +33,6 @@ export interface ProductShellModel {
   streaming: boolean;
   entries: InkMessage[];
   roundSteps: RoundStep[];
-  simulations: SimulationBranch[];
   incubation: import('@/shared/session/types').IncubationEntry[];
   patchChain: import('@/shared/session/types').PatchChainEntry[];
   pendingReview: Record<string, unknown> | null;

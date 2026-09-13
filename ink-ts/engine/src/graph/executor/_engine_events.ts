@@ -1,6 +1,6 @@
 /**
  * 引擎事件发布/状态修补面（executor.py Engine 的事件发布、外部状态补丁、
- * 公开发射、链级 rebase 与决策锚点段移植）。
+ * 公开发射与链级 rebase 段移植）。
  *
  * 事件发布纪律：
  * - 落执行日志（append-only，拿 seq）→ 推送全部传输；存储/传输消费失败
@@ -15,7 +15,6 @@
  * 日志（seq 全局）、推送同一传输链——缺孔只能由全局协调器补齐。
  */
 import { CheckpointRecord } from '../../model/storage/storage_records.js';
-import type { ChainLink } from '../../model/storage/storage_records.js';
 import type { Storage } from '../../dock/ports/storage.js';
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import type { InterruptState } from '../../model/storage/interrupt_state.js';
@@ -212,31 +211,6 @@ export abstract class EngineEvents extends EngineBase {
           `改写链头 ${outcome.rewired} 个、裁剪事件 ${outcome.trimmed} 条`,
       );
     }
-  }
-
-  /**
-   * 定位最近一次决策点执行前的恢复锚点（换选辅助）。
-   *
-   * 决策事件（simulate_decision）在事件流中记录决策点位置；锚点 = 该事件
-   * seq 之前的最后一个 checkpoint（事件流与版本链同序对齐，恢复 = 快照 +
-   * 增量重放，锚点取决策前的快照才可重演决策点）。null = 无决策点留痕。
-   */
-  static async decision_anchor(storage: Storage, thread_id: string): Promise<number | null> {
-    const events = await storage.events_after(thread_id, 0);
-    let anchor_seq: number | null = null;
-    for (const event of events) {
-      if (event.type === 'simulate_decision') {
-        anchor_seq = event.seq;
-      }
-    }
-    if (anchor_seq === null) return null;
-    let best: ChainLink | null = null;
-    for (const link of await storage.chain_index(thread_id)) {
-      if (link.event_seq < anchor_seq && (best === null || link.event_seq > best.event_seq)) {
-        best = link;
-      }
-    }
-    return best !== null ? best.checkpoint_id : null;
   }
 }
 

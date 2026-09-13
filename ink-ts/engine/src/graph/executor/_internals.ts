@@ -2,8 +2,8 @@
 /**
  * 执行引擎内部件（executor.py 移植——模块级机制/数据形态层）。
  *
- * 承载内部传输与协调器（_QueueTransport/_TransportSequencer）、计划步
- * 数据形态（_PlanAdvance/_PlanWorkOutcome）、节点协议（NodeContext）、并发
+ * 承载内部传输与协调器（_QueueTransport/_TransportSequencer）、并行组
+ * 结果数据形态（_PlanWorkOutcome）、节点协议（NodeContext）、并发
  * 原语（_Mutex/_AsyncQueue）、边/出口定位与恢复判据纯函数，以及确定性 seam
  * （id/时钟）。执行语义集中在 Engine（engine_* 分层）与 _NodeContextImpl。
  *
@@ -18,7 +18,6 @@ import type { Graph } from '../../model/graph/graph.js';
 import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { InterruptState } from '../../model/storage/interrupt_state.js';
 import { strip_sensitive } from '../../model/storage/sensitive.js';
-import type { Plan } from '../../model/plan/plan.js';
 import type { StateSchema } from '../../core/state/schema.js';
 import type { ResumeMap } from '../../loop/recovery/recovery_types.js';
 
@@ -179,30 +178,10 @@ export class _TransportSequencer {
   }
 }
 
-// ── 计划步数据形态（引擎内部传递用，镜像 Python dataclass）─────────────
+// ── 并行组结果数据形态（引擎内部传递用，镜像 Python dataclass）──────────
 
 /**
- * 计划游标推进结果。node: 待执行节点（null = 无产出）；plan: 推进后计划
- * （null = 耗尽/终止）；state: 合并后状态；reason/error: 终止信号；
- * interrupt: 计划步内中断；parent_id/fork_write: 链写状态。
- */
-export class _PlanAdvance {
-  node: string | null = null;
-  plan: Plan | null = null;
-  state: Record<string, unknown> = {};
-  reason: string | null = null;
-  error: string | null = null;
-  interrupt: InterruptState | null = null;
-  parent_id: number | null = null;
-  fork_write = false;
-
-  constructor(init: Partial<_PlanAdvance> = {}) {
-    Object.assign(this, init);
-  }
-}
-
-/**
- * 计划工作步（并行组/spawn）执行结果与控制流信号。
+ * 并行组批量执行结果与控制流信号。
  * overlay 与三种控制流信号互斥：有信号 = 本步未完成；无信号 = 本步完成。
  */
 export class _PlanWorkOutcome {
@@ -221,7 +200,7 @@ export class _PlanWorkOutcome {
 /**
  * 节点运行时上下文协议（graph.py NodeContext 的移植面）。节点函数经 ctx
  * 访问状态/发射事件/声明中断与终止；协议只钉住节点需要的读写面，执行器
- * 内部实现（_NodeContextImpl）扩展内部状态（spawn 收集清单/装配缓存等）。
+ * 内部实现（_NodeContextImpl）扩展内部状态（装配缓存等）。
  */
 export interface NodeContext {
   readonly state: Record<string, unknown>;
@@ -241,8 +220,6 @@ export interface NodeContext {
   interrupt(review_key: string, payload: Record<string, unknown>): Promise<unknown>;
   /** 读取链尾挂起卡负载（重入场景；无存储/无命中返回 null）。 */
   get_interrupt_payload(review_key: string): Promise<Record<string, unknown> | null>;
-  /** 命令式收集子图实例清单项（返回后由引擎统一展开）。 */
-  spawn(subgraph: unknown, state: Record<string, unknown>, opts?: { index?: number | null }): void;
   /** 结点执行边界 token 计账（LLM usage 帧 → 当前结点，纯算法）。 */
   account_usage(usage: Record<string, unknown> | null): void;
   /** 声明终止（校验延迟到执行器检查点）。 */
@@ -320,19 +297,6 @@ export async function _locate_next(
     return [TerminateReason.REPLY, null];
   }
   return [null, nxt];
-}
-
-/**
- * 节点是否属于计划步骤的节点集合（恢复定位的兜底判据：旧存档无显式工作步
- * 标记时使用；新写 checkpoint 携带显式 work_step 标记，不再依赖猜测）。
- */
-export function _node_in_plan_steps(node: string, plan: Plan): boolean {
-  return plan.steps.some((step) => step.nodes.includes(node));
-}
-
-/** 计划快照是否带工作步标记（并行组/spawn 步内中断/失败的显式信号）。 */
-export function _plan_snapshot_is_work_step(plan: Record<string, unknown> | null): boolean {
-  return plan !== null && plan['work_step'] === true;
 }
 
 /** resume_map 键编码：graph_path 的 JSON 序列化（recovery 模块同口径）。 */

@@ -14,5 +14,5 @@
   - 目录内：patchChain.ts ← types.ts（`Json`/`Patch`/`PatchOp`/`Path`/`ASSEMBLE_MODE_VALUES`）
 - 下游（实际 import 本目录）：
   - 数据面/残部：`model/storage/storage_records.ts`、`core/state/schema.ts`、`core/state/reducers.ts`、`core/harness/repository.ts`（`PatchChain`/`Patch`）、`core/knowledge_set/`
-  - 残部/演化：`kernel/simulation/simulation.ts`、`evolve/legacy/self_application/set_patch_chain.ts`、`evolve/legacy/self_application/apply_flow.ts`、`evolve/proposal/evolution_writer/evolution_writer.ts`、`loop/runtime/_runtime_boot.ts`、`loop/recovery/recovery.ts`；契约入 `dock/registry/contracts.ts`（`patch_contract` 入 31 项全量契约清单）
+  - 演化/runtime：`evolve/legacy/self_application/set_patch_chain.ts`、`evolve/legacy/self_application/apply_flow.ts`、`evolve/proposal/evolution_writer/evolution_writer.ts`、`loop/runtime/_runtime_boot.ts`（`kernel/simulation/simulation.ts` 与 `loop/recovery/recovery.ts` 消费已随 P8+S1 展开段退役删除）；契约入 `dock/registry/contracts.ts`（`patch_contract` 入 28 项全量契约清单）
   - hosts 侧无直接 import（经 `@ink-ts/engine` 公共面，汇出落在 `dock/index.ts:106` `export * from '../gate/patch/patchChain.js'`）

@@ -6,7 +6,8 @@
 
 机制件装配闭集的注册表与密封器：机制件不是插件（插件走 CapabilityComponent），
 机制件走独立 `MechanismContract` 契约（每机制一份、落各机制层
-`<mechanism>/contract.ts`，跨 kernel/graph/gate/loop/evolve 现 31 份，
+`<mechanism>/contract.ts`，跨 graph/gate/loop/evolve 四机制层现 28 份，
+kernel 层三契约（simulation/multipath/spawn）已随 P8+S1 展开段退役清零，
 id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配序（机制端口词表
 真源 = `engine/src/dock/ports.ts`，effects/depends 命名空间单一事实源，
 不在本目录）——boot 组密封与 verify:mechanisms 三键校验
@@ -20,10 +21,10 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 | `contract_types.ts` | `MechanismContract`/`MechanismRegistryOptions`/`SealedMechanismRegistry` 契约类型 |
 | `ports.ts`（已迁 `dock/ports.ts`） | 机制端口 id 规范常量（`PORT_*` + `MECHANISM_PORT_IDS`）——现居 `engine/src/dock/ports.ts`，不在本目录 |
 | `registry.ts` | `validate_mechanism_registry`/`find_cycles`/`seal_mechanism_registry`/`topo_order` |
-| `contracts.ts` | `ALL_MECHANISM_CONTRACTS` 单一真源聚合（31 项，只 re-export 不加边；path_assembler/pool_governance/thread_skeleton 契约已随组装链路退役删除，W7-B） |
+| `contracts.ts` | `ALL_MECHANISM_CONTRACTS` 单一真源聚合（28 项，只 re-export 不加边；path_assembler/pool_governance/thread_skeleton 契约已随组装链路退役删除（W7-B），simulation/multipath/spawn 契约已随 P8+S1 展开段退役删除） |
 
 注：任务口径中的 registry `contract.ts` 实际不存在——机制契约 `contract.ts` 落在
-各机制层目录（31 份），本目录只有契约类型 `contract_types.ts` 与聚合
+各机制层目录（28 份），本目录只有契约类型 `contract_types.ts` 与聚合
 `contracts.ts`。
 
 ## 对外契约面
@@ -43,7 +44,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
   `PORT_EXEC_ENVELOPE`='exec_envelope'（子进程/沙箱执行端口）、
   `PORT_ROUNDS`='rounds_port'（回合端口：组装回合/恢复/审批重入，插件 depends
   可依赖）、`MECHANISM_PORT_IDS`（以上 4 项清单）。
-- 全量契约：`ALL_MECHANISM_CONTRACTS`（31 项，id 与目录同集）。
+- 全量契约：`ALL_MECHANISM_CONTRACTS`（28 项，id 与目录同集）。
 - 公共面导出情况：本目录导出面**不在** `src/index.ts` 公共面（该文件无任何
   `dock/registry` re-export 行）——属引擎内部面。消费方 = engine src 内部 +
   `engine/scripts/verify_mechanisms.ts` + `plugins/scripts/verify_unload.ts`
@@ -79,7 +80,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
   `runtime_contract`；端口词表 `MECHANISM_PORT_IDS` 现经 `engine/src/dock/ports.ts`
   取用、本目录不再转出——依赖单向（密封）、装配
   完整（runtime depends 闭包 ∪ 自足叶子 = 全量）、0-IO。
-- 契约声明侧：31 个机制件 `contract.ts` 经 `contract_types.js` 取
+- 契约声明侧：28 个机制件 `contract.ts` 经 `contract_types.js` 取
   `MechanismContract` 类型；其中 13 个（audit_log/executor/growth/llm/
   evolution_writer/multipath/recovery/runtime/
   settle/self_application/skill_crystal/sandbox/builder）另取
@@ -109,7 +110,7 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 - `registry.test.ts` — 样板契约（audit_log）通过校验进装配序；重复 id/未知
   依赖（外部名单放行 `rounds_port`）/自环/循环拒绝（seal 抛错）；拓扑序 =
   被依赖者先。
-- `contracts_registry.test.ts` — 全量 31 机制契约：id 全局唯一且与目录同集、
+- `contracts_registry.test.ts` — 全量 28 机制契约：id 全局唯一且与目录同集、
   effects 只引用已登记端口、全量依赖图无环、`runtime_contract.depends` 全部
   有契约（装配闭集完整）。
 
@@ -118,8 +119,8 @@ id = 目录名）。本目录提供契约类型、依赖图校验与拓扑装配
 以下为通读逐条核实的事实，不推测动机：
 
 - `MechanismRegistryOptions`（`effectAllowlist`/`externalDeps`）全仓零消费（仅定义与转出）：`validate_mechanism_registry`/`seal_mechanism_registry` 直接收 `externalDeps: readonly string[]` 数组参数，不经选项对象；其注释描述的「effects 白名单校验」在 registry.ts 未实现——effects ⊆ `MECHANISM_PORT_IDS` 的校验实际落在 `scripts/verify_mechanisms.ts` 与镜像测试。
-- `MechanismContract.inject?` 注释「boot 密封时调用一次，宿主装配期注入端口实现」：`seal_mechanism_registry` 只校验并返回契约表/拓扑序，不调用 inject；31 份 contract.ts 无一定义 inject；全仓无 `.inject(` 调用点（interrupt/executor 测试中的 `inject` 属 InterruptCoordinator，另一机制）——该声明契约无执行路径。
-- `MechanismContract.contract.inputs?/outputs?` 可选字段：31 份 contract.ts 无一定义使用（仅 audit_log 注释提及「声明期不固化」）——形状声明面未见消费。
+- `MechanismContract.inject?` 注释「boot 密封时调用一次，宿主装配期注入端口实现」：`seal_mechanism_registry` 只校验并返回契约表/拓扑序，不调用 inject；28 份 contract.ts 无一定义 inject；全仓无 `.inject(` 调用点（interrupt/executor 测试中的 `inject` 属 InterruptCoordinator，另一机制）——该声明契约无执行路径。
+- `MechanismContract.contract.inputs?/outputs?` 可选字段：28 份 contract.ts 无一定义使用（仅 audit_log 注释提及「声明期不固化」）——形状声明面未见消费。
 - `find_cycles` 具名导出无外部消费方（仅 `validate_mechanism_registry` 内部使用；镜像测试与 verify 脚本均未 import）。
 - `topo_order` 对含环契约集按 Kahn 算法静默省略环成员及其下游（不报错）；自环同样不入环检测（单结点 SCC 不记）——防环完全依赖调用方先走 `validate_mechanism_registry`/`seal_mechanism_registry`，函数本身无环守卫。
 - `PORT_ROUNDS` 常量无直接 import 方（仅经 `MECHANISM_PORT_IDS` 间接消费）；`registry.test.ts` 的外部名单示例用字面量 `'rounds_port'` 而未引用该常量。

@@ -1,19 +1,16 @@
-/**
+﻿/**
  * 执行器注入的节点上下文实现（executor.py ``_NodeContextImpl`` 移植）。
  *
  * 节点上下文把引擎的发射/中断/终止/计账能力接线到节点函数：
  * - emit/interrupt/terminate 挂载引擎 publish 与中断协调器（共享同一
- *   coordinator：子图/spawn 实例内的 interrupt 重入与父图同一通道）；
- * - spawn 命令式收集（ctx.spawn 追加清单，节点返回后统一展开）；
+ *   coordinator：子图/实例内的 interrupt 重入与父图同一通道）；
  * - account_usage 结点边界 token 计账（LLM usage 帧 → 当前结点成本账）。
  *
  * 内部形态（对齐 Python 私有面，供执行器在同模块族内读写）：
- * - ``_spawns`` 命令式 spawn 收集清单（节点边界复位、返回后统一展开）；
  * - ``_terminated`` 终止声明标记（节点边界复位，校验延迟到执行器检查点）；
  * - ``_transports`` 事件传输链（构造注入；缺省 = 引擎 options 默认）。
  */
 
-import { SpawnSpec } from '../../kernel/spawn/spawn.js';
 import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { interrupt_key_matches } from '../../loop/interrupt/interrupt.js';
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
@@ -44,15 +41,13 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 export class _NodeContextImpl implements NodeContext {
   /** 当前结点名（节点边界由执行器设置；并行成员构造后赋值）。 */
   node: string | null;
-  /** 命令式 spawn 收集清单（节点内 ctx.spawn 追加，返回后统一展开）。 */
-  _spawns: SpawnSpec[] = [];
   /** 终止声明标记（声明终止；校验延迟到执行器检查点）。 */
   _terminated: string | null = null;
   /** 事件传输链（构造注入；缺省 = 引擎 options 默认）。 */
   _transports: EngineTransport[];
   /** 嵌套子图恢复锚点表（graph_path → checkpoint_id）。 */
   resume_map: ResumeMap;
-  /** 轨迹树父引用（推演分支/子任务事件指向决策点/父任务步骤）。 */
+  /** 轨迹树父引用（子任务事件指向父任务步骤）。 */
   parent_step_id: string | null;
   /** 节点边界步数计数（预算策略可按 ctx.step_count 按步数终止）。 */
   step_count = 0;
@@ -177,19 +172,6 @@ export class _NodeContextImpl implements NodeContext {
     return null;
   }
 
-  spawn(subgraph: unknown, state: Record<string, unknown>, opts: { index?: number | null } = {}): void {
-    // 命令式子任务收集（便捷封装）：登记一个子图实例清单项。与数据驱动
-    // 形态（节点返回值携带 ``__spawn__`` 键）等价——引擎在节点返回后
-    // 统一展开收集的清单。index 缺省按收集顺序自动分配。
-    this._spawns.push(
-      new SpawnSpec({
-        subgraph: subgraph as Graph,
-        state: { ...state },
-        index: opts.index !== null && opts.index !== undefined ? opts.index : this._spawns.length,
-      }),
-    );
-  }
-
   async run_agent_scope(
     subgraph: Graph,
     opts: {
@@ -200,9 +182,8 @@ export class _NodeContextImpl implements NodeContext {
   ): Promise<Record<string, unknown> | null> {
     // agent 结点子作用域展开（子图通道的同步单分支形态）：沿当前图内联
     // 执行子图、结果并入父状态——执行细节集中在 run_subgraph.run_agent_scope
-    // （复用嵌套子图的 schema/回流/checkpoint 口径；与 spawn 的关系与取舍
-    // 见 run_subgraph.ts 文件头注）。scope_llm 随本次展开注入子作用域
-    // ctx（子作用域内 llm 调用点优先消费）。
+    // （复用嵌套子图的 schema/回流/checkpoint 口径）。scope_llm 随本次展开
+    // 注入子作用域 ctx（子作用域内 llm 调用点优先消费）。
     return _run_agent_scope(subgraph, this, {
       scope_llm: opts.scope_llm ?? null,
       entity_id: opts.entity_id ?? null,

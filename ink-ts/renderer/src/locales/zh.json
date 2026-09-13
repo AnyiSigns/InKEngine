@@ -16,13 +16,11 @@
   "common.cancel": "取消",
   "common.confirm": "确定",
   "message.empty": "消息流为空",
-
   "topbar.tab.chat": "对话",
   "topbar.tab.evolution": "状态",
   "topbar.tab.trajectory": "轨迹",
   "topbar.rename": "重命名会话",
   "topbar.untitled": "未命名会话",
-
   "leftrail.workspace": "工作区",
   "leftrail.authorized": "已授权",
   "leftrail.switch_dir": "更换目录",
@@ -32,7 +30,6 @@
   "leftrail.settings": "设置",
   "leftrail.expand": "展开侧栏",
   "leftrail.collapse": "收起侧栏",
-
   "rightrail.new_session": "新会话",
   "rightrail.search": "搜索会话",
   "rightrail.expand": "展开会话列表",
@@ -51,12 +48,10 @@
   "rightrail.branch_from": "由此分支",
   "rightrail.delete": "删除",
   "rightrail.actions": "会话操作",
-
   "time.just_now": "刚刚",
   "time.minutes": "分钟",
   "time.hours": "小时",
   "time.days": "天",
-
   "input.need_model": "请先配置模型",
   "input.goto_settings": "前往设置",
   "input.placeholder": "给智能体发消息",
@@ -80,7 +75,6 @@
   "input.char_count": "{n} 字",
   "input.abort": "中止",
   "input.send": "发送",
-
   "settings.close": "关闭设置",
   "settings.no_items": "该节暂无配置项。",
   "settings.section.general": "通用",
@@ -99,14 +93,12 @@
   "settings.section.tools": "工具",
   "settings.section.workspace": "工作区授权",
   "settings.section.ui_editor": "界面编辑器",
-
   "settings.item.plugins": "插件",
   "settings.item.hint.plugins": "插件目录 + 常驻必带 / 界面组件 / 服务启停",
   "settings.item.workspace_auth": "授权目录",
   "settings.item.ui_editor_host": "界面树编辑器",
   "settings.item.hint.workspace_auth": "workspace.state / workspace.set / workspace.revoke",
   "settings.item.hint.ui_editor_host": "inspect_ui 拉取 setLiveSpec；产物到补丁链落链可回退",
-
   "settings.on": "开",
   "settings.off": "关",
   "settings.custom_note": "自定义控件需配合 render 使用。",
@@ -115,7 +107,6 @@
   "settings.saved": "已保存",
   "settings.save_failed": "保存失败",
   "settings.read_failed": "读取失败",
-
   "backup.section": "备份",
   "backup.mode.export": "导出",
   "backup.mode.restore": "恢复",
@@ -137,7 +128,6 @@
   "backup.result.restore_failed": "恢复失败",
   "backup.result.reset_done": "已重置",
   "backup.result.reset_failed": "重置失败",
-
   "edge.trust.observe": "观察",
   "edge.trust.normal": "常规",
   "edge.trust.promoted": "转正",
@@ -158,7 +148,6 @@
   "edge.tau": "τ 阈值",
   "edge.promotion_trace": "晋升留痕",
   "edge.downgrade": "人工降级",
-
   "memory.title": "记忆",
   "memory.empty": "尚无记忆，使用后会逐渐积累",
   "memory.save": "保存",
@@ -174,7 +163,6 @@
   "memory.source.round_liquid": "round_liquid 提取",
   "memory.source.manual": "人工录入",
   "memory.source.seed": "种子数据",
-
   "insight.type.junction_verdict": "汇流裁决",
   "insight.type.junction_verdict_audit": "汇流裁决审计",
   "insight.type.policy_edge_review": "策略边复审",
@@ -214,7 +202,6 @@
   "insight.detail.trace": "trace",
   "insight.detail.thread": "线程",
   "insight.list_prefix": "：",
-
   "tools.auto_approve": "自动审批",
   "tools.introspective": "内省",
   "tools.self_referential": "自指",
@@ -256,16 +243,13 @@
   "tools.setting_failed": "常驻必带设置失败：{e}",
   "tools.tier_set_failed": "档位设置失败：{e}",
   "tools.auto_approve_set_failed": "自动审批设置失败：{e}",
-
   "tools.rounds_title": "回合工具上限",
   "tools.rounds_hint": "单回合最多工具调用次数（1-200，保存即生效）",
   "tools.rounds_invalid": "回合工具上限须为 1-200 的整数",
   "tools.rounds_set_failed": "回合工具上限设置失败：{e}",
   "tools.rounds_saved": "回合工具上限已保存（引擎已重建）",
-
   "plugins.title": "插件",
   "plugins.search_placeholder": "搜索工具（名称/中文标签）",
-
   "message.knowledge_hit": "知识检索 · 已放行 · {n} 条相关记忆",
   "message.device_sense": "设备感知",
   "message.device_action": "设备操作",
@@ -296,9 +280,6 @@
   "message.spawn": "子代理",
   "message.spawn_running": "执行中",
   "message.open_panel": "打开面板",
-  "message.simulations": "推演分支",
-  "message.candidate_paths": "{n} 条候选路径",
-  "message.selected": "已选",
   "message.round_fail": "本轮运行失败",
   "message.attachment": "附件",
   "message.system": "系统消息",
@@ -307,7 +288,6 @@
   "message.media_unregistered": "未登记媒体渲染器",
   "message.copy": "复制",
   "message.all_steps": "全部步骤 ({n})",
-
   "execution.title": "执行树",
   "execution.outcome.success": "成功",
   "execution.outcome.failure": "失败",

@@ -26,7 +26,7 @@
 
 - 目录汇出口 `index.ts`：`RoundSteps`；常量 `COUNTED_KINDS`/`MEMORY_ATTACH_KINDS`/`REPLY_COUNT_KEY`/`REPLY_JOIN_SEPARATOR`/`STEP_ID_MAX_CHARS`；类型 `NodeExtra`/`NodeProgress`/`StepRecord`。
 - 公共面（经 `src/index.ts`→`dock/index.ts` 收口，锚点 `dock/index.ts:235`）逐名核对：**仅** `export type { StepRecord } from '../loop/round_steps/index.js'`——`RoundSteps` 主类、5 个常量、`NodeExtra`/`NodeProgress` 均不在 `@ink-ts/engine` 公共面。
-- 机制端口契约：`round_steps_contract = { id: 'round_steps', contract: { effects: [] }, depends: [] }`——纯内存步骤累积数据面；经 `dock/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（31 项全量清单）。
+- 机制端口契约：`round_steps_contract = { id: 'round_steps', contract: { effects: [] }, depends: [] }`——纯内存步骤累积数据面；经 `dock/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（28 项全量清单）。
 
 ## 数据形态
 

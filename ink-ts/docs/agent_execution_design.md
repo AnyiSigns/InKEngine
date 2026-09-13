@@ -307,7 +307,7 @@
 | 汇聚点 | 唯一面向用户收敛通道 | 每个执行体各自出口 |
 | 轨迹 | 执行经过的 scope×channel 序列 | 图快照 |
 | 隔离试跑 | 隔离试跑基座（双挂载）：执行期决策择优（择优回传）+ 演化采纳前验证闸（仅回传决策）；旧稿通道名「推演」= 择优回传 | 普通执行、正式证据 |
-| 推演（旧稿词，退役中） | 旧稿「推演/多径（simulation/multipath）」语义按 §三 通道提交契约三分承接；`kernel/simulation`、`kernel/multipath` 残部机制件随 P8+S1 退役，现机制统一称「隔离试跑（trial）」 | 与隔离试跑并立的现役在线机制；独立多径功能 |
+| 推演（旧稿词，已随 P8+S1 退役） | 旧稿「推演/多径（simulation/multipath）」语义按 §三 通道提交契约三分承接；`kernel/simulation`、`kernel/multipath` 残部机制件已随 P8+S1 展开段退役，现机制统一称「隔离试跑（trial）」 | 与隔离试跑并立的现役在线机制；独立多径功能 |
 | 演化 | 离线受控资产变更（scope/channel/先验/短路/下架），基于主执行组织档案择优 | 隔离试跑（在线/试跑） |
 | 组织档案 | 组织模式（scope×channel）统计 | 会话结构档案 |
 | 投影 | 轨迹/作用域组织的可视化 | 执行依赖 |
@@ -420,7 +420,8 @@
 ## 十二、落地状态
 
 > 2026-09-12（W1–W8 全落地后逐项回填，数字对码核实；基线终检 = engine 244 测试文件
-> /2592 passed/2 skipped、hosts/lib 42 文件/282 passed/0 failed、机制契约 31 项、
+> /2592 passed/2 skipped、hosts/lib 42 文件/282 passed/0 failed、机制契约现 28 项（终检
+> 后 simulation/multipath/spawn 三契约随 P8+S1 退役）、
 > 插件 146 = command 64 + tool 42 + ui_feature 32 + mcp 5 + endpoint 3；来源：
 > vitest 双根 + `verify_mechanisms` + `sync_plugin_manifest --check`，7F 复核复现）。
 

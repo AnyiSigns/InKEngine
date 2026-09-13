@@ -21,8 +21,11 @@ resume 语义（断线续流/新回合续链/编辑重放）的锚点选择、�
 - 上游：`model/errors`、`core/events`（type）、`model/json`（type）、
   `core/storage`（Storage/CheckpointRecord/ChainLink）、`core/state`
   （StateSchema，type）。
-- 下游：`kernel/executor`（_engine_execute 调 resolve_resume；checkpoint/
-  spawn/simulate 调 tail_checkpoint；_node_context/_internals 用 ResumeMap
-  类型）、`kernel/multipath/_runner_base`（tail_checkpoint）、
-  `dock/registry/contracts.ts`；公共面 `export * from
-  './kernel/recovery/index.js'`；`test/kernel/recovery/`（2 文件）。
+- 下游：`graph/executor`（_engine_execute 调 resolve_resume；_engine_checkpoint
+  调 tail_checkpoint；_node_context/_internals 用 ResumeMap 类型；
+  checkpoint/spawn/simulate 链与 `kernel/multipath/_runner_base` 的
+  tail_checkpoint 消费已随 P8+S1 展开段及组装链路退役删除）、
+  `loop/execution_runtime`（run_checkpoint 恢复接线）；
+  `dock/registry/contracts.ts`；公共面经 `dock/index.ts` `export * from
+  '../loop/recovery/index.js'` 收口（`src/index.ts` 只转发 dock）；
+  `test/loop/recovery/`。

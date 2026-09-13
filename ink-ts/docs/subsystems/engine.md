@@ -57,9 +57,9 @@ engine/
 │   │                   #   无 exec 子目录——exec seam 在 dock/ports/exec.ts，
 │   │                   #   判定实现在 gate/sandbox，OS 执行真身为 Rust 原生件
 │   ├─ core/            # 残部（P8 逐层消化）：entities/knowledge_set/state/
-│   │                   #   fanout/run_result 与 environments/harness 留守纯逻辑
-│   └─ kernel/          # 残部（随 P8+S1 退役，新机制件禁入）：
-│                       #   simulation/multipath/spawn 旧推演机制件
+│   │                   #   run_result 与 environments/harness 留守纯逻辑
+│   └─（kernel/）       # 旧推演目录（simulation/multipath/spawn）与 core/
+│                       #   fanout/ 已随 P8+S1 展开段退役删除，目录清零、禁复活
 ├─ schemas/             # 数据面契约 JSON 真源（枚举/谓词/补丁类型/机制端口等）
 ├─ fixtures/            # 契约夹具 JSON 真源
 └─ scripts/             # generate.mjs（schemas+fixtures→model/contracts/generated）+ verify_generated.mjs
@@ -67,12 +67,14 @@ engine/
 
 机制契约落点 = 各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制目录、
 测试镜像 `engine/test/`），
-现 31 项分布 loop(7)/gate(7)/evolve(12)/graph(2)/kernel 残部(3)，统一经
+现 28 项分布 loop(7)/gate(7)/evolve(12)/graph(2)（kernel 残部三项 simulation/multipath/spawn
+契约已随 P8+S1 展开段退役清零），统一经
 `src/dock/registry/` 集中注册与 boot 密封（`seal_mechanism_registry`）。
 
 核心不变式（architecture gate + verify 链强制，口径同 CODING §7）：
 
-- 0-IO 条款作用集合 = coreDirs ∪ layerDirs：`engine/src/{core,kernel}` 残部 +
+- 0-IO 条款作用集合 = coreDirs ∪ layerDirs：`engine/src/{core,kernel}` 残部
+  （kernel 已随 P8+S1 清零，条款按 gate config 口径保留历史扫描集）+
   `engine/src/{model,graph,gate,loop,evolve,dock}` 六层，禁 `node:*` 与第三方/
   裸包 import（`node:async_hooks` 白名单唯一例外）；禁反向依赖与跨域私有
   import 条款仍按 core/kernel 口径执行（历史残留条款，见 CODING §7 表），
@@ -84,7 +86,7 @@ engine/
 - 数据面契约（枚举、注册表条目、补丁类型、机制端口词表）只落
   `schemas/` + `fixtures/`，生成 TS 常量/类型入 `src/model/contracts/generated/`，
   全仓经 `@ink-ts/engine` 公共面取用——禁止第二套语义枚举。
-- 机制契约三键（`verify:mechanisms`，现 31 项）：依赖单向 DAG、runtime
+- 机制契约三键（`verify:mechanisms`，现 28 项）：依赖单向 DAG、runtime
   depends 闭包 ∪ 自足叶子覆盖全量、机制层零自持 IO；boot 装配首步
   `seal_mechanism_registry` fail-closed。
 
@@ -111,8 +113,9 @@ engine/
    `node engine/scripts/generate.mjs`，model/contracts/generated 禁手改
    （contracts:verify 守漂移）。
 2. 新增机制件 → 四机制层终态归属：`<graph|gate|loop|evolve>/<mechanism>/`
-   `contract.ts + impl.ts`（kernel 残部只出不进），入 `dock/registry/contracts.ts`
+   `contract.ts + impl.ts`（kernel 层已随 P8+S1 退役清零、禁复活），入 `dock/registry/contracts.ts`
    全量清单，在 runtime 装配注册并满足机制三键；gated docs 改动后必跑
    `tsx gate/src/check.ts` 与 `pytest ink_engine/tests` 中对应门禁（见根 AGENTS）。
-3. 残部消化方向：`core/` 留守项按归属迁入 model/loop/graph，`kernel/` 推演
-   残部随 P8+S1 退役；迁移时同步更新本文件与 engine/AGENTS.md 及各层 docs。
+3. 残部消化方向：`core/` 留守项按归属迁入 model/loop/graph；`kernel/` 推演
+   残部与 `core/fanout/` 已随 P8+S1 展开段退役删除（迁移/删除时同步更新
+   本文件与 engine/AGENTS.md 及各层 docs）。

@@ -23,7 +23,7 @@
 | 导出 | 形态 | 语义 |
 | ---- | ---- | ---- |
 | `NodeContract` | 类 | input/output_schema（SchemaSpec）+ safety_tier 0/1/2（0 最严，与审批档 L0-L2 同阶）+ version ≥1；to_dict/from_dict 随图定义落库；可缺省（无契约结点不受契约门约束，pool 结点类型登记与执行期契约校验共用） |
-| `PathAssemblyFlags` | 类 | 七块独立 feature flag（contract/edge_evidence/settle_hooks/pool_governance/assembler/multipath/fingerprint_cache），缺省全关；from_boot 按 BOOT_KEY_* 长键按名读取；to_boot_dict 反向序列化。W7-B 注：pool_governance/assembler/fingerprint_cache 三位的机制消费面已随组装链路退役；类保留为 boot 透传协议形状（键名 = 装配协议一部分），生产侧现仅剩 `kernel/multipath` 的类型签名消费 |
+| `PathAssemblyFlags` | 类 | 七块独立 feature flag（contract/edge_evidence/settle_hooks/pool_governance/assembler/multipath/fingerprint_cache），缺省全关；from_boot 按 BOOT_KEY_* 长键按名读取；to_boot_dict 反向序列化。W7-B 注：pool_governance/assembler/fingerprint_cache 三位的机制消费面已随组装链路退役；P8+S1 注：multipath 位的消费面已随展开段退役，类保留为 boot 透传协议形状（键名 = 装配协议一部分），现无生产侧消费方 |
 | `BOOT_KEY_*`（7 个常量） | 值 | 装配透传键（`path_assembly_*_enabled`），对应壳侧 BootOptions 透传 JSON——键名是装配协议的一部分 |
 | `SAFETY_TIER_MIN/MAX`、`CONTRACT_VERSION_MIN` | 值 | 安全档 0-2；契约版本下限 1 |
 | `QualityGate` | 接口 | judge(domain, artifact) → bool \| Promise\<bool\>；实现归使用方，settle 只记录布尔结论；未注入闸门走 fail-closed 降级链 |
@@ -54,9 +54,10 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
   typeName）、`model/schema`（SchemaSpec）。
 - 下游（机制面）：`loop/runtime`（结点注册契约校验与图执行数据；组装路的
   boot flag from_boot 解析已随组装链路退役，W7-B）、
-  `kernel/multipath`（QualityGate 判定注入 + PathAssemblyFlags.multipath_enabled）、
-  `graph/executor`（QualityGate）、`evolve/legacy/self_application`（审批分级/
-  守卫集合/generated）、`evolve/legacy/self_proposal`（PATCH_KINDS）；图/注册与
+  `loop/turn_settle`（QualityGate 推进判定）、
+  `evolve/legacy/self_application`（审批分级/
+  守卫集合/generated）、`evolve/legacy/self_proposal`（PATCH_KINDS）；`kernel/multipath`
+  的 QualityGate 判定注入与 PathAssemblyFlags.multipath_enabled 消费已随 P8+S1 展开段退役删除；图/注册与
   数据面消费：`graph/node_registry`/`gate/link_validator`/`model/graph`/`model/perception`/`graph/nodes`。
 
 ## Seam 与 IO 边界

@@ -37,8 +37,9 @@ const ENGINE = join(HERE, '..');
  *  运行期门禁机制件迁入 gate/，0-IO 纪律随迁等价覆盖；P4 起 + loop：执行主线机制件
  *  （runtime/round_steps/interrupt/recovery/settle/tool_pipeline/llm 域等）迁入
  *  loop/，0-IO 纪律随迁等价覆盖；P5 起 + evolve：受控进化栈（proposal/learn/observe/
- *  skill/param_tuning）机制件迁入 evolve/，0-IO 纪律随迁等价覆盖）。 */
-const MECH_SRC_DIRS = ['kernel', 'graph', 'gate', 'loop', 'evolve'].map((d) => join(ENGINE, 'src', d));
+ *  skill/param_tuning）机制件迁入 evolve/，0-IO 纪律随迁等价覆盖）。
+ * kernel 已随 P8+S1 展开段退役清零（simulation/multipath/spawn 机制件删除）。 */
+const MECH_SRC_DIRS = ['graph', 'gate', 'loop', 'evolve'].map((d) => join(ENGINE, 'src', d));
 
 /** gate 同步白名单：core/kernel 允许的 node 内置模块（镜像 gate config）。 */
 const CORE_ALLOWED_NODE = new Set(['node:async_hooks']);

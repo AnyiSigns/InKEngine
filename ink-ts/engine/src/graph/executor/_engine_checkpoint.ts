@@ -35,7 +35,6 @@ export interface WriteCheckpointOptions {
   reason?: string | null;
   error?: string | null;
   interrupt?: InterruptState | null;
-  plan?: JsonRecord | null;
 }
 
 /** checkpoint 写入分层段（Engine 方法群）。 */
@@ -74,7 +73,6 @@ export abstract class EngineCheckpoint extends EngineInstance {
           error: opts.error ?? null,
           interrupt: opts.interrupt ?? null,
           graph_version: this._graph_digest,
-          plan: opts.plan ?? null,
         }),
         { fork: fork_write },
       );

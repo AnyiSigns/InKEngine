@@ -70,7 +70,7 @@ self_learning→node_registry→boot）+ 叶类 `Runtime`（原 skeleton/rounds 
 
 ## 不变式与门禁
 
-- 机制三键适用性：依赖单向 DAG——`runtime_contract.depends` 19 项均须在 `ALL_MECHANISM_CONTRACTS`（31 项）中（contracts_registry.test 强制）；runtime depends 闭包 ∪ 自足叶子 = 全量机制（verify_mechanisms 装配完整键）；机制层零自持 IO。装配动作不可被补丁链改写（自指终止）；boot 首步密封 fail-closed。
+- 机制三键适用性：依赖单向 DAG——`runtime_contract.depends` 19 项均须在 `ALL_MECHANISM_CONTRACTS`（28 项）中（contracts_registry.test 强制）；runtime depends 闭包 ∪ 自足叶子 = 全量机制（verify_mechanisms 装配完整键）；机制层零自持 IO。装配动作不可被补丁链改写（自指终止）；boot 首步密封 fail-closed。
 - gate 规则：单文件 ≤350 行、禁宿主词、kernel 禁反向依赖 adapters；本目录现仅 `_types.ts` 与 `_runtime_boot.ts` 带「gate: 超限」豁免头注，且两者实际行数（261/348）已回落限内——豁免头注滞后于 W7-B 瘦身，待后续独立小波摘除（原 `_runtime_mechanisms`/`_runtime_engine`/`_runtime_skeleton`/`_runtime_rounds` 等超限对已随退役/拆分变化消失）。
 
 ## 疑点与不一致

@@ -25,7 +25,6 @@ const UI_STORE_NAMES = [
   'streaming',
   'entries',
   'roundSteps',
-  'simulations',
   'incubation',
   'patchChain',
   'pendingReview',

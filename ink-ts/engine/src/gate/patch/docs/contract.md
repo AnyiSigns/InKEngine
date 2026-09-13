@@ -4,7 +4,7 @@
 
 ## 定位
 
-gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被数据面与残部多模块（`core/state`、`core/harness`、`core/knowledge_set`、`model/storage`）与 kernel 残部及演化/执行侧机制件（`kernel/simulation`、`evolve/legacy/self_application`、`evolve/proposal/evolution_writer`、`loop/runtime`、`loop/recovery`）依赖；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
+gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被数据面与残部多模块（`core/state`、`core/harness`、`core/knowledge_set`、`model/storage`）与演化/runtime 侧机制件（`evolve/legacy/self_application`、`evolve/proposal/evolution_writer`、`loop/runtime`）依赖（`kernel/simulation` 与 `loop/recovery` 依赖已随 P8+S1 展开段退役删除）；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
 
 ## 文件与职责
 
@@ -18,7 +18,7 @@ gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = 
 
 - 公共面（`dock/index.ts:106`，经 `src/index.ts` 收口）：`export * from '../gate/patch/patchChain.js'` → `PatchChain`、`buildMessageCompressPatches`、`PatchChainSerialized`，及 patchChain re-export 的类型 `Json`/`Patch`/`PatchOp`/`Path`/`AssembleMode`。
 - 仅直连 `types.ts` 可达（不经公共面）：`PATCH_OP_VALUES`、`ASSEMBLE_MODE_VALUES`、`JsonRecord`（`patchContract.test.ts` 即直连 import `PATCH_OP_VALUES`）。
-- 机制端口契约：`patch_contract = { id: 'patch', contract: { effects: [] }, depends: [] }`——零副作用端口、零机制间依赖；经 `dock/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（31 项全量契约清单）。
+- 机制端口契约：`patch_contract = { id: 'patch', contract: { effects: [] }, depends: [] }`——零副作用端口、零机制间依赖；经 `dock/registry/contracts.ts:67` 收入 `ALL_MECHANISM_CONTRACTS`（28 项全量契约清单）。
 
 ## 数据形态
 
@@ -35,7 +35,7 @@ gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = 
 ## 装配与消费
 
 - 契约装配：`dock/registry/contracts.ts` 将 `patch_contract` 收入全量机制契约清单（机制三键校验的输入之一）。
-- 值面消费（实际 import）：model 侧 `storage/storage_records.ts`；core 残部 `state/schema.ts`、`state/reducers.ts`、`harness/repository.ts`、`knowledge_set/`；kernel 残部 `simulation/simulation.ts`；evolve 侧 `legacy/self_application/`、`proposal/evolution_writer/`；loop 侧 `runtime/_runtime_boot.ts`、`recovery/recovery.ts`。依赖方向为数据面/残部 → gate/patch 补丁链原语（`core/state/docs/contract.md` 已注明该机制依赖仍为零 IO 纯逻辑）。hosts 侧无直接 import。
+- 值面消费（实际 import）：model 侧 `storage/storage_records.ts`、`storage/chain_codec.ts`、`storage/sensitive.ts`；core 残部 `state/schema.ts`、`state/reducers.ts`、`harness/repository.ts`、`knowledge_set/`；evolve 侧 `legacy/self_application/`、`proposal/evolution_writer/`；loop 侧 `runtime/_runtime_boot.ts`（kernel 残部 `simulation/simulation.ts` 与 `recovery/recovery.ts` 消费已随 P8+S1 展开段退役删除）。依赖方向为数据面/残部 → gate/patch 补丁链原语（`core/state/docs/contract.md` 已注明该机制依赖仍为零 IO 纯逻辑）。hosts 侧无直接 import。
 - 错误语义：append 目标非 list/str → `TypeError`（组装重放期）；`buildMessageCompressPatches` cutoff 越界（须 1..N）→ `RangeError`；`truncate(keep<0)` → `RangeError`；delete 路径缺失静默成功（幂等）；`on_change` 异常吞掉不阻断链演化；`from_dict` 容忍多余字段；路径中段/叶子父级非容器 → `TypeError`。
 
 ## 不变式与门禁

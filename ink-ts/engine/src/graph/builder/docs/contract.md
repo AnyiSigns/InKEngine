@@ -29,7 +29,7 @@
 - **公共面**：`src/index.ts` 无本目录导出（grep 核对零命中）——宿主经
   未来配方开关接线，当前为内部面。
 - 机制注册：`builder_contract` 入 `dock/registry/contracts.ts`
-  ALL_MECHANISM_CONTRACTS（31 项之一）。
+  ALL_MECHANISM_CONTRACTS（28 项之一）。
 
 ## 数据形态
 

@@ -10,4 +10,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`model/errors.ts`（`GraphDefinitionError`）、`model/json.ts`（`isRecord`）、`model/schema/schemaValidator.ts`（`SchemaSpec`/`SchemaValidator`/`SchemaField`/`FIELD_NUMBER`/`FIELD_STRING`）；目录内 specs → spec/registryTypes，registry → spec/registryTypes。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面）、`loop/runtime`（装配注册表）、`loop/turn_settle`（review/promotion 审计常量）、`kernel/multipath`、`evolve/legacy/self_proposal`、`adapters/boot`、`evolve/observe/usage_evidence`（`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除，W7-B）。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面）、`loop/runtime`（装配注册表）、`loop/turn_settle`（review/promotion 审计常量）、`evolve/legacy/self_proposal`、`adapters/boot`、`evolve/observe/usage_evidence`（`kernel/multipath`（junction 审计）消费已随 P8+S1 展开段退役删除；`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除，W7-B）。

@@ -960,7 +960,6 @@
               "entries",
               "streaming",
               "roundSteps",
-              "simulations",
               "spawnInstances",
               "selectedSpawnIndex"
             ],

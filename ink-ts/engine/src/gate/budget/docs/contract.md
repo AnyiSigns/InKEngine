@@ -26,7 +26,7 @@ budget_exceeded（入轨迹与审计）。附余量只读预检（`query_remaini
 类型 `BudgetPolicy` `BudgetQuery`——均从 `../gate/budget/budget.js` 直取
 （`BudgetRemaining` 真源 `budget_types.ts` 经 `budget.ts` 转出；目录无
 barrel）。机制契约 `budget_contract` 经 `dock/registry/contracts.ts` 入
-全量注册表（31 机制）。
+全量注册表（28 机制）。
 
 ## 数据形态
 
@@ -48,12 +48,13 @@ barrel）。机制契约 `budget_contract` 经 `dock/registry/contracts.ts` 入
 
 ## 装配与消费
 
-- 引擎检查点：`graph/executor/_engine_parallel` 捕获 `BudgetExceededError`
+- 引擎检查点：`graph/executor/_engine_execute_helpers`（`_run_parallel_group`，
+  原 `_engine_parallel.ts` 已随 P8+S1 折入）捕获 `BudgetExceededError`
   收口并行成员终止（`TerminateReason.BUDGET_EXCEEDED` 语义族）；`RunOptions.
   budget: BudgetManager | null`（`core/run_result`）为注入口（null = 不检查）。
 - 策略装配示例：`RunOptions.budget` 注入口在用（`core/run_result`）；
   `kernel/multipath/_runner_base` 经 `BudgetManager.query_remaining` 做支流预算
-  只读查询——组装试跑位每次 `new BudgetManager()` + 注册 `BudgetPolicy` 的示例
+  只读查询的消费已随 P8+S1 展开段退役删除——组装试跑位每次 `new BudgetManager()` + 注册 `BudgetPolicy` 的示例
   已随 `kernel/path_assembler/canary` 退役（W7-B）。
 - hosts：公共面无直接 import（`budget_remaining` 等经事件/日志数据面读取；
   旧 `bridge/pool.ts` 从日志行取值的组装读面已随 W7-B 退役）。

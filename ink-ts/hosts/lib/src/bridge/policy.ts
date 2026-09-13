@@ -1,20 +1,19 @@
 /**
- * policy 命令面（策略层路由预览：任务分类 → 计划形态 → 档位/配额）。
+ * policy 命令面（策略层路由预览：任务分类 → 计划形态）。
  *
  * TS host 侧为确定性纯计算（零 LLM 调用），分类与壳侧 Rust
  * domain::policy 同源：开发 = 强信号先于研究/运维，命中即归类，均未命中
- * = 直答。TS host 当前为单 agent 链（无多 workflow 链/无 simulate 预算），
- * 预览链形态按确定性直答形态输出（entry=null、空步骤、plan_only、
- * deterministic），档位随请求 tier 白名单校验；max_simulations /
+ * = 直答。TS host 当前为单 agent 链（无多 workflow 链），预览链形态按
+ * 确定性直答形态输出（entry=null、空步骤、plan_only、deterministic）；
  * quota_per_round 当前无预算面 = 0（不虚构引擎不存在的预算），quota_guarded
- * 恒 false。引擎侧多链/模拟预算装配落地后此预览随装配数据输出。
+ * 恒 false。推演档位（simulation tier）语义已随推演机制退役（P8+S1）：
+ * tier 仅作透传回显，不再做档位白名单校验。引擎侧多链装配落地后此预览
+ * 随装配数据输出。
  */
 
 import type { PolicyCommand } from './commands.generated.js';
 export { POLICY_COMMANDS, type PolicyCommand } from './commands.generated.js';
 import { BridgeError, type BridgeHandler } from './_types.js';
-
-export const SIMULATION_TIERS = ['off', 'light', 'full'] as const;
 
 /** 运维任务触发词（任务文本命中 = 运维类别；先于研究判定，弱于开发）。 */
 const OPS_KEYWORDS = [
@@ -46,14 +45,11 @@ export function classifyTask(text: string): TaskKind {
 }
 
 function parseTier(raw: unknown): string {
+  // 推演档位已退役（P8+S1）：tier 仅作透传回显（字符串即接受），不再做
+  // 白名单校验——档位语义随推演机制移除，旧档位值仍透传不拒绝。
   if (raw === undefined || raw === null) return 'full';
   const value = String(raw);
-  if (!(SIMULATION_TIERS as readonly string[]).includes(value as never)) {
-    throw new BridgeError(
-      `simulation tier 须为 ${SIMULATION_TIERS.join('/')}，收到 ${value}`,
-      'invalid_params',
-    );
-  }
+  if (value.trim() === '') return 'full';
   return value;
 }
 
@@ -81,7 +77,7 @@ export function buildPolicyCommands(): Readonly<Record<PolicyCommand, BridgeHand
         mode: 'plan_only',
         source: 'deterministic',
       },
-      policy: { tier, max_simulations: 0, quota_per_round: 0 },
+      policy: { tier, quota_per_round: 0 },
       quota_guarded: false,
     };
   };

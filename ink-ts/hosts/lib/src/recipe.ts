@@ -4,7 +4,7 @@
  * 机制开关默认表 PRODUCT_SWITCH_DEFAULTS 全开，每位都经 build 映射到
  * AssemblyRecipe 机制开关字段（edge_evidence/settle_hooks/memory_extract/
  * skill_crystal/memory_recall）或执行域 run_options
- * （multipath/时间线事件）——引擎逐位消费，关闭只走显式产品配置
+ * （时间线事件）——引擎逐位消费，关闭只走显式产品配置
  * （assembly.switches / assembly.run_options 覆写）。组装链路开关
  * （assembler/pool_governance/fingerprint_cache/contract/candidate_trial/
  * anti_monopoly/canary_verification/context_window_multidomain）与会话级骨架/
@@ -49,11 +49,11 @@ export const PRODUCT_SWITCH_DEFAULTS = {
   memory_extract_enabled: true,
   skill_crystal_enabled: true,
   memory_recall_enabled: true,
-  // ── 执行域开关（run_options 通道：多径展开 + 时间线事件）──
+  // ── 执行域开关（run_options 通道：时间线事件）──
   // W7-B 收口：canary_verification/context_window_multidomain 两位的装配域
   // 消费面（assembler canary/context 多域混合挂载）已随组装链路退役且无
-  // 新落点，从默认表移除（保留位 = 全开且每位真实消费）。
-  multipath_enabled: true,
+  // 新落点，从默认表移除（保留位 = 全开且每位真实消费）；multipath 开关
+  // 已随 P8+S1 展开段退役移除。
   emit_timeline_events: true,
 } as const;
 
@@ -146,12 +146,11 @@ function assembly_flags_from(
   };
 }
 
-/** 开关表 → 配方执行域选项（引擎执行面消费项：多径 + 时间线双通道）。 */
+/** 开关表 → 配方执行域选项（引擎执行面消费项：时间线事件通道）。 */
 function run_options_from(
   overrides: ProductSwitchOverrides | null | undefined,
 ): Partial<RunOptions> | null {
   const base: Partial<RunOptions> = {};
-  base.multipath_enabled = switchValue(overrides, 'multipath_enabled');
   base.emit_timeline_events = switchValue(overrides, 'emit_timeline_events');
   Object.assign(base, overrides?.run_options ?? {});
   const effective = Object.entries(base).filter(

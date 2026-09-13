@@ -4,7 +4,7 @@
 
 ## 定位
 
-状态 = 通道字典；每通道可挂 reducer（按名引用），未挂 = 裸 LastValue（覆盖语义）。reducer 族对齐补丁链心智模型：累积型 `add_messages`（每条消息 = 一个补丁，append/替换/删除语义）、内容型 `patch_chain`（通道值 = PatchChain 基础 + 补丁链）、合并型 `merge_dicts`/`merge_metrics`、覆盖型 `last_value`。`StateSchema` 是节点增量 overlay 进状态的合并入口；`subgraph_overlay_delta`/`subgraph_flowback_overlay` 供嵌套子图与 spawn 共用（减少回流噪音）。常量字符串与 Python core/state.py 同源（镜像），注册表开放扩展。
+状态 = 通道字典；每通道可挂 reducer（按名引用），未挂 = 裸 LastValue（覆盖语义）。reducer 族对齐补丁链心智模型：累积型 `add_messages`（每条消息 = 一个补丁，append/替换/删除语义）、内容型 `patch_chain`（通道值 = PatchChain 基础 + 补丁链）、合并型 `merge_dicts`/`merge_metrics`、覆盖型 `last_value`。`StateSchema` 是节点增量 overlay 进状态的合并入口；`subgraph_overlay_delta`/`subgraph_flowback_overlay` 供嵌套子图与实例共用（spawn/模拟回流消费侧已随 P8+S1 展开段退役；原语减少回流噪音）。常量字符串与 Python core/state.py 同源（镜像），注册表开放扩展。
 
 ## 文件与职责
 
@@ -26,17 +26,17 @@
 - `add_messages`：按 `id` 去重/替换、`RemoveMessage`（type === `'RemoveMessage'`）删除、无 id 按内容键去重。
 - `merge_metrics`：数值相加、嵌套 dict 递归合并、其余取 overlay；`__reset__: true` 整体重置。
 - `patch_chain_reducer`：overlay 为单 `Patch`/补丁数组时追加（同源回流只追加差集段）；裸 dict 作基础文本；PatchChain 整链写入先比对既有前缀。
-- 回流增量：additive 通道按条目身份差集（消息按 `id`，`{kind,text}` 按内容对，其余无稳定身份）；其余通道与入口态不等才回流；spawn 回流受父结构键保护（子图未声明通道不回流、父无 additive 承接丢弃）。
+- 回流增量：additive 通道按条目身份差集（消息按 `id`，`{kind,text}` 按内容对，其余无稳定身份）；其余通道与入口态不等才回流；回流受父结构键保护（子图未声明通道不回流、父无 additive 承接丢弃）。
 
 ## Seam 与 IO 边界
 
 - reducer 本身是函数值 seam：`Reducer = (base, overlay) => unknown`，经 `register_reducer`（幂等覆盖，`additive: true` 声明累积追加族）开放扩展。
-- 纯函数，无 IO 声明；`PatchChain`/`Patch` 来自 `kernel/patch`（core → kernel 机制依赖，仍为零 IO 纯逻辑）。
+- 纯函数，无 IO 声明；`PatchChain`/`Patch` 来自 `gate/patch`（core → gate 机制依赖，仍为零 IO 纯逻辑）。
 
 ## 装配与消费
 
 - `StateSchema.apply` 合并规则：schema 外键宽容裸覆盖；空 overlay 返回副本；按通道 reducer 归约，无 reducer 即覆盖。
-- 消费方：`kernel/executor`（run_subgraph、模拟回流、spawn 回流）、`kernel/spawn`（merge 通道判定）、`core/link_validator`（additive/merge 通道判定）、`core/harness`、`core/run_result`、`kernel/recovery`、`kernel/multipath`；`kernel/path_assembler`（StateSchema 形态校验/修复）消费已随组装链路退役（W7-B）。
+- 消费方：`graph/executor`（run_subgraph/_internals/_engine_instance 子图/实例回流）、`gate/link_validator`（additive/merge 通道判定）、`core/harness`、`core/run_result`、`loop/recovery`；`kernel/spawn`（merge 通道判定）、`kernel/simulation`/`kernel/multipath` 与 `kernel/path_assembler`（StateSchema 形态校验/修复）消费已随 P8+S1 展开段与组装链路退役（P8+S1/W7-B）。
 - 错误语义：未知 reducer 名 → `GraphDefinitionError`（构造期/取用期均 fail-fast）；patch_chain 通道基底类型与 PatchChain overlay 不兼容（会静默丢弃基底）→ `GraphDefinitionError`；additive 通道终态值非条目序列 → `GraphDefinitionError`。
 
 ## 不变式与门禁

@@ -27,7 +27,7 @@ fail-closed，宿主无需重写。与 `kernel/tool_vetting` 分工：本机制�
 目录另转出而公共面未收：`ALLOW`/`DENY`/`REVIEW`（公共面经 kernel/permissions
 组 `export *` 可达）、`DEFAULT_MAX_RESULT_CHARS`（公共面不可达，消费方全部
 经相对路径）。机制契约 `tool_pipeline_contract` 经 `dock/registry/
-contracts.ts` 入全量注册表（31 机制）。
+contracts.ts` 入全量注册表（28 机制）。
 
 ## 数据形态
 

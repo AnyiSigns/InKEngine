@@ -22,18 +22,19 @@ describe('产品配方默认表（保留机制开关全开）', () => {
   it('默认表所有开关全 true（保留位 + 执行域位）', () => {
     assert_product_switches_all_on();
     const entries = Object.entries(PRODUCT_SWITCH_DEFAULTS);
-    expect(entries.length).toBe(7);
+    expect(entries.length).toBe(6);
     for (const [, value] of entries) {
       expect(value).toBe(true);
     }
     // W7-B 收口：无消费方的组装时代开关位不入表
     expect('canary_verification' in PRODUCT_SWITCH_DEFAULTS).toBe(false);
     expect('context_window_multidomain' in PRODUCT_SWITCH_DEFAULTS).toBe(false);
+    // P8+S1 收口：multipath 展开开关随机制退役不入表
+    expect('multipath_enabled' in PRODUCT_SWITCH_DEFAULTS).toBe(false);
     expect(PRODUCT_SWITCH_DEFAULTS.edge_evidence_enabled).toBe(true);
     expect(PRODUCT_SWITCH_DEFAULTS.settle_hooks_enabled).toBe(true);
     expect(PRODUCT_SWITCH_DEFAULTS.memory_extract_enabled).toBe(true);
     expect(PRODUCT_SWITCH_DEFAULTS.skill_crystal_enabled).toBe(true);
-    expect(PRODUCT_SWITCH_DEFAULTS.multipath_enabled).toBe(true);
     expect(PRODUCT_SWITCH_DEFAULTS.emit_timeline_events).toBe(true);
   });
 
@@ -60,15 +61,14 @@ describe('产品配方默认表（保留机制开关全开）', () => {
       expect(flags[name]).toBe(true);
     }
     expect(flags['seed_edges_enabled']).toBe(false);
-    const runOptions = recipe.run_options as { multipath_enabled: boolean } | null;
+    const runOptions = recipe.run_options as { emit_timeline_events: boolean } | null;
     expect(runOptions).not.toBeNull();
-    expect(runOptions!.multipath_enabled).toBe(true);
+    expect(runOptions!.emit_timeline_events).toBe(true);
   });
 
   it('显式产品配置可关闭开关（false → 机制开关字段 / run_options 关）', () => {
     const recipe = build_product_recipe({
       switches: {
-        multipath_enabled: false,
         emit_timeline_events: false,
         edge_evidence_enabled: false,
         memory_extract_enabled: false,
@@ -77,10 +77,8 @@ describe('产品配方默认表（保留机制开关全开）', () => {
     expect(recipe.edge_evidence_enabled).toBe(false);
     expect(recipe.memory_extract_enabled).toBe(false);
     const runOptions = recipe.run_options as {
-      multipath_enabled: boolean;
       emit_timeline_events: boolean;
     } | null;
-    expect(runOptions!.multipath_enabled).toBe(false);
     expect(runOptions!.emit_timeline_events).toBe(false);
   });
 

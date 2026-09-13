@@ -25,17 +25,17 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
   exec）**：exec seam 声明在 `dock/ports/exec.ts`，沙箱判定实现在 `gate/sandbox`，
   OS 执行真身是 Rust 原生机制件子进程；llm 只发协议级 HTTP 不 import 厂商 SDK；
   storage 驱动 sqlite/memory（postgres 暂不提供）；DI 装载可覆盖。
-- 残部：`src/core/`（entities/knowledge_set/state/fanout/run_result 与
-  environments/harness 留守纯逻辑，随 P8 消化）与 `src/kernel/`
-  （simulation/multipath/spawn 旧推演机制件，P8 退役，新机制件禁入）同守
-  纯函数纪律。
+- 残部：`src/core/`（entities/knowledge_set/state/run_result 与
+  environments/harness 留守纯逻辑，随 P8 逐层消化）；`src/kernel/`
+  （simulation/multipath/spawn 旧推演机制件）与 `src/core/fanout/`
+  已随 P8+S1 展开段退役删除、目录清零，禁复活。
 - 依赖纪律：`node:*`/第三方 import 仅 adapters 允许（各 0-IO 层白名单唯一例外
   `node:async_hooks`）；禁反向依赖 `adapters/`；禁宿主词（tauri/electron/
   vitest/react/inkling 等，opaque 协议串除外）；adapters 禁 import 各机制层
   私有文件 `**/_*.ts`（公共 seam 例外标注「跨域契约模块」）。
 - 机制件契约落点：各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制
   目录、测试镜像 `engine/test/`，
-  跨 kernel/graph/gate/loop/evolve 五机制层，现 31 契约），经 `dock/registry/`
+  跨 graph/gate/loop/evolve 四机制层，现 28 契约，kernel 层契约已随 P8+S1 清零），经 `dock/registry/`
   集中注册、boot 密封；新契约落对应机制层，禁按旧「kernel 单一收编地」理解。
 
 ## 本层禁止
@@ -51,6 +51,6 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
 - `vitest run --root engine`（引擎单测 + 架构门禁随跑）
 - `tsc -p engine/tsconfig.json`（typecheck）
 - `node engine/scripts/verify_generated.mjs`（contracts:verify）
-- `tsx engine/scripts/verify_mechanisms.ts`（verify:mechanisms：契约三键，现 31 项）
+- `tsx engine/scripts/verify_mechanisms.ts`（verify:mechanisms：契约三键，现 28 项）
 - `tsx plugins/scripts/verify_unload.ts`（verify:unload：插件卸载一致性）
 - gated docs 改动后：`tsx gate/src/check.ts`

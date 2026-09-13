@@ -6,7 +6,6 @@
  * - 用户气泡右侧实底，无时间戳；hover 露出复制钮（气泡下方右对齐小图标）；
  * - 助手正文左侧纸面直排，流式光标走文字色（不占朱砂语义）；
  * - 错误条目单行形态：红点 + 失败摘要 + 右侧错误码；
- * - 推演分支对比内嵌为卡片（数据 = state.simulations 快照），选中态可见；
  * - 工具/事件卡片只用真实 token 取色，不引用不存在的变量；
  * - agent 状态内联卡：知识命中（记忆召回）/ 设备感知控制 / 审查（vetting）
  *   以消息流形态展示「智能体为什么这么做 / 做了什么」，不塞进设置。
@@ -27,7 +26,7 @@ import {
 import { PulseLine } from './PulseLine';
 import { PhaseCapsule } from './PhaseCapsule';
 import { SpawnPanel, type SpawnInstance } from './SpawnPanel';
-import type { InkMessage, OutboundAttachment, RoundStep, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage, OutboundAttachment, RoundStep } from '@/shared/session/types';
 import { assetOf, MediaRejected } from './parts/media_entries';
 import { resolveMediaRenderer } from '@/renderer/mediaRegistry';
 import { ChartEntry } from './parts/chart_entry';
@@ -45,8 +44,6 @@ interface MessageStreamProps {
   roundSteps?: RoundStep[];
   pulseText?: string;
   pulseColor?: 'default' | 'approval' | 'warn';
-  /** 推演分支快照（内嵌对比卡；空数组不渲染）。 */
-  simulations?: SimulationBranch[];
   spawnInstances?: SpawnInstance[];
   onSpawnSelect?: (index: number) => void;
   selectedSpawnIndex?: number | null;
@@ -87,7 +84,6 @@ export function MessageStream({
   roundSteps,
   pulseText,
   pulseColor,
-  simulations,
   spawnInstances,
   onSpawnSelect,
   selectedSpawnIndex,
@@ -130,7 +126,6 @@ export function MessageStream({
           />
         )}
         {feedRows(entries, openSpawnPanel)}
-        {simulations && simulations.length > 0 && <SimulationCard branches={simulations} />}
         {pulseText && <PulseLine text={pulseText} color={pulseColor} />}
       </div>
       {spawnInstances && spawnInstances.length > 0 && (
@@ -502,35 +497,6 @@ function SpawnCard({
         <button type="button" onClick={onOpenPanel} className="ml-auto text-[11px] ink-text-muted hover:text-[var(--ink-text-base)]">
           {t('message.open_panel')}
         </button>
-      </div>
-    </div>
-  );
-}
-
-/** 推演分支对比卡（内嵌消息流；只读呈现，换选为引擎自主机制，不暴露交互）。 */
-function SimulationCard({ branches }: { branches: SimulationBranch[] }) {
-  const { t } = useT();
-  return (
-    <div className="ink-status-card rounded-xl p-3" data-ui="simulation_inline_card">
-      <div className="flex items-center gap-2 text-[12px]">
-        <span className="font-medium">{t('message.simulations')}</span>
-        <span className="ink-text-faint">{interpolate(t('message.candidate_paths'), { n: branches.length })}</span>
-      </div>
-      <div className="mt-2 space-y-1.5">
-        {branches.map((b) => (
-          <div
-            key={b.branchId}
-            data-selected={b.selected || undefined}
-            className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-[12px] ${
-              b.selected ? 'ink-border-strong bg-[var(--ink-bg-elevated)]' : 'ink-border'
-            }`}
-          >
-            <span className="min-w-0 flex-1 truncate font-medium">{b.label}</span>
-            {b.rationale && <span className="hidden max-w-[40%] truncate ink-text-faint sm:inline">{b.rationale}</span>}
-            <span className="shrink-0 tabular-nums ink-text-muted">{b.score.toFixed(2)}</span>
-            {b.selected && <span className="ink-chip shrink-0 text-[10px]">{t('message.selected')}</span>}
-          </div>
-        ))}
       </div>
     </div>
   );

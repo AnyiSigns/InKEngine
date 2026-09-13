@@ -566,7 +566,6 @@ SessionOpener:type
 SetPatchChain:type
 SetPatchChainInit:type
 ShortcutProposal:type
-SimulationError:value
 SkillCrystallizeHook:type
 SkillStore:type
 SkillStoreLike:type

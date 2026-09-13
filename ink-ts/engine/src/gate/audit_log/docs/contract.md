@@ -25,7 +25,7 @@
 目录导出面（`audit_log.ts`）：值 `AUDIT_COLLECTION` `emit_audit`；类型
 `AuditRecord` `AuditStorage` `MechanismExemptionScope` `GuardedAuditStorage`
 `EmitAuditOptions`。机制契约 `audit_log_contract` 经
-`dock/registry/contracts.ts` 入全量注册表（31 机制）。
+`dock/registry/contracts.ts` 入全量注册表（28 机制）。
 
 ## 数据形态
 

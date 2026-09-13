@@ -14,5 +14,4 @@
 #
 # input_assembly（预装配输入组装留痕）已随 core/assembly 组装链路退役移除发射点（W7-B）。
 llm_usage LLM 用量指标帧事件（节点成本账外的用量指标流；guard 用量闭环发射，指标消费不进 UI 渲染）
-multipath_result 多径展开汇流裁决结果留痕（loop_back 发射，path/边证据内部追踪，UI 无直渲）
 tool_audit 工具调用默认审计事件（tool_pipeline 缺省审计钩子发射，审计留痕不直渲 UI）

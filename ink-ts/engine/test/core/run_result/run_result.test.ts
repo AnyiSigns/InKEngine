@@ -1,11 +1,10 @@
 /**
- * run_result 纯数据契约对位测试（语义对标 ink_engine/core/run_result.py：
+ * run_result 纯数据契约对标测试（语义对标 ink_engine/core/run_result.py；
  * Python 侧无独立 test_run_result.py，用例按模块 docstring 契约面自证）：
  *
- * - RunOptions：默认构造逐字段对齐 Python dataclass（含
- *   DEFAULT_MAX_PLAN_STEPS=32 / DEFAULT_MAX_SIMULATIONS=8 常量与
- *   transports/system_events 逐实例隔离）；关键字式覆盖；executor 运行时
- *   原位改选分支（branch_pick）语义。
+ * - RunOptions：默认构造逐字段对齐 Python dataclass（含 spawn_depth/
+ *   spawn_max_depth 护栏、transports/system_events 逐实例隔离）；关键字式
+ *   覆盖；spawn/推演/计划/多径相关字段已随 P8+S1 展开段退役移除。
  * - RunResult：必填/缺省字段、to_dict 序列化（中断点 null 与挂起卡两态、
  *   原位补记后一致）。
  */
@@ -13,8 +12,6 @@ import { describe, expect, it } from 'vitest';
 
 import { RunOptions, RunResult } from '../../../src/core/run_result/run_result.js';
 import { InterruptState } from '../../../src/loop/interrupt/interrupt_types.js';
-import { DEFAULT_MAX_PLAN_STEPS } from '../../../src/model/plan/plan.js';
-import { DEFAULT_MAX_SIMULATIONS } from '../../../src/kernel/simulation/simulation.js';
 import type { Storage } from '../../../src/dock/ports/storage.js';
 import type { StateSchema } from '../../../src/core/state/schema.js';
 import type { BudgetManager } from '../../../src/gate/budget/budget.js';
@@ -29,26 +26,13 @@ describe('RunOptions 默认值', () => {
     expect(options.transports).toEqual([]);
     expect(options.max_node_retries).toBe(0);
     expect(options.error_on_exception).toBe(true);
-    expect(options.max_spawns).toBe(16);
-    expect(options.spawn_concurrency).toBe(4);
     expect(options.spawn_max_depth).toBe(2);
-    expect(options.simulate_max_branch_steps).toBe(16);
     expect(options.max_cycle).toBe(64);
     expect(options.spawn_depth).toBe(0);
     expect(options.checkpoint_keep).toBe(256);
     expect(options.system_events.size).toBe(0);
-    expect(options.plan_policy).toBe('loose');
-    expect(options.max_plan_steps).toBe(DEFAULT_MAX_PLAN_STEPS);
-    expect(DEFAULT_MAX_PLAN_STEPS).toBe(32);
-    expect(options.plan_workflow).toBeNull();
     expect(options.parallel_concurrency).toBe(4);
     expect(options.registries).toBeNull();
-    expect(options.evaluator).toBeNull();
-    expect(options.branch_mixer).toBeNull();
-    expect(options.max_simulations).toBe(DEFAULT_MAX_SIMULATIONS);
-    expect(DEFAULT_MAX_SIMULATIONS).toBe(8);
-    expect(options.simulate_concurrency).toBe(2);
-    expect(options.branch_pick).toBeNull();
     expect(options.metrics).toBeNull();
     expect(options.domain).toBeNull();
     expect(options.settle).toBeNull();
@@ -76,19 +60,11 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
       transports: [transport],
       max_node_retries: 3,
       error_on_exception: false,
-      max_spawns: 4,
-      spawn_concurrency: 2,
       spawn_max_depth: 0,
-      simulate_max_branch_steps: 64,
       max_cycle: 0,
       checkpoint_keep: 0,
       system_events: new Set(['message_started']),
-      plan_policy: 'strict',
-      max_plan_steps: 10,
       parallel_concurrency: 2,
-      max_simulations: 4,
-      simulate_concurrency: 1,
-      branch_pick: 2,
       emit_timeline_events: true,
     });
     expect(options.storage).toBe(storage);
@@ -97,29 +73,12 @@ describe('RunOptions 覆盖与引擎运行时语义', () => {
     expect(options.transports).toEqual([transport]);
     expect(options.max_node_retries).toBe(3);
     expect(options.error_on_exception).toBe(false);
-    expect(options.max_spawns).toBe(4);
-    expect(options.spawn_concurrency).toBe(2);
     expect(options.spawn_max_depth).toBe(0);
-    expect(options.simulate_max_branch_steps).toBe(64);
     expect(options.max_cycle).toBe(0);
     expect(options.checkpoint_keep).toBe(0);
     expect([...options.system_events]).toEqual(['message_started']);
-    expect(options.plan_policy).toBe('strict');
-    expect(options.max_plan_steps).toBe(10);
     expect(options.parallel_concurrency).toBe(2);
-    expect(options.max_simulations).toBe(4);
-    expect(options.simulate_concurrency).toBe(1);
-    expect(options.branch_pick).toBe(2);
     expect(options.emit_timeline_events).toBe(true);
-  });
-
-  it('branch_pick 可原位改选并还原（executor swap_branch 语义）', () => {
-    const options = new RunOptions();
-    const original = options.branch_pick;
-    options.branch_pick = 3;
-    expect(options.branch_pick).toBe(3);
-    options.branch_pick = original;
-    expect(options.branch_pick).toBeNull();
   });
 });
 
@@ -169,7 +128,7 @@ describe('RunResult 数据契约', () => {
     expect(data['error']).toBeNull();
   });
 
-  it('executor 收尾原位补记 checkpoint_id/error 后 to_dict 反映（可变 dataclass）', () => {
+  it('executor 收尾原位补记 checkpoint_id/error 后 to_dict 反映（可写 dataclass）', () => {
     const result = new RunResult({ state: {}, reason: 'completed' });
     result.checkpoint_id = 100;
     result.events_emitted = 3;

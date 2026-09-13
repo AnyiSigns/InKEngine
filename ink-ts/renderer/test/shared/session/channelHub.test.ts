@@ -150,15 +150,11 @@ describe('事件落位（ingest）', () => {
     expect(snapshot.sourceTraces[0]).toMatchObject({ sourceType: 'memory', knowledgeId: 'k-1' });
   });
 
-  it('孵化/推演/补丁事件落位（孵化流水 + 分支 + 补丁链）', () => {
+  it('孵化/补丁事件落位（孵化流水 + 补丁链）', () => {
     const hub = new ChannelHub();
     ingestEvent(hub, ev('signal_detected', { signal_id: 'sig-1', signal_type: 'insight', signal: '信号' }));
     ingestEvent(hub, ev('gate_verdict', { signal_id: 'sig-1', level: 'L1', passed: false, reason: '样例不足' }));
     expect(hub.getSnapshot().incubation[0]).toMatchObject({ stage: 'blocked', gateLevel: 'L1' });
-
-    ingestEvent(hub, ev('simulate_decision', { branches: [{ branch_id: 'b-1', label: '甲', score: 0.8 }] }));
-    ingestEvent(hub, ev('swap_branch', { branch_id: 'b-1' }));
-    expect(hub.getSnapshot().simulations[0]).toMatchObject({ branchId: 'b-1', selected: true });
 
     ingestEvent(hub, ev('patch_proposed', { patch_id: 'p-1', kind: 'rule', title: '规则补丁' }));
     ingestEvent(hub, ev('patch_reverted', { patch_id: 'p-1', reason: '链尾回退' }));
@@ -209,12 +205,11 @@ describe('thread 分桶（演化/推演按会话窗口区分）', () => {
     ingestEvent(hub, ev('patch_proposed', { patch_id: 'p-a', kind: 'rule', title: 'A 补丁' }));
     ingestEvent(hub, ev('patch_proposed', { patch_id: 'p-b', kind: 'rule', title: 'B 补丁', thread_id: 'thread-b' }));
 
-    // 切到 B：全局镜像恢复 B 桶（patchChain/simulations/incubation 等）
+    // 切到 B：全局镜像恢复 B 桶（patchChain/incubation 等）
     const bucket = hub.getSnapshot().perThread['thread-b'];
     hub.setState({
       activeSessionId: 'thread-b',
       patchChain: bucket?.patchChain ?? [],
-      simulations: bucket?.simulations ?? [],
       incubation: bucket?.incubation ?? [],
       sourceTraces: bucket?.sourceTraces ?? [],
     });

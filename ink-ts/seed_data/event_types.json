@@ -78,59 +78,6 @@
       "meta": { "note": "规划流式增量 token（计划文本逐片追加）" }
     },
     {
-      "name": "spawn_start",
-      "schema": {
-        "name": "spawn_start",
-        "fields": [
-          { "name": "spawns", "required": true, "kind": "array" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "子任务展开（__spawn__ 落点），主会话轻量子代理卡（界面复审 R8：按事件语义覆盖分派，spawn→子代理卡；simulate_*→推演树）；spawns = [{id, nodes[], parallel, label}] 展示形态" }
-    },
-    {
-      "name": "spawn_end",
-      "schema": {
-        "name": "spawn_end",
-        "fields": [
-          { "name": "node_id", "kind": "string" },
-          { "name": "spawn_id", "kind": "string" }
-        ]
-      },
-      "renderer": "message_list",
-      "system": false,
-      "meta": { "note": "子任务实例结束（按实例 graph_path 归属回收），子代理卡实例行状态推进" }
-    },
-    {
-      "name": "junction_verdict",
-      "schema": {
-        "name": "junction_verdict",
-        "fields": [
-          { "name": "domain", "required": true, "kind": "string" },
-          { "name": "winner", "kind": "string" },
-          { "name": "losers", "kind": "array" },
-          { "name": "ts", "kind": "number" }
-        ]
-      },
-      "renderer": "path_dag",
-      "system": false,
-      "meta": { "note": "汇流裁决留痕（胜者/败者/裁决理由；路径/边证据视图消费）" }
-    },
-    {
-      "name": "junction_verdict_audit",
-      "schema": {
-        "name": "audit.junction",
-        "fields": [
-          { "name": "domain", "required": true, "kind": "string" },
-          { "name": "ts", "kind": "number" }
-        ]
-      },
-      "renderer": "path_dag",
-      "system": false,
-      "meta": { "note": "汇流裁决审计留痕（append-only 审计出口；与引擎 EVENT_AUDIT_JUNCTION 同源）" }
-    },
-    {
       "name": "policy_edge_review_audit",
       "schema": {
         "name": "audit.policy_review",
@@ -269,52 +216,12 @@
       "name": "end",
       "schema": {
         "name": "end",
-        "fields": []
+        "fields": [
+        ]
       },
       "renderer": "message_list",
       "system": false,
       "meta": { "note": "回合结束信号（不建卡，仅推进状态）" }
-    },
-    {
-      "name": "simulate_decision",
-      "schema": {
-        "name": "simulate_decision",
-        "fields": [
-          { "name": "node", "kind": "string" },
-          { "name": "step_id", "kind": "string" },
-          { "name": "selected", "kind": "array" },
-          { "name": "branches", "kind": "array" }
-        ]
-      },
-      "renderer": "simulation_tree",
-      "system": false,
-      "meta": { "note": "决策点推演（__simulate__ 落点）：branches = [{index, description, score, passed, note}] 分支对比，selected = 选中分支索引" }
-    },
-    {
-      "name": "branch_result",
-      "schema": {
-        "name": "branch_result",
-        "fields": [
-          { "name": "branch_id", "required": true, "kind": "string" },
-          { "name": "score", "kind": "number" },
-          { "name": "rationale", "kind": "string" }
-        ]
-      },
-      "renderer": "simulation_tree",
-      "system": false,
-      "meta": { "note": "分支评分结果回填（同 branch_id 更新评分与理由）" }
-    },
-    {
-      "name": "swap_branch",
-      "schema": {
-        "name": "swap_branch",
-        "fields": [
-          { "name": "branch_id", "required": true, "kind": "string" }
-        ]
-      },
-      "renderer": "simulation_tree",
-      "system": false,
-      "meta": { "note": "换选分支（selected 归属切换）" }
     },
     {
       "name": "signal_detected",
@@ -349,7 +256,7 @@
         "name": "gate_verdict",
         "fields": [
           { "name": "signal_id", "required": true, "kind": "string" },
-          { "name": "level", "kind": "string", "enum": ["L1", "L2", "L3"] },
+          { "name": "level", "kind": "string", "enum": ["L1","L2","L3"] },
           { "name": "passed", "required": true, "kind": "boolean" },
           { "name": "reason", "kind": "string" }
         ]
@@ -476,7 +383,7 @@
         "name": "vetting_result",
         "fields": [
           { "name": "tool", "required": true, "kind": "string" },
-          { "name": "verdict", "required": true, "kind": "string", "enum": ["pass", "fail", "review"] },
+          { "name": "verdict", "required": true, "kind": "string", "enum": ["pass","fail","review"] },
           { "name": "reason", "kind": "string" }
         ]
       },
@@ -555,14 +462,22 @@
     },
     {
       "name": "turn_started",
-      "schema": { "name": "timeline.turn_started", "fields": [] },
+      "schema": {
+        "name": "timeline.turn_started",
+        "fields": [
+        ]
+      },
       "renderer": "message_list",
       "system": true,
       "meta": { "note": "回合入口（用户消息到达，时间线起点，顶层图发射一次）", "purpose": "timeline" }
     },
     {
       "name": "execution_started",
-      "schema": { "name": "timeline.execution_started", "fields": [] },
+      "schema": {
+        "name": "timeline.execution_started",
+        "fields": [
+        ]
+      },
       "renderer": "message_list",
       "system": true,
       "meta": { "note": "第一个节点真正开工（execution_started 才是「开始做用户任务」的起点）", "purpose": "timeline" }

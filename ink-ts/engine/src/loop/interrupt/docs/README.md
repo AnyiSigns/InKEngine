@@ -17,11 +17,13 @@
 
 ## 依赖
 - 上游：`model/errors`（InterruptError）、`model/json`（isRecord）。
-- 下游：`kernel/executor`（13 处：InterruptCoordinator 持有于 _engine_base、
-  InterruptSignal 捕获于 loop/plan/spawn/simulate/parallel/multipath、
-  InterruptState 进 checkpoint/_loop_types/_internals/_node_context、
-  interrupt_key_matches 于 _node_context）、`core/storage/storage_records`
-  （InterruptState 进 CheckpointRecord）、`core/run_result`（type）、
-  `kernel/multipath/_runner_base`、`adapters/storage/sqlite_checkpoints`
-  （InterruptState 还原）、`dock/registry/contracts.ts`；公共面
-  `export * from './kernel/interrupt/interrupt.js'`。
+- 下游：`graph/executor`（InterruptCoordinator 持有于 _engine_base、
+  InterruptSignal 捕获于 _engine_execute_helpers、InterruptState 进
+  _internals/_node_context/run_subgraph、interrupt_key_matches 于
+  _node_context——原 loop/plan/spawn/simulate/parallel/multipath 捕获面与
+  `kernel/multipath/_runner_base` 消费已随 P8+S1 展开段退役删除）、
+  `model/storage`（`interrupt_state.ts`/`storage_records.ts`：InterruptState 进
+  CheckpointRecord）、`core/run_result`（type）、
+  `adapters/storage/sqlite_checkpoints`（InterruptState 还原）、
+  `dock/registry/contracts.ts`；公共面经 `dock/index.ts` `export * from
+  '../loop/interrupt/interrupt.js'` 收口（`src/index.ts` 只转发 dock）。

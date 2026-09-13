@@ -9,7 +9,7 @@
       "target": "web",
       "entry": "./faces/ui/index.tsx",
       "access": {
-        "store": ["entries", "streaming", "roundSteps", "simulations", "spawnInstances", "selectedSpawnIndex"],
+        "store": ["entries", "streaming", "roundSteps", "spawnInstances", "selectedSpawnIndex"],
         "inject": ["onSpawnSelect", "onSpawnSendInstruction"]
       }
     }

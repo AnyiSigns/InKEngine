@@ -16,7 +16,7 @@
 import { RunResult } from '../../core/run_result/run_result.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
 import type { EngineEvent, EngineTransport } from '../../dock/ports/events.js';
-import { GraphDefinitionError, SimulationError } from '../../model/errors.js';
+import { GraphDefinitionError } from '../../model/errors.js';
 import { EngineTrace } from './_engine_trace.js';
 import { _AsyncQueue, _QueueTransport, _default_id } from './_internals.js';
 
@@ -216,54 +216,5 @@ export abstract class EngineRun extends EngineTrace {
     if (metrics === null) return;
     const failed = result.reason === TerminateReason.ERROR;
     metrics.record_turn({ failed, error: result.error ?? '', round_id });
-  }
-
-  /**
-   * 回溯换选：从决策点前锚点恢复，强制改选指定分支重放后续。
-   *
-   * 推演-回溯-换选的执行语义：决策点完成后主线提交的是择优结果；对落选分支
-   * 做回溯对比/换选 = 回到决策点节点执行前的 checkpoint 锚点（决策点自身的
-   * checkpoint 已是选择后状态），强制指定分支序号重放——重放只执行目标分支
-   * （其余分支的结果保留在各自独立子链，可回溯对比），主线状态最终 = 目标
-   * 分支的结果。锚点可用 Engine.decision_anchor 从决策事件反查。
-   */
-  async swap_branch(opts: {
-    thread_id: string;
-    before_checkpoint_id: number;
-    branch_index: number;
-    inject?: Record<string, unknown> | null;
-    round_id?: string | null;
-    trace_id?: string | null;
-    transports?: EngineTransport[] | null;
-  }): Promise<RunResult> {
-    if (this.options.storage !== null) {
-      const anchor = await this.options.storage.get_checkpoint(opts.before_checkpoint_id);
-      if (anchor === null) {
-        throw new SimulationError(`换选锚点不存在: ${opts.before_checkpoint_id}`);
-      }
-      if (anchor.reason !== null && anchor.reason !== 'interrupted') {
-        throw new SimulationError(
-          '换选锚点须为决策点执行前的 checkpoint' +
-            `（当前锚点已是终态: ${anchor.reason}）`,
-        );
-      }
-    }
-    const original = this.options.branch_pick;
-    this.options.branch_pick = opts.branch_index;
-    try {
-      return await this.ainvoke(
-        {},
-        {
-          thread_id: opts.thread_id,
-          round_id: opts.round_id ?? null,
-          resume_from: opts.before_checkpoint_id,
-          inject: opts.inject ?? null,
-          trace_id: opts.trace_id ?? null,
-          transports: opts.transports ?? null,
-        },
-      );
-    } finally {
-      this.options.branch_pick = original;
-    }
   }
 }

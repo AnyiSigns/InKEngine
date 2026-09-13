@@ -33,7 +33,7 @@
 
 ## 装配与消费
 
-- 消费方：`graph/executor`（编译图驱动执行、`TerminateReason` 终止语义）、`loop/runtime`、`kernel/spawn`、`kernel/simulation`、`loop/turn_settle`、`evolve/observe/inspection`、`core/harness`、`model/plan`、`model/workflow`、`graph/nodes`（内置节点类型建图）；`kernel/path_assembler` 与 settle 指纹钩子消费已随组装链路退役（W7-B）。
+- 消费方：`graph/executor`（编译图驱动执行、`TerminateReason` 终止语义）、`loop/runtime`、`loop/turn_settle`、`evolve/observe/inspection`、`core/harness`、`model/plan`、`model/workflow`、`graph/nodes`（内置节点类型建图）；`kernel/path_assembler` 与 settle 指纹钩子消费已随组装链路退役（W7-B），`kernel/spawn`、`kernel/simulation`、`kernel/multipath` 消费已随 P8+S1 展开段退役。
 - 错误语义：图定义非法（节点名冲突、空类型名/条件名、入口缺失、静态边与条件边混用、序列化缺类型声明/条件名）→ `GraphDefinitionError`；节点/出口/边目标不存在 → `NodeNotFoundError`；子图校验失败包装为父图 `GraphDefinitionError`。
 - `resolve_conditions` 按位置替换同源多条件边（不首条错替）；`compile()` 拒绝静态边与条件边混用（静态边优先会闷杀条件边）；`from_dict` 支持 `validate: true` 建图期暴露非法图。
 

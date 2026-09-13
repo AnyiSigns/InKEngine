@@ -11,4 +11,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`budget_types.js`（同目录数据面）、`dock/registry/contract_types`。
-- 下游（实际 import 本目录）：`src/index.ts` 公共面（「恢复/中断/预算」组具名 6 名）；`graph/executor`（`_engine_parallel` 捕获 `BudgetExceededError`）、`kernel/multipath`（BudgetManager/BudgetRemaining 类型）、`core/run_result`（`RunOptions.budget` 类型引用）、`dock/registry/contracts`；`kernel/path_assembler/canary` 试跑消费已随组装链路退役删除（W7-B）；公共面无 hosts 直接 import（budget_remaining 经事件/日志数据面读取）；测试 `test/gate/budget`。
+- 下游（实际 import 本目录）：`src/index.ts` 公共面（「恢复/中断/预算」组具名 6 名，经 `dock/index.ts` 收口）；`core/run_result`（`RunOptions.budget` 类型引用）、`dock/registry/contracts`；`kernel/multipath`（BudgetManager/BudgetRemaining 类型）消费已随 P8+S1 展开段退役删除；`kernel/path_assembler/canary` 试跑消费已随组装链路退役删除（W7-B）；`BudgetExceededError`（本体归位 `model/errors`）捕获点在 `graph/executor/_engine_execute_helpers`（`_run_parallel_group`，非本目录直 import）；公共面无 hosts 直接 import（budget_remaining 经事件/日志数据面读取）；测试 `test/gate/budget`。

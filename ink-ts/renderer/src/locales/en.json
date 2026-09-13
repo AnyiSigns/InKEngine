@@ -16,13 +16,11 @@
   "common.cancel": "Cancel",
   "common.confirm": "Confirm",
   "message.empty": "Message stream is empty",
-
   "topbar.tab.chat": "Chat",
   "topbar.tab.evolution": "State",
   "topbar.tab.trajectory": "Trajectory",
   "topbar.rename": "Rename session",
   "topbar.untitled": "Untitled session",
-
   "leftrail.workspace": "Workspace",
   "leftrail.authorized": "Authorized",
   "leftrail.switch_dir": "Change directory",
@@ -32,7 +30,6 @@
   "leftrail.settings": "Settings",
   "leftrail.expand": "Expand sidebar",
   "leftrail.collapse": "Collapse sidebar",
-
   "rightrail.new_session": "New session",
   "rightrail.search": "Search sessions",
   "rightrail.expand": "Expand session list",
@@ -51,12 +48,10 @@
   "rightrail.branch_from": "Branch from here",
   "rightrail.delete": "Delete",
   "rightrail.actions": "Session actions",
-
   "time.just_now": "just now",
   "time.minutes": "min",
   "time.hours": "h",
   "time.days": "d",
-
   "input.need_model": "Configure a model first",
   "input.goto_settings": "Go to settings",
   "input.placeholder": "Message the agent",
@@ -80,7 +75,6 @@
   "input.char_count": "{n} chars",
   "input.abort": "Abort",
   "input.send": "Send",
-
   "settings.close": "Close settings",
   "settings.no_items": "This section has no items yet.",
   "settings.section.general": "General",
@@ -99,14 +93,12 @@
   "settings.section.tools": "Tools",
   "settings.section.workspace": "Workspace authorization",
   "settings.section.ui_editor": "UI editor",
-
   "settings.item.plugins": "Plugins",
   "settings.item.hint.plugins": "Plugin catalog + always-on tools / UI components / service mount",
   "settings.item.workspace_auth": "Authorized directory",
   "settings.item.ui_editor_host": "UI tree editor",
   "settings.item.hint.workspace_auth": "workspace.state / workspace.set / workspace.revoke",
   "settings.item.hint.ui_editor_host": "Fetch setLiveSpec via inspect_ui; output lands in patch chain and can be reverted",
-
   "settings.on": "On",
   "settings.off": "Off",
   "settings.custom_note": "Custom controls require a render companion.",
@@ -115,7 +107,6 @@
   "settings.saved": "Saved",
   "settings.save_failed": "Save failed",
   "settings.read_failed": "Read failed",
-
   "backup.section": "Backup",
   "backup.mode.export": "Export",
   "backup.mode.restore": "Restore",
@@ -137,7 +128,6 @@
   "backup.result.restore_failed": "Restore failed",
   "backup.result.reset_done": "Reset complete",
   "backup.result.reset_failed": "Reset failed",
-
   "edge.trust.observe": "Observe",
   "edge.trust.normal": "Normal",
   "edge.trust.promoted": "Promoted",
@@ -158,7 +148,6 @@
   "edge.tau": "τ threshold",
   "edge.promotion_trace": "Promotion trace",
   "edge.downgrade": "Manual downgrade",
-
   "memory.title": "Memory",
   "memory.empty": "No memory yet, accumulates with use",
   "memory.save": "Save",
@@ -174,7 +163,6 @@
   "memory.source.round_liquid": "round_liquid extraction",
   "memory.source.manual": "Manual entry",
   "memory.source.seed": "Seed data",
-
   "insight.type.junction_verdict": "Junction verdict",
   "insight.type.junction_verdict_audit": "Junction verdict audit",
   "insight.type.policy_edge_review": "Policy edge review",
@@ -214,7 +202,6 @@
   "insight.detail.trace": "trace",
   "insight.detail.thread": "thread",
   "insight.list_prefix": ": ",
-
   "tools.auto_approve": "Auto-approve",
   "tools.introspective": "Introspective",
   "tools.self_referential": "Self-referential",
@@ -256,16 +243,13 @@
   "tools.setting_failed": "Failed to set always-on: {e}",
   "tools.tier_set_failed": "Failed to set tier: {e}",
   "tools.auto_approve_set_failed": "Failed to set auto-approve: {e}",
-
   "tools.rounds_title": "Max tool rounds",
   "tools.rounds_hint": "Max tool calls per round (1-200, takes effect on save)",
   "tools.rounds_invalid": "Max tool rounds must be an integer 1-200",
   "tools.rounds_set_failed": "Failed to set max tool rounds: {e}",
   "tools.rounds_saved": "Max tool rounds saved (engine rebuilt)",
-
   "plugins.title": "Plugins",
   "plugins.search_placeholder": "Search tools (name / label)",
-
   "message.knowledge_hit": "Knowledge retrieval · released · {n} related memories",
   "message.device_sense": "Device sense",
   "message.device_action": "Device action",
@@ -296,9 +280,6 @@
   "message.spawn": "Sub-agent",
   "message.spawn_running": "Running",
   "message.open_panel": "Open panel",
-  "message.simulations": "Simulation branches",
-  "message.candidate_paths": "{n} candidate paths",
-  "message.selected": "Selected",
   "message.round_fail": "Round failed",
   "message.attachment": "Attachment",
   "message.system": "System message",
@@ -307,7 +288,6 @@
   "message.media_unregistered": "Unregistered media renderer",
   "message.copy": "Copy",
   "message.all_steps": "All steps ({n})",
-
   "execution.title": "Execution tree",
   "execution.outcome.success": "success",
   "execution.outcome.failure": "failure",

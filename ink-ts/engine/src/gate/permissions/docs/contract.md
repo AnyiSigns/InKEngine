@@ -26,7 +26,7 @@
 `rule_matches` `GateResult` `PermissionGate` `ToolGateConfig` `NetworkPolicy`
 `NetworkPolicySandbox`（后二经 `permissions.ts` 尾部转出，`networkPolicy.ts`
 无独立公共面入口）。机制契约 `permissions_contract` 经
-`dock/registry/contracts.ts` 入全量注册表（31 机制）。
+`dock/registry/contracts.ts` 入全量注册表（28 机制）。
 
 ## 数据形态
 

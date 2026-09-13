@@ -29,7 +29,7 @@
 
 `approval_types.ts` 直有而未随 `approval.ts` 转出：`VALID_DECISION_SET`/
 `VALID_POSE_SET`（内部白名单）。机制契约 `approval_contract` 经
-`dock/registry/contracts.ts` 入全量注册表（31 机制）。
+`dock/registry/contracts.ts` 入全量注册表（28 机制）。
 
 ## 数据形态
 

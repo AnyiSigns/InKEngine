@@ -34,7 +34,7 @@ import type { ChannelHub, ThreadBucket } from '@/shared/session/channelHub';
 import { emptyThreadBucket } from '@/shared/session/channelHub';
 import type { SessionStore } from '@/shared/session/sessionStore';
 import type { AppBackend } from '@app/backend';
-import type { InkMessage, SimulationBranch } from '@/shared/session/types';
+import type { InkMessage } from '@/shared/session/types';
 import type { SpawnInstance } from '../../../plugins/ui_features/message_list/faces/ui/SpawnPanel';
 import type { TaskCapsuleData } from '../../../plugins/ui_features/task_capsule/faces/ui/types';
 import type { MainTab, ReviewResolution } from '@app/shell/shellContracts';
@@ -252,7 +252,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
       roundSteps: bucket.roundSteps ?? [],
       roundId: bucket.roundId ?? null,
       streaming: bucket.roundActive === true,
-      simulations: bucket.simulations ?? [],
       incubation: bucket.incubation ?? [],
       sourceTraces: bucket.sourceTraces ?? [],
       patchChain: bucket.patchChain ?? [],
@@ -331,7 +330,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
   const spec = useMemo(() => injectExecutionViewSlot(uiLayout as unknown as UISpec), []);
   const pluginsCatalog = useMemo(() => derivePluginsCatalog(), []);
   const roundSteps = hub.getSnapshot().roundSteps ?? [];
-  const simulations = (hub.getSnapshot().simulations as SimulationBranch[]) || [];
   const roundCount = state.entries.filter((e) => e.kind === 'text' && e.role === 'user').length;
 
   // 装配 product chrome（绑定载荷之外的产品面数据/动作统一经此通道注入）
@@ -346,7 +344,6 @@ export default function App({ backend, appBackend, hub, sessionStore }: AppProps
     streaming: state.streaming,
     entries: state.entries,
     roundSteps,
-    simulations,
     incubation: hub.getSnapshot().incubation,
     patchChain: hub.getSnapshot().patchChain,
     pendingReview: state.pendingReview,

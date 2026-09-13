@@ -191,7 +191,7 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 - **机制件**（gate/audit/patch_chain/executor/round_steps/runtime 状态机…）
   不是插件，用独立类型 `MechanismContract`（`contract` + `depends` + `inject`），
   装配期闭集；机制契约落各机制层 `<mechanism>/`（跨 graph/gate/loop/evolve
-  四机制层，kernel 残部只出不进；`contract.ts` 声明端口 + `impl.ts` 纯实现，
+   四机制层，kernel 层已随 P8+S1 退役清零；`contract.ts` 声明端口 + `impl.ts` 纯实现，
   经 `engine/src/dock/registry/` 集中注册 + boot 密封）；
 - **补丁链只能动数据/策略/配方/激活集，永远动不了机制语义**（怎么审计、
   怎么裁决、怎么回退、怎么保证链完整）；

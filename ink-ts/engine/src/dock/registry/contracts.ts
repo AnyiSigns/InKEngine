@@ -1,7 +1,7 @@
 /**
  * 机制契约单一真源聚合（阶段1 verify/装配完整 + boot 密封共用）。
  *
- * 全量机制契约清单（31 项，与各机制层 `<mechanism>/contract.ts`——跨
+ * 全量机制契约清单（28 项，与各机制层 `<mechanism>/contract.ts`——跨
  * kernel/graph/gate/loop/evolve——一一对应，id = 目录名）。boot 密封
  * （seal_mechanism_registry）与 verify 脚本
  * （依赖单向/装配完整）从此聚合取数，不再在测试/脚本侧各自拼清单——契约
@@ -27,7 +27,6 @@ import { introspection_contract } from '../../evolve/observe/inspection/contract
 import { knowledge_gate_contract } from '../../evolve/learn/knowledge_gate/contract.js';
 import { llm_contract } from '../../loop/llm/contract.js';
 import { memory_extract_contract } from '../../evolve/learn/memory_extract/contract.js';
-import { multipath_contract } from '../../kernel/multipath/contract.js';
 import { patch_contract } from '../../gate/patch/contract.js';
 import { permissions_contract } from '../../gate/permissions/contract.js';
 import { recovery_contract } from '../../loop/recovery/contract.js';
@@ -38,14 +37,12 @@ import { self_application_contract } from '../../evolve/legacy/self_application/
 import { self_proposal_contract } from '../../evolve/legacy/self_proposal/contract.js';
 import { self_tools_contract } from '../../evolve/proposal/self_edit_tools/contract.js';
 import { settle_contract } from '../../loop/turn_settle/contract.js';
-import { simulation_contract } from '../../kernel/simulation/contract.js';
 import { skill_crystal_contract } from '../../evolve/skill/crystallization/contract.js';
-import { spawn_contract } from '../../kernel/spawn/contract.js';
 import { tool_pipeline_contract } from '../../loop/tools/tool_pipeline/contract.js';
 import { tool_vetting_contract } from '../../gate/tool_vetting/contract.js';
 import { tuning_contract } from '../../evolve/param_tuning/contract.js';
 
-/** 全量机制契约清单（31 项；id 与目录同集，由 validate 强制唯一）。 */
+/** 全量机制契约清单（28 项；id 与目录同集，由 validate 强制唯一）。 */
 export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   approval_contract,
   audit_log_contract,
@@ -61,7 +58,6 @@ export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   knowledge_gate_contract,
   llm_contract,
   memory_extract_contract,
-  multipath_contract,
   patch_contract,
   permissions_contract,
   recovery_contract,
@@ -72,9 +68,7 @@ export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   self_proposal_contract,
   self_tools_contract,
   settle_contract,
-  simulation_contract,
   skill_crystal_contract,
-  spawn_contract,
   tool_pipeline_contract,
   tool_vetting_contract,
   tuning_contract,

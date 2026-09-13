@@ -46,10 +46,11 @@ append-only 事件日志。断线续流（快照 + 增量重放）、新回合�
 
 ## 装配与消费
 
-executor 各层消费：`_engine_execute`（resolve_resume 主调用）、
-checkpoint/spawn/simulate（tail_checkpoint 跨引擎续链跟随）、
-_node_context/_internals（ResumeMap 形态）；multipath runner 复用
-tail_checkpoint。宿主经公共面装配（存储后端由 adapters/storage 提供）。
+`graph/executor` 各层消费：`_engine_execute`（resolve_resume 主调用）、
+`_engine_checkpoint`（tail_checkpoint 跨引擎续链跟随）、
+_node_context/_internals（ResumeMap 形态）；原 checkpoint/spawn/simulate
+层与 multipath runner 的 tail_checkpoint 消费已随 P8+S1 展开段退役删除。
+另 `loop/execution_runtime`（run_checkpoint）消费恢复接线。宿主经公共面装配（存储后端由 adapters/storage 提供）。
 
 ## 不变式与门禁
 

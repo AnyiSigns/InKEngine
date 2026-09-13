@@ -91,14 +91,6 @@ export class SandboxViolation extends EngineError {
   }
 }
 
-/** 决策点推演失败（分支清单非法/评估器未注入/全部分支失败等）。 */
-export class SimulationError extends EngineError {
-  constructor(message: string) {
-    super(message);
-    this.name = 'SimulationError';
-  }
-}
-
 /**
  * 执行预算超限（步骤上限/轮数上限等，触发图终止）。P7-2 动作 C5 自
  * gate/budget/budget.ts 同址归位（graph 执行器捕获位需要，禁 graph→gate）；

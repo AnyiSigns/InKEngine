@@ -13,6 +13,6 @@ gate layer-dag 矩阵；目录语义详情见 `docs/subsystems/engine.md`）：
 - `dock/`：对外契约面——端口词表真源 `ports.ts`、机制注册面 `registry/`、
   caps/calls/view 公共面。
 - `adapters/`：IO 真实现（boot/llm/mcp/storage），DI 装载可覆盖。
-- 残部：`core/`（entities/knowledge_set/state/fanout/run_result 等留守纯
-  逻辑，P8 消化）与 `kernel/`（simulation/multipath/spawn 旧推演件，
-  P8+S1 退役）。
+- 残部：`core/`（entities/knowledge_set/state/run_result 等留守纯逻辑，
+  随 P8 逐层消化）；旧推演 `kernel/`（simulation/multipath/spawn）与
+  `core/fanout/` 已随 P8+S1 展开段退役删除、目录清零，禁复活。

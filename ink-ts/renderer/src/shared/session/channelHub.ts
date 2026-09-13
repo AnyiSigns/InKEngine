@@ -15,7 +15,7 @@
 
 import type { EventTypeName } from './eventTypes';
 import type { InspectChannelName, InspectSnapshot } from './inspectTypes';
-import type { InkMessage, RoundStep, SimulationBranch, IncubationEntry, SourceTraceEntry, PatchChainEntry, GearTier, ModeTier } from './types';
+import type { InkMessage, RoundStep, IncubationEntry, SourceTraceEntry, PatchChainEntry, GearTier, ModeTier } from './types';
 import type { TaskState } from './taskState';
 import { emptyTaskState } from './taskState';
 import type { ExecutionReceipt } from './executionTypes';
@@ -30,7 +30,6 @@ export interface SessionSnapshot {
   activeGear: GearTier;
   modeTier: ModeTier;
   pendingReview: Record<string, unknown> | null;
-  simulations: SimulationBranch[];
   incubation: IncubationEntry[];
   sourceTraces: SourceTraceEntry[];
   patchChain: PatchChainEntry[];
@@ -53,7 +52,6 @@ export interface ThreadBucket {
   /** 该线程的任务级执行状态（窗口隔离：后台回合不污染当前窗口胶囊）。 */
   taskState: TaskState;
   roundSteps: RoundStep[];
-  simulations: SimulationBranch[];
   incubation: IncubationEntry[];
   sourceTraces: SourceTraceEntry[];
   patchChain: PatchChainEntry[];
@@ -70,7 +68,6 @@ export function emptyThreadBucket(): ThreadBucket {
     roundActive: false,
     taskState: emptyTaskState(),
     roundSteps: [],
-    simulations: [],
     incubation: [],
     sourceTraces: [],
     patchChain: [],
@@ -89,7 +86,6 @@ export function emptySessionSnapshot(): SessionSnapshot {
     activeGear: 'main',
     modeTier: 'default',
     pendingReview: null,
-    simulations: [],
     incubation: [],
     sourceTraces: [],
     patchChain: [],

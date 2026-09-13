@@ -24,10 +24,10 @@
     skill/pipeline，演化资产只经受控通道落库。
   - `engine/src/dock/`：对外契约面——端口词表单一真源 `dock/ports.ts`、机制
     注册面 `dock/registry/`（原 kernel/registry）与 index/caps/calls/view 公共面。
-  - `engine/src/core/`（残部）：entities/knowledge_set/state/fanout/run_result
+  - `engine/src/core/`（残部）：entities/knowledge_set/state/run_result
     与 environments/harness 留守的过渡期纯逻辑，同受 0-IO 纪律，随 P8 逐层消化。
-  - `engine/src/kernel/`（残部）：simulation/multipath/spawn 旧推演机制件，
-    随 P8 退役，新机制件禁入。
+  - `engine/src/kernel/`（已退役）：simulation/multipath/spawn 旧推演机制件
+    与 `core/fanout/` 已随 P8+S1 展开段退役删除，目录清零、禁复活。
   - `engine/src/adapters/`：机制心跳（LLM/存储/MCP/启动装配 boot）的可选 IO
     **真实现**，仍属引擎包而非宿主——机制层只给契约，适配实现按 DI 装载。llm 协议
     适配器（openai-compatible / anthropic messages / openai responses，本地
@@ -173,7 +173,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `seed_data/**`、`plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
-| 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 kernel/graph/gate/loop/evolve 机制层，现 31 契约）+ runtime 装配闭包 + 同五机制层与 core 残部源码 | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 五机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
+| 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 graph/gate/loop/evolve 四机制层——kernel 层三契约 simulation/multipath/spawn 已随 P8+S1 退役清零，现 28 契约）+ runtime 装配闭包 + 同机制层与 core 残部源码（扫描集仍含 kernel 历史目录名，目录已清零） | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
@@ -346,10 +346,11 @@ mcp.status/enable/disable）；`round_ledger_list`/
 
 ## 10. 机制接线注记（host 装配语义补充）
 
-- 产品配方开关默认表（recipe.ts `PRODUCT_SWITCH_DEFAULTS`）七位全开且每位真实消费：
+- 产品配方开关默认表（recipe.ts `PRODUCT_SWITCH_DEFAULTS`）六位全开且每位真实消费：
   五位经 AssemblyRecipe 机制开关字段（edge_evidence/settle_hooks/memory_extract/
-  skill_crystal/memory_recall）、两位经执行域 run_options 通道（multipath_enabled/
-  emit_timeline_events）逐位落到引擎；组装链开关（assembler/pool_governance/
+  skill_crystal/memory_recall）、一位经执行域 run_options 通道（
+  emit_timeline_events）逐位落到引擎（multipath_enabled 位已随 P8+S1 展开段
+  退役移除）；组装链开关（assembler/pool_governance/
   fingerprint_cache/contract/candidate_trial/anti_monopoly/canary_verification/
   context_window_multidomain）与会话骨架/自续跑（thread_skeleton/auto_continue）
   及候选层探索预算参数（PRODUCT_EXPLORATION_DEFAULTS）已随组装链路退役（W7-B）

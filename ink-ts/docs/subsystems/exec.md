@@ -2,7 +2,8 @@
 
 **层权威**：改 exec/ 先读本文件 + `exec/CONFIG.md`（信封行帧协议 / 二进制
 输出与定位——对端唯一契约）。exec 是 Rust 原生层，不参与 TypeScript 单语言
-重建；机制语义/端口词表见 engine.md 与 `engine/src/kernel` 词表。
+重建；机制语义/端口词表见 engine.md 与 `engine/src/dock/ports.ts` 词表（旧
+`engine/src/kernel` 历史口径已随 P8+S1 退役并归 dock）。
 
 ## 定位
 

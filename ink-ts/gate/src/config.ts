@@ -29,7 +29,8 @@ export interface GateConfig {
    *  coreDirs（机制层禁依赖下方 IO 实现；dock 公共面承载 adapters re-export 由
    *  layer-dag 矩阵执法，P1 裁决 1）。 */
   coreForbiddenRelSubstrings: readonly string[];
-  /** layer-dag 层向门禁是否强制（false = 报告模式：违规打印 WARN 但 exit 0；P7 转强制）。 */
+  /** layer-dag 层向门禁强制位（true = 违规入 violations 阻断；P7-3 已转强制：
+   *  矩阵放宽 + 过渡边预登记后强制态零命中）。 */
   layerDagEnforce: boolean;
   /** layer-dag 豁免清单（条目格式 `<导入文件相对路径>:<import 说明符>` 精确匹配）：
    *  基线为空数组——过渡豁免**单调收缩只减不增**（阶段结束条数 ≤ 上一阶段）。 */
@@ -58,7 +59,7 @@ export const defaultConfig: GateConfig = {
   coreOpaqueTokens: ['inkling.skill/v1'],
   coreAllowedNodeModules: ['node:async_hooks'],
   coreForbiddenRelSubstrings: ['/adapters/'],
-  layerDagEnforce: false,
+  layerDagEnforce: true,
   layerDagWhitelist: [],
   testProtectionEnforce: false,
   semanticE2eEnforce: true,

@@ -9,6 +9,7 @@ import { scan, scanAll } from '../src/scan.js';
 import { scanSemanticE2e } from '../src/semantic_e2e.js';
 import { checkTestProtection } from '../src/test_protection.js';
 import { checkPendingTokens, compareApiSurface } from '../src/rules.js';
+import { TRANSITION_EDGES } from '../src/layer_dag.js';
 
 const roots: string[] = [];
 
@@ -322,7 +323,8 @@ describe('layer-dag 层向门禁', () => {
   it('adapters 只 import dock/ports 前缀与 model', async () => {
     const root = await makeRoot();
     await write(root, 'engine/src/adapters/ok.ts', `import { p } from '../dock/ports.js';\nimport { m } from '../model/m.js';\nexport const ok = [p, m];\n`);
-    await write(root, 'engine/src/adapters/bad.ts', `import { l } from '../loop/l.js';\nexport const bad = l;\n`);
+    // 违规样例取 adapters→graph（adapters→loop 已入 TRANSITION_EDGES 预登记，S2 消亡位）
+    await write(root, 'engine/src/adapters/bad.ts', `import { g } from '../graph/g.js';\nexport const bad = g;\n`);
     const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
     expect(violations.map((v) => v.path)).toContain('engine/src/adapters/bad.ts');
     expect(violations.map((v) => v.path)).not.toContain('engine/src/adapters/ok.ts');
@@ -332,9 +334,77 @@ describe('layer-dag 层向门禁', () => {
     const root = await makeRoot();
     await write(root, 'engine/src/loop/a.ts', `import { g } from '../graph/g.js';\nexport const a = g;\n`);
     await write(root, 'engine/src/evolve/b.ts', `import { gateIt } from '../gate/gate_it.js';\nexport const b = gateIt;\n`);
-    await write(root, 'engine/src/gate/c.ts', `import { l } from '../loop/a.js';\nexport const c = l;\n`);
+    // 违规样例取 graph→gate（非允许边且不在 TRANSITION_EDGES；gate→loop 已入过渡边放行）
+    await write(root, 'engine/src/graph/c.ts', `import { gateIt } from '../gate/gate_it.js';\nexport const c = gateIt;\n`);
     const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
-    expect(violations.map((v) => v.path)).toEqual(['engine/src/gate/c.ts']);
+    expect(violations.map((v) => v.path)).toEqual(['engine/src/graph/c.ts']);
+  });
+
+  it('骨架边 loop→gate 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/tools/x.ts', `import { g } from '../../gate/permissions/permissions.js';\nexport const x = g;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('装配位 loop/runtime/**→evolve 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/runtime/_boot.ts', `import { e } from '../../evolve/observe/usage_evidence/store.js';\nexport const b = e;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('过渡边 TRANSITION_EDGES 放行（loop→evolve 非 runtime 路径）', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/loop/turn_settle/x.ts', `import { e } from '../../evolve/observe/usage_evidence/store.js';\nexport const x = e;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('dock R-a：死集文件 export 形态 re-export（目标去层≤3 段非 _ 前缀）放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/caps.ts', `export * from '../loop/tools/declarative_tools/index.js';\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('dock R-a 反例：目标深度超限 / 非 export 形态 / 非死集文件均违规', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/caps.ts', `export * from '../loop/a/b/c/d.js';\n`);
+    await write(root, 'engine/src/dock/calls.ts', `import { x } from '../loop/tools/tool_pipeline/tool_pipeline.js';\nexport const c = x;\n`);
+    await write(root, 'engine/src/dock/other.ts', `export * from '../loop/tools/declarative_tools/index.js';\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    const paths = violations.filter((v) => v.rule === 'layer-dag').map((v) => v.path);
+    expect([...paths].sort()).toEqual(['engine/src/dock/calls.ts', 'engine/src/dock/caps.ts', 'engine/src/dock/other.ts']);
+  });
+
+  it('dock R-b：registry/** 值 import 各机制 contract.ts 放行', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/registry/contracts.ts', `import { X } from '../../graph/fm/contract.js';\nexport const c = X;\n`);
+    // P7-3 基线 28 条 registry 命中中 12 条目标为嵌套组路径（如 loop/tools/tool_pipeline/contract.ts），同属「各机制 contract.ts」口径
+    await write(root, 'engine/src/dock/registry/deep.ts', `import { t } from '../../loop/tools/tool_pipeline/contract.js';\nexport const d = t;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    expect(violations.filter((v) => v.rule === 'layer-dag')).toEqual([]);
+  });
+
+  it('dock R-b 反例：registry/** 值 import 非 contract 目标违规', async () => {
+    const root = await makeRoot();
+    await write(root, 'engine/src/dock/registry/contracts.ts', `import { run } from '../../graph/exec.js';\nexport const c = run;\n`);
+    const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
+    const paths = violations.filter((v) => v.rule === 'layer-dag').map((v) => v.path);
+    expect(paths).toEqual(['engine/src/dock/registry/contracts.ts']);
+  });
+
+  it('TRANSITION_EDGES shrink-only：P7-3 基线 7 条，S6/P8/S2 消解后条目数必须更少（只减不增）', () => {
+    // P7-3 基线 7 条过渡边；对应消解波（S6/P8/S2）拆除边后须删条目，本断言上界随波下调
+    expect(Object.keys(TRANSITION_EDGES).length).toBeLessThanOrEqual(7);
+    expect(TRANSITION_EDGES).toHaveProperty('loop→evolve');
+    expect(TRANSITION_EDGES).toHaveProperty('graph→loop');
+    expect(TRANSITION_EDGES).toHaveProperty('evolve→loop');
+    expect(TRANSITION_EDGES).toHaveProperty('evolve→graph');
+    expect(TRANSITION_EDGES).toHaveProperty('graph→evolve');
+    expect(TRANSITION_EDGES).toHaveProperty('gate→loop');
+    expect(TRANSITION_EDGES).toHaveProperty('adapters→loop');
   });
 
   it('机制层红线：组装模块 import 与组装 token 命中即违规，whitelist 精确抑制', async () => {

@@ -1,8 +1,8 @@
 /**
- * CLI 进程入口（四形态）：解析参数 → stdio（JSON-RPC）/ run（一次性驱动）/
- * serve（本地 http+ws）/ tui（终端交互）。宿主层允许 node 内置 IO；审批放行仅
+ * CLI 进程入口（三形态）：解析参数 → stdio（JSON-RPC）/ run（一次性驱动）/
+ * serve（本地 http+ws）。宿主层允许 node 内置 IO；审批放行仅
  * 来自 --approve 显式声明，从不默认放行。未知启动参数即拒绝：stdio exit 1、
- * run/serve/tui exit 2（headless 语义）；help exit 0。
+ * run/serve exit 2（headless 语义）；help exit 0。
  *
  * 直接执行 = 进程入口（hosts/cli/src/index.ts）；bootstrap/ 为收敛后的唯一进程入口
  * （读 hosts/<surface>.spec.json 校验后委托本 runCliMain）。
@@ -19,7 +19,6 @@ import { assembleCliHost } from './host.js';
 import { runOnce } from './run.js';
 import { serve } from './server.js';
 import { runServe } from './serve.js';
-import { runTui } from './tui/tui.js';
 
 type ParseFailure = Extract<ParseArgsResult, { ok: false }>;
 
@@ -54,8 +53,6 @@ async function runMain(argv: readonly string[]): Promise<void> {
       process.exitCode = await runOnce(options);
     } else if (options.mode === 'serve') {
       await runServe(options, { stdout: process.stdout, stderr: process.stderr });
-    } else if (options.mode === 'tui') {
-      process.exitCode = await runTui(options);
     } else {
       await runStdio(options);
     }

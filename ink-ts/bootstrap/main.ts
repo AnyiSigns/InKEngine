@@ -2,11 +2,11 @@
  * bootstrap —— 唯一进程入口（composition root 收敛面）。
  *
  * 读 hosts/<surface>.spec.json（hosts/ 向上探测）→ 校验该面 implemented=true
- * → 委托 cli.runCliMain 执行 stdio/run/serve/tui（cli 为进程实现库，不再自带
+ * → 委托 cli.runCliMain 执行 stdio/run/serve（cli 为进程实现库，不再自带
  * 语义入口）；换宿主 = 换 argv 面/spec + 重启装配（§五）。直接跑 cli 文件仍是
  * 同一 runCliMain 的兼容入口（cli e2e 不变），规范入口以本文件为准。
  *
- * 用法：tsx bootstrap/main.ts [stdio|run|serve|tui] [--approve] [--data-dir <dir>] ...
+ * 用法：tsx bootstrap/main.ts [stdio|run|serve] [--approve] [--data-dir <dir>] ...
  */
 
 import { loadHostSpec } from '../hosts/lib/src/host_spec.js';
@@ -17,7 +17,6 @@ import { runCliMain } from '../hosts/cli/src/index.js';
 const MODE_SURFACE = {
   stdio: 'cli',
   run: 'cli',
-  tui: 'cli',
   serve: 'web',
 } as const;
 

@@ -26,7 +26,6 @@ function baseSpec(): HostSpec {
         approval: ['interactive', 'flag'],
       },
     },
-    renderer: { target: 'host', entry: 'hosts/cli/src/tui' },
   };
 }
 
@@ -41,7 +40,7 @@ describe('host_spec', () => {
     const cli = loadHostSpec('cli');
     expect(cli.host.surface).toBe('cli');
     expect(cli.implemented).toBe(true);
-    expect(cli.renderer?.entry).toBe('hosts/cli/src/tui');
+    expect(cli.renderer).toBeUndefined();
     const web = loadHostSpec('web');
     expect(web.host.surface).toBe('web');
     expect(web.host.transport).toContain('http+ws');

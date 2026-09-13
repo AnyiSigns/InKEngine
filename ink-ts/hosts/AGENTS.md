@@ -11,7 +11,7 @@ IO/传输/呈现面，不换机制语义（机制语义属 engine core，宿主�
 hosts/
 ├─ lib/    @ink-ts/host  装配库（L4 composition root）：createHost/loadHostSpec/
 │                         binary/face loader/recipe/bridge——只装配不实现机制
-├─ cli/    @ink-ts/cli   唯一进程载体（stdio/run/serve/tui；含 main）
+├─ cli/    @ink-ts/cli   唯一进程载体（stdio/run/serve；含 main）
 ├─ web/    @ink-ts/web   web 产品壳（浏览器呈现面 + 产品 chrome + 装配单点）
 ├─ *.spec.json           tauri/cli/web/ide 宿主 spec（kind='host'，HostFaces）
 └─ verify_host_spec.ts   spec 数据/装配面一致性审计（root test 链强制）
@@ -19,8 +19,8 @@ hosts/
 
 ## spec 四件套不变式
 
-- cli/web = 本仓装配 `implemented=true`，`renderer.entry` 真实存在
-  （cli→`hosts/cli/src/tui`、web→`hosts/web/src`）；tauri/ide = 外部壳仓
+- cli/web = 本仓装配 `implemented=true`（web 带 `renderer.entry` 且真实存在
+  →`hosts/web/src`；cli 无终端呈现面、不带 renderer）；tauri/ide = 外部壳仓
   `implemented=false`（换宿主 = 外部壳读 spec + 重启装配）。
 - 形状校验单一真源 = `hosts/lib/src/host_spec.ts`（validateHostSpec：
   HostFaces 词汇），存在性/不变式 = verify_host_spec.ts；改表面/入口须同改
@@ -31,7 +31,7 @@ hosts/
 - **lib**：只做「选适配、读配置、注入 seam」与薄接线；不写 main、不监听端口、
   不是进程；命令方法名不手写数组（verify:bridge-mount：BRIDGE_METHODS 只允许
   各域 `*_COMMANDS` spread）。
-- **cli**：唯一进程载体；tui = cli 宿主终端呈现面，serve 出 http+ws 供 web。
+- **cli**：唯一进程载体（stdio/run/serve 三形态）；serve 出 http+ws 供 web。
 - **web**：产品壳（App/activate/state/shell/productView/views/AppBackend +
   index.html/main/vite）；显示设备 = renderer（单向 import）；真 ui 面注册
   （pluginFaces.generated.ts）与设置派生清单随壳；`@app` 别名 = 本包 src/app，

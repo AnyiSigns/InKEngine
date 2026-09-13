@@ -8,8 +8,8 @@
  *    （本仓可装配），tauri/ide 为 implemented=false（装配实现在外部壳仓，须带
  *    note）；实现面清单变动需同步本脚本与 component_data §九；
  * 3. 每份 spec 经 host_spec.validateHostSpec 形状校验（HostFaces 词汇对齐）；
- * 4. implemented=true 的 spec 必须带 renderer，且 renderer.entry 在仓库根下真实
- *    存在（cli→hosts/cli/src/tui、web→hosts/web/src）；implemented=false 不许本仓装配。
+ * 4. implemented=true 的 spec 若带 renderer，则 renderer.entry 在仓库根下真实
+ *    存在（web→hosts/web/src；cli 现无终端呈现面）；implemented=false 不许本仓装配。
  *
  * 退出码：0 = PASS；1 = 任一违规。
  */
@@ -46,9 +46,7 @@ for (const entry of readdirSync(HOSTS).sort()) {
     const validated = validateHostSpec(spec);
     if (validated.id !== id) violations.push(`${id}: spec.id 与文件名不符`);
     if (validated.implemented) {
-      if (validated.renderer === undefined || validated.renderer.entry === '') {
-        violations.push(`${id}: implemented=true 的宿主须带 renderer（呈现面实现指针）`);
-      } else {
+      if (validated.renderer !== undefined && validated.renderer.entry !== '') {
         const target = join(ROOT, validated.renderer.entry);
         if (!existsSync(target)) {
           violations.push(`${id}: renderer.entry 不存在: ${validated.renderer.entry}（相对仓库根）`);

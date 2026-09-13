@@ -18,9 +18,7 @@ hosts/
 │   │                        #     run/resume/branch/inject + 档案快照持久化 + convene
 │   │                        #     圆桌编排三件 convene/convene_board/convene_params）
 │   └─ scripts/verify_bridge_mount.ts   # 命令声明即挂载 verify
-├─ cli/                      # @ink-ts/cli 唯一进程载体（stdio/run/serve/tui）
-│   └─ src/tui/              #   cli 宿主终端呈现面（组装时代 todos/approvals 视图
-│                            #   随 W7-B 死命令字符串空态降级，不扩面）
+├─ cli/                      # @ink-ts/cli 唯一进程载体（stdio/run/serve）
 ├─ web/                      # @ink-ts/web web 产品壳（浏览器呈现面 + 产品 chrome）
 │   └─ src/                  #   App/main/activate/state/shell/views + pluginFaces 注册
 ├─ <surface>.spec.json       # tauri/cli/web/ide 宿主 spec（kind='host'，HostFaces）
@@ -29,16 +27,16 @@ hosts/
 
 ## 分层语义
 
-- **spec 四件套**：cli/web = 本仓装配 `implemented=true`（renderer.entry 真实
-  存在于仓库根：cli→`hosts/cli/src/tui`、web→`hosts/web/src`）；tauri/ide =
+- **spec 四件套**：cli/web = 本仓装配 `implemented=true`（web renderer.entry
+  真实存在于仓库根：`hosts/web/src`；cli 无终端呈现面，不带 renderer）；tauri/ide =
   外部壳仓装配 `implemented=false`（占位，换宿主 = 外部壳读 spec + 重启装配）。
   形状校验 = `hosts/lib/src/host_spec.ts` validateHostSpec（HostFaces 词汇）；
   存在性/不变式 = verify_host_spec.ts。
 - **lib（装配层）**：只做「选适配、读配置、注入 seam」与薄接线——装配 engine
   Runtime、实现 Host 五件套、构建产品配方、出宿主命令面 bridge。不写 main、
   不监听端口、不是进程；被 hosts/cli 与 vitest 链 import。
-- **cli（进程层）**：唯一进程载体（含 main + stdio/run/serve/tui 四形态）。
-  tui 是 cli 宿主的终端呈现面；serve 出 http+ws 供 web 呈现面消费。
+- **cli（进程层）**：唯一进程载体（含 main + stdio/run/serve 三形态）。
+  serve 出 http+ws 供 web 呈现面消费。
 - **web（产品壳层）**：浏览器呈现面。产品 chrome（App/activate/state/shell/
   productView/views/AppBackend）+「宿主数据/动作 → 显示设备」装配单点；
   index.html/main/vite dev&build 在此；显示设备 = renderer（@ink-ts/renderer，
@@ -80,7 +78,7 @@ hosts/
   事件在带）；直连面 = `execution.inject(run_id, text)`；`rounds.abort` =
   桥立即拒绝 + 引擎轮边界 fail-closed 收口。
 - **事件与记忆注入**：rounds 主线 run 事件逐条实时转发进既有观察链（JSONL
-  行级 + serve ws / TUI，观测不阻断执行）；会话历史经
+  行级 + serve ws，观测不阻断执行）；会话历史经
   `ExecutionRequest.session_context` 受控注入（宿主裁剪摘要，仅 main 根
   run turn 消费，不进 checkpoint/payload/子执行）。
 

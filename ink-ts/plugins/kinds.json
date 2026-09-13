@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "note": "插件 kind 注册表真源（PLUGINS.md §1/§4.6）：首方 kind = 内置模板，住 plugins/<dir>/<id>/spec.json；第三方 kind = x-<vendor>.<name> 开放命名空间，目录名即 kind，声明式模板由插件自带（faces/contract.effects/capability='external_tool'/data/loader），与首方同校验、同装卸、同审计。改 kind 只改本文件——sync_plugin_manifest.mjs 与 verify_unload.ts 均读本真源，不加 kind 不改脚本。kind='host' 例外住 hosts/<host>.spec.json，不进 plugins/，不开放命名空间。",
+  "kinds": [
+    {
+      "kind": "tool",
+      "dir": "tools",
+      "contractTemplate": "data.tool（原工具声明行逐字：name/description/parameters/permissions/approval/endpoint/endpoint_config/network_policy/meta）",
+      "faces": [
+        "ui",
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs tools 段：聚合 tools[] 工具表行（data.tool 逐字，id 升序）+ plugins[] 索引"
+    },
+    {
+      "kind": "mcp",
+      "dir": "mcp",
+      "contractTemplate": "data.server（市场候选 server 条目逐字）+ market.json 全局配置（premounted/mount_policy 真源）",
+      "faces": [
+        "ui",
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "external_tool",
+      "loader": "sync_plugin_manifest.mjs mcp 段：聚合 mcp_market.servers[] 市场视图（data.server 逐字）+ plugins[] 索引"
+    },
+    {
+      "kind": "command",
+      "dir": "commands",
+      "contractTemplate": "data.group（DOMAIN_TABLE 实现域）+ data.order（域内序号 1..n 连续）；方法名真源 = spec.id（目录名）",
+      "faces": [
+        "ui",
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs commands 段：DOMAIN_TABLE 归组 + data.order 定序，聚合 commands[] + 派生 commands.generated.ts"
+    },
+    {
+      "kind": "ui_feature",
+      "dir": "ui_features",
+      "contractTemplate": "一布局树节点一插件：data.node（container|component）+ data.children（按序 $ref）/ 装配入口 data.root.$ref / 设置面板 data.settings_section",
+      "faces": [
+        "ui",
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs ui_features 段：$ref 树 DFS 展开重建 ui_layout + canonical 组件白名单 + settings 段清单（环/缺失/孤儿 fail-closed）"
+    },
+    {
+      "kind": "endpoint",
+      "dir": "endpoints",
+      "contractTemplate": "data.native（{ file 二进制文件名, env 环境覆盖键 }，一个原生执行件一个目录）",
+      "faces": [
+        "ui",
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs endpoints 段：聚合 native[] 派生 native.generated.ts（NATIVE_BINARY_DECLS + NativeBinaryKind）"
+    }
+  ],
+  "thirdParty": {
+    "kindPattern": "^x-[A-Za-z0-9][A-Za-z0-9._-]*\\.[A-Za-z0-9][A-Za-z0-9._-]*$",
+    "dirRule": "plugins/<kind>/<id>/spec.json（kind = 目录名 x-<vendor>.<name>，第三方自定，不占首方 kind 名）",
+    "contractTemplate": "插件自带：faces（ui/logic/data 任意组合）、contract.effects（⊆ Dock.ports 词表）、capability='external_tool'、data schema、loader；引擎按契约校验不认名单",
+    "capabilityDefault": "external_tool",
+    "loader": "sync_plugin_manifest.mjs 第三方段（通用）：validateDeclared 形状校验 + 只进 plugins[] 索引，不进 tools/mcp_market/commands/ui_features/native 首方专属聚合；verify_unload fail-closed（命名空间前缀/faces/effects/entry/无孤儿/无环）"
+  }
+}

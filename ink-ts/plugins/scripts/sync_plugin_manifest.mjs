@@ -57,6 +57,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = join(here, '..');
+const KINDS_PATH = join(PLUGINS_ROOT, 'kinds.json');
 const MANIFEST = join(PLUGINS_ROOT, 'manifest.json');
 const COMMANDS_GENERATED = join(PLUGINS_ROOT, '..', 'hosts', 'lib', 'src', 'bridge', 'commands.generated.ts');
 const UI_GENERATED = join(PLUGINS_ROOT, 'ui.generated.json');
@@ -101,7 +102,8 @@ const DOMAIN_TABLE = [
 
 const MANIFEST_NOTE =
   '插件源派生视图（生成物，禁手改）：由 plugins/scripts/sync_plugin_manifest.mjs ' +
-  '从 plugins/<kind>/<id>/spec.json 聚合生成；改工具/市场/命令/ui 声明只改 spec.json，' +
+  '从 plugins/<kind>/<id>/spec.json 聚合生成（kind 注册表真源 plugins/kinds.json，' +
+  '首方 kind + 第三方 x-* 开放命名空间）；改工具/市场/命令/ui 声明只改 spec.json，' +
   '重跑本脚本同步。tools = kind=tool 工具表行（data.tool 逐字，id 升序）；' +
   'mcp_market = kind=mcp 市场视图（data.server + market.json 全局配置）；' +
   'ui_features = 产品主壳布局装配（plugins/ui_features 真源）派生：components = 布局树' +
@@ -109,7 +111,9 @@ const MANIFEST_NOTE =
   'plugins = 全插件索引（id/kind/capability/包名/目录；行可携带 spec 顶层声明的 ' +
   'actions/depends/faces/contract——CapabilityComponent 全脸字段，未声明不输出；' +
   '引用解析/effects 词表语义由 verify:unload 校验）。endpoints = kind=endpoint ' +
-  '原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。';
+  '原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。' +
+  '第三方 kind = x-<vendor>.<name>（目录名即 kind）：capability=external_tool + faces ≥1，' +
+  '只进 plugins[] 索引，语义由 verify:unload fail-closed。';
 
 const COMMANDS_HEADER =
   '/**\n' +
@@ -274,13 +278,63 @@ async function loadPackage(dir) {
 
 const groupByName = new Map(DOMAIN_TABLE.map((d) => [d.group, d]));
 
+/** 第三方 kind 开放命名空间（§4.6）：目录名 = kind = x-<vendor>.<name>。 */
+const THIRD_PARTY_KIND_RE = /^x-[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** plugins/ 顶层非 kind 目录（脚本/依赖/真源文件所在），扫描时跳过。 */
+const EXCLUDED_TOP_DIRS = new Set(['node_modules', 'scripts']);
+
+/** 读 kind 注册表真源（plugins/kinds.json）：首方 kind → dir 映射。加 kind 只改真源，
+ *  不改本脚本（§4.6）。 */
+async function loadKindDirs() {
+  let text;
+  try {
+    text = await readFile(KINDS_PATH, 'utf8');
+  } catch {
+    await fail('plugins/kinds.json 缺失或不可解析（kind 注册表真源）——须先建该文件（含首方 5 kind）');
+  }
+  let kinds;
+  try {
+    kinds = JSON.parse(text);
+  } catch (err) {
+    await fail(`kinds.json 解析失败: ${KINDS_PATH}（${err.message}）`);
+  }
+  const rows = Array.isArray(kinds?.kinds) ? kinds.kinds : [];
+  if (rows.length === 0) await fail('kinds.json 缺 kinds[]（首方 kind 注册表，禁空）');
+  const map = new Map();
+  for (const row of rows) {
+    if (typeof row?.kind !== 'string' || typeof row?.dir !== 'string' || row.kind.length === 0 || row.dir.length === 0) {
+      await fail(`kinds.json 行缺合法 kind/dir: ${JSON.stringify(row)}`);
+    }
+    if (map.has(row.kind)) await fail(`kinds.json kind 重复: ${row.kind}`);
+    if (THIRD_PARTY_KIND_RE.test(row.kind)) {
+      await fail(`kinds.json 首方 kind 不得使用 x-* 开放命名空间: ${row.kind}`);
+    }
+    map.set(row.kind, row.dir);
+  }
+  return map;
+}
+
+/** 第三方 x-* kind 插件统一校验（§4.6）：capability='external_tool'、至少一张
+ *  faces；其余（faces/effects/entry 形状、depends 解析/环、无孤儿）由
+ *  verify:unload fail-closed 守，本生成器只守声明进派生视图前的基本形状。 */
+async function validateThirdParty(spec, kind, id) {
+  if (spec.capability !== 'external_tool') {
+    await fail(`第三方 kind 插件 ${id} 的 capability 须为 external_tool（§4.6 声明式模板强制）: ${kind}`);
+  }
+  if (typeof spec.faces !== 'object' || spec.faces === null || Object.keys(spec.faces).length === 0) {
+    await fail(`第三方 kind 插件 ${id} 须声明 faces（ui/logic/data 至少一张脸，§4.6）: ${kind}`);
+  }
+}
+
 async function derive() {
   const plugins = [];
+  const KIND_DIRS = await loadKindDirs();
+  const kindDir = (kind) => KIND_DIRS.get(kind);
 
   // kind='tool'：plugins/tools/<id>/spec.json → data.tool 逐字聚合
   const toolRows = [];
-  for (const id of await listDirs(join(PLUGINS_ROOT, 'tools'))) {
-    const dir = join(PLUGINS_ROOT, 'tools', id);
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('tool')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('tool'), id);
     const spec = await readSpec(dir, 'tool');
     if (typeof spec.data?.tool !== 'object' || spec.data.tool === null) {
       await fail(`tool 插件 ${id} 缺 data.tool`);
@@ -292,15 +346,15 @@ async function derive() {
       kind: 'tool',
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
-      dir: `tools/${id}`,
+      dir: `${kindDir('tool')}/${id}`,
       ...declaredRow(spec),
     });
   }
 
   // kind='mcp'：plugins/mcp/<id>/spec.json → data.server 逐字聚合 + market.json 全局配置
   const servers = [];
-  for (const id of await listDirs(join(PLUGINS_ROOT, 'mcp'))) {
-    const dir = join(PLUGINS_ROOT, 'mcp', id);
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('mcp')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('mcp'), id);
     const spec = await readSpec(dir, 'mcp');
     if (typeof spec.data?.server !== 'object' || spec.data.server === null) {
       await fail(`mcp 插件 ${id} 缺 data.server`);
@@ -312,22 +366,22 @@ async function derive() {
       kind: 'mcp',
       capability: spec.capability ?? 'external_tool',
       package: await loadPackage(dir),
-      dir: `mcp/${id}`,
+      dir: `${kindDir('mcp')}/${id}`,
       ...declaredRow(spec),
     });
   }
 
   let marketMeta = {};
   try {
-    marketMeta = JSON.parse(await readFile(join(PLUGINS_ROOT, 'mcp', 'market.json'), 'utf8'));
+    marketMeta = JSON.parse(await readFile(join(PLUGINS_ROOT, kindDir('mcp'), 'market.json'), 'utf8'));
   } catch {
     await fail('mcp 域缺 market.json（premounted/mount_policy 真源）');
   }
 
   // kind='command'：plugins/commands/<method>/spec.json → 按 group/order 归组
   const commands = []; // { id, group, order }
-  for (const id of await listDirs(join(PLUGINS_ROOT, 'commands'))) {
-    const dir = join(PLUGINS_ROOT, 'commands', id);
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('command')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('command'), id);
     const spec = await readSpec(dir, 'command');
     if (typeof spec.data?.group !== 'string' || typeof spec.data?.order !== 'number') {
       await fail(`command 插件 ${id} 缺 data.group/data.order`);
@@ -346,7 +400,7 @@ async function derive() {
       kind: 'command',
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
-      dir: `commands/${id}`,
+      dir: `${kindDir('command')}/${id}`,
       ...declaredRow(spec),
     });
   }
@@ -375,8 +429,8 @@ async function derive() {
   // 环/组件带 children/孤儿节点插件一律 fail-closed。组件 type 并集（升序）=
   // canonical 白名单（ui.generated.json 与 host ui_canonical.generated.ts 共用）。
   const uiFeatures = [];
-  for (const id of await listDirs(join(PLUGINS_ROOT, 'ui_features'))) {
-    const dir = join(PLUGINS_ROOT, 'ui_features', id);
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('ui_feature')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('ui_feature'), id);
     const spec = await readSpec(dir, 'ui_feature');
     uiFeatures.push({ id, spec });
     plugins.push({
@@ -384,7 +438,7 @@ async function derive() {
       kind: 'ui_feature',
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
-      dir: `ui_features/${id}`,
+      dir: `${kindDir('ui_feature')}/${id}`,
       ...declaredRow(spec),
     });
   }
@@ -392,8 +446,8 @@ async function derive() {
   // （data.native：file 二进制文件名 + env 覆盖键）。三件套 exec/infer/mcp 由
   // hosts/lib/src/exec/native.generated.ts 派生（hosts/lib/src/exec/binary.ts 按声明定位）。
   const nativeDecls = [];
-  for (const id of await listDirs(join(PLUGINS_ROOT, 'endpoints'))) {
-    const dir = join(PLUGINS_ROOT, 'endpoints', id);
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('endpoint')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('endpoint'), id);
     const spec = await readSpec(dir, 'endpoint');
     const native = spec.data?.native;
     if (typeof native !== 'object' || native === null) {
@@ -411,9 +465,43 @@ async function derive() {
       kind: 'endpoint',
       capability: spec.capability ?? 'host_tool',
       package: await loadPackage(dir),
-      dir: `endpoints/${id}`,
+      dir: `${kindDir('endpoint')}/${id}`,
       ...declaredRow(spec),
     });
+  }
+
+  // 第三方 kind（x-<vendor>.<name> 开放命名空间，§4.6）：顶层目录名即 kind，
+  // 插件住 plugins/<kind>/<id>/spec.json；声明式模板由插件自带（faces/effects/
+  // capability='external_tool'/data/loader），引擎按契约校验不认名单。只进
+  // plugins[] 索引（不进 tools/mcp_market/commands/ui_features/native 首方专属
+  // 聚合面）；faces/effects/entry 语义与 depends 解析/环/无孤儿由
+  // verify:unload fail-closed 守（生成器与门禁同源，§8）。
+  const thirdPartyKinds = [];
+  const firstPartyDirs = new Set(KIND_DIRS.values());
+  for (const kind of await listDirs(PLUGINS_ROOT)) {
+    if (EXCLUDED_TOP_DIRS.has(kind) || firstPartyDirs.has(kind)) continue;
+    if (!THIRD_PARTY_KIND_RE.test(kind)) {
+      await fail(
+        `plugins/ 顶层未知目录 ${kind}：非首方 kind 目录（kinds.json kinds[].dir），` +
+          `也非 x-<vendor>.<name> 第三方 kind 命名空间（若为新 kind，先登记 kinds.json）`,
+      );
+    }
+    const ids = await listDirs(join(PLUGINS_ROOT, kind));
+    if (ids.length === 0) await fail(`第三方 kind 目录 ${kind} 无任何插件（x-* 目录须含 ≥1 插件）`);
+    thirdPartyKinds.push(kind);
+    for (const id of ids) {
+      const dir = join(PLUGINS_ROOT, kind, id);
+      const spec = await readSpec(dir, kind);
+      await validateThirdParty(spec, kind, id);
+      plugins.push({
+        id,
+        kind,
+        capability: spec.capability ?? 'external_tool',
+        package: await loadPackage(dir),
+        dir: `${kind}/${id}`,
+        ...declaredRow(spec),
+      });
+    }
   }
   const entryList = uiFeatures.filter(
     (f) => typeof f.spec.data?.root === 'object' && f.spec.data.root !== null,
@@ -552,6 +640,7 @@ async function derive() {
     ui_layout: uiLayout,
     ui_faces: uiFaces,
     native: nativeDecls,
+    _thirdPartyKindCount: thirdPartyKinds.length,
   };
 }
 
@@ -818,7 +907,8 @@ async function main() {
     `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
     `${data.commands.length} commands + ` +
     `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
-    `${data.native.length} endpoints + ${data.ui_faces.length} 真 ui 面 + ` +
+    `${data.native.length} endpoints + ${data._thirdPartyKindCount} 第三方 kind + ` +
+    `${data.ui_faces.length} 真 ui 面 + ` +
     `${data.ui_features.settings.length} settings 段，真源 plugins/）`,
   );
 }

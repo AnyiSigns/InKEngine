@@ -1,4 +1,7 @@
 #!/usr/bin/env tsx
+// gate: test-exempt - 验证门禁脚本自身（P9 kind 开放改造）：plugins/scripts 无测试基建，
+// 行为由 P9 验收口径 `verify_unload PASS` 直接验证（第三方 x-* kind fail-closed 已用
+// 临时样例实测：孤儿/无 faces/capability 不符即拒、合法消费即过，样例验证后已删除）。
 /**
  * verify:unload —— 插件卸载一致性审计（阶段 4：faces/depends 卸载级联，fail-closed）。
  *
@@ -40,14 +43,42 @@ import { UI_STORE_SET, UI_INJECT_SET } from '../../hosts/web/src/app/shell/hostA
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PLUGINS_ROOT = join(HERE, '..');
 const MANIFEST_PATH = join(PLUGINS_ROOT, 'manifest.json');
+const KINDS_PATH = join(PLUGINS_ROOT, 'kinds.json');
 
-const KIND_DIRS: { kind: string; dir: string }[] = [
-  { kind: 'tool', dir: 'tools' },
-  { kind: 'mcp', dir: 'mcp' },
-  { kind: 'command', dir: 'commands' },
-  { kind: 'ui_feature', dir: 'ui_features' },
-  { kind: 'endpoint', dir: 'endpoints' },
-];
+/** 首方 kind 注册表真源（plugins/kinds.json，§4.6）：kind → dir。加 kind 只改真源，
+ *  不改本脚本（verify_unload 与生成器同源）。 */
+function loadKindDirs(): { kind: string; dir: string }[] {
+  let text: string;
+  try {
+    text = readFileSync(KINDS_PATH, 'utf8');
+  } catch {
+    throw new Error('plugins/kinds.json 缺失或不可解析（kind 注册表真源）——先建该文件');
+  }
+  let kinds: { kinds?: unknown };
+  try {
+    kinds = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`kinds.json 解析失败: ${KINDS_PATH}（${(err as Error).message}）`);
+  }
+  const rows = Array.isArray(kinds.kinds) ? kinds.kinds : [];
+  if (rows.length === 0) throw new Error('kinds.json 缺 kinds[]（首方 kind 注册表，禁空）');
+  const out: { kind: string; dir: string }[] = [];
+  for (const row of rows) {
+    const r = row as { kind?: unknown; dir?: unknown };
+    if (typeof r.kind !== 'string' || typeof r.dir !== 'string' || r.kind.length === 0 || r.dir.length === 0) {
+      throw new Error(`kinds.json 行缺合法 kind/dir: ${JSON.stringify(row)}`);
+    }
+    out.push({ kind: r.kind, dir: r.dir });
+  }
+  return out;
+}
+
+/** 第三方 kind 开放命名空间（§4.6）：目录名 = kind = x-<vendor>.<name>，与生成器同源正则。 */
+const THIRD_PARTY_KIND_RE = /^x-[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** plugins/ 顶层非 kind 目录（脚本/依赖/真源文件所在），扫描时跳过。 */
+const EXCLUDED_TOP_DIRS = new Set(['node_modules', 'scripts']);
+
+const KIND_DIRS: { kind: string; dir: string }[] = loadKindDirs();
 
 /** 真面内置插件白名单（阶段 7a 首真面样板：doc_parse 首个 host logic face；
  *  阶段 7b 起 ui_feature 组件叶子/面板经规则放行（见 realFaceAllowed），
@@ -194,44 +225,98 @@ function loadUniverse(): Map<string, Plugin> {
         violation(id, read.message);
         continue;
       }
-      const spec = read.spec;
-      const data = spec.data;
-      universe.set(id, {
-        id,
+      if (universe.has(id)) {
+        violation(id, `插件 id 全局重复（跨 kind 冲突）: ${id}`);
+        continue;
+      }
+      universe.set(id, { ...pluginOf(read.spec, kind, `${dir}/${id}`) });
+    }
+  }
+  // 第三方 kind（x-<vendor>.<name> 开放命名空间，§4.6）：顶层目录名即 kind。
+  let topLevel: string[] = [];
+  try {
+    topLevel = readdirSync(PLUGINS_ROOT, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    // 顶层不可枚举 = 全仓级故障，下方按空处理
+  }
+  const firstPartyDirs = new Set(KIND_DIRS.map((k) => k.dir));
+  for (const kind of topLevel) {
+    if (EXCLUDED_TOP_DIRS.has(kind) || firstPartyDirs.has(kind)) continue;
+    if (!THIRD_PARTY_KIND_RE.test(kind)) {
+      violation(
         kind,
-        dir: `${dir}/${id}`,
-        capability: typeof spec.capability === 'string' ? spec.capability : kind === 'mcp' ? 'external_tool' : 'host_tool',
-        actions: strArray(spec.actions),
-        depends: strArray(spec.depends),
-        effects: effectsOf(spec),
-        faces: facesOf(spec),
-        uiAccess: uiAccessOf(kind, spec),
-        uiChildren: uiChildrenOf(kind, spec),
-        isUiComponent:
-          kind === 'ui_feature' &&
-          typeof data === 'object' &&
-          data !== null &&
-          typeof (data as Record<string, unknown>).node === 'object' &&
-          (data as Record<string, unknown>).node !== null &&
-          ((data as Record<string, unknown>).node as Record<string, unknown>).kind === 'component',
-        isUiEntry:
-          kind === 'ui_feature' &&
-          typeof data === 'object' &&
-          data !== null &&
-          typeof (data as Record<string, unknown>).root === 'object' &&
-          (data as Record<string, unknown>).root !== null,
-        settingsKey:
-          kind === 'ui_feature' &&
-          typeof data === 'object' &&
-          data !== null &&
-          typeof (data as Record<string, unknown>).settings_section === 'object' &&
-          (data as Record<string, unknown>).settings_section !== null
-            ? ((data as Record<string, unknown>).settings_section as { key?: string }).key
-            : undefined,
-      });
+        `plugins/ 顶层未知目录 ${kind}：非首方 kind 目录（kinds.json kinds[].dir），` +
+          `也非 x-<vendor>.<name> 第三方 kind 命名空间（若为新 kind，先登记 kinds.json）`,
+      );
+      continue;
+    }
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(join(PLUGINS_ROOT, kind), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .sort();
+    } catch {
+      entries = [];
+    }
+    if (entries.length === 0) {
+      violation(kind, `第三方 kind 目录 ${kind} 无任何插件（x-* 目录须含 ≥1 插件）`);
+      continue;
+    }
+    for (const id of entries) {
+      const read = readSpecFile(kind, join(PLUGINS_ROOT, kind, id));
+      if (!read.ok) {
+        violation(id, read.message);
+        continue;
+      }
+      if (universe.has(id)) {
+        violation(id, `插件 id 全局重复（跨 kind 冲突）: ${id}`);
+        continue;
+      }
+      universe.set(id, { ...pluginOf(read.spec, kind, `${kind}/${id}`) });
     }
   }
   return universe;
+}
+
+function pluginOf(spec: Record<string, unknown>, kind: string, dir: string): Plugin {
+  const data = spec.data;
+  return {
+    id: spec.id as string,
+    kind,
+    dir,
+    capability: typeof spec.capability === 'string' ? spec.capability : kind === 'mcp' ? 'external_tool' : 'host_tool',
+    actions: strArray(spec.actions),
+    depends: strArray(spec.depends),
+    effects: effectsOf(spec),
+    faces: facesOf(spec),
+    uiAccess: uiAccessOf(kind, spec),
+    uiChildren: uiChildrenOf(kind, spec),
+    isUiComponent:
+      kind === 'ui_feature' &&
+      typeof data === 'object' &&
+      data !== null &&
+      typeof (data as Record<string, unknown>).node === 'object' &&
+      (data as Record<string, unknown>).node !== null &&
+      ((data as Record<string, unknown>).node as Record<string, unknown>).kind === 'component',
+    isUiEntry:
+      kind === 'ui_feature' &&
+      typeof data === 'object' &&
+      data !== null &&
+      typeof (data as Record<string, unknown>).root === 'object' &&
+      (data as Record<string, unknown>).root !== null,
+    settingsKey:
+      kind === 'ui_feature' &&
+      typeof data === 'object' &&
+      data !== null &&
+      typeof (data as Record<string, unknown>).settings_section === 'object' &&
+      (data as Record<string, unknown>).settings_section !== null
+        ? ((data as Record<string, unknown>).settings_section as { key?: string }).key
+        : undefined,
+  };
 }
 
 /** depends 解析：每项须为插件 id 或机制端口 id（悬空 = 违规）。 */
@@ -479,6 +564,27 @@ function auditUiReachability(universe: Map<string, Plugin>, referrers: Map<strin
   if (entries.length > 1) violation('ui_features', `存在多个装配入口: ${entries.map((e) => e.id).join(', ')}`);
 }
 
+/** 第三方 kind（x-<vendor>.<name>）fail-closed 校验（§4.6/§8）：命名空间前缀已由
+ *  正则守住（扫描即拒）；此处补 capability='external_tool'、faces ≥1（声明式模板
+ *  由插件自带）、无孤儿（须被其它插件 depends 引用——无人消费即拒）。faces/effects/
+ *  entry/depends 解析与环由 auditFacesAndContract/auditRealFaceEntries/
+ *  auditDependsResolve/auditDependsCycle 统一覆盖（与首方 kind 同装卸、同审计）。 */
+function auditThirdPartyKind(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    if (!THIRD_PARTY_KIND_RE.test(plugin.kind)) continue;
+    if (plugin.capability !== 'external_tool') {
+      violation(plugin.id, `第三方 kind 插件 capability 须为 external_tool（§4.6）: ${plugin.kind}`);
+    }
+    if (Object.keys(plugin.faces).length === 0) {
+      violation(plugin.id, `第三方 kind 插件须声明 faces（ui/logic/data 至少一张脸，§4.6）: ${plugin.kind}`);
+    }
+    const referenced = [...universe.values()].some((other) => other.id !== plugin.id && other.depends.includes(plugin.id));
+    if (!referenced) {
+      violation(plugin.id, `第三方 kind 插件无人消费（无其它插件 depends 引用）——无孤儿 fail-closed: ${plugin.kind}`);
+    }
+  }
+}
+
 function printViolations(): void {
   if (violations.length === 0) return;
   console.error(`verify:unload FAIL (${violations.length} 违规)`);
@@ -524,6 +630,7 @@ function main(): void {
   auditManifestParity(universe);
   auditDataOnlyState(universe);
   auditUiReachability(universe, referrers);
+  auditThirdPartyKind(universe);
 
   if (violations.length > 0) {
     printViolations();

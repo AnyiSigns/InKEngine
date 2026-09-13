@@ -53,9 +53,13 @@ plugins/
                                   # hosts/web/src/app/settings/settingsSections.generated.ts 派生视图）
 ```
 
-kind 全集（PLUGINS.md §1）为 8 值：`tool | command | ui_feature | endpoint |
-recipe | executor | mcp | host`——plugins/ 按 kind 分子目录，其中 `host`
-例外住 `hosts/<host>.spec.json`（不进 plugins/）。阶段 3a 已落地 `tools/` 与
+kind 全集（PLUGINS.md §1/§4）：首方 5 值 `tool | command | ui_feature | endpoint |
+mcp`（真源 `plugins/kinds.json`，各自 {dir, contractTemplate, faces, capabilityDefault,
+loader}）+ 第三方开放命名空间 `x-<vendor>.<name>`（目录名即 kind，声明式模板由插件
+自带：faces/effects/capability='external_tool'/data/loader，与首方同校验、同装卸、
+同审计）——plugins/ 按 kind 分子目录，其中 `host` 例外住 `hosts/<host>.spec.json`
+（不进 plugins/）；`recipe`/`executor` 旧死 kind 值已随 P9 移除（第三方新形态走
+x-* 开放命名空间，不占首方 kind 名）。阶段 3a 已落地 `tools/` 与
 `mcp/` 两域；阶段 3b1 落地 `commands/`（66 命令，方法名真源迁移 plugins）；
 阶段 3b2 落地 `ui_features/`（25 节点插件 + 装配入口，产品主壳布局真源迁移
 plugins，生成物 ui.generated.json 取代 seed_data/ui_spec.json）；阶段 6 落地
@@ -82,7 +86,7 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
 ```jsonc
 {
   "id": "collect_material",        // 注册表键，全局唯一（工具 = 工具名）
-  "kind": "tool",                  // 仅 8 kind 之一（host 例外见上）
+  "kind": "tool",                  // 首方 5 kind 之一或 x-* 第三方（host 例外见上）
   "capability": "host_tool",       // core_tool | host_tool | external_tool
   "depends": [],                   // 可引用插件 id 或机制端口 id（storage_seam/llm_port/exec_envelope/rounds_port）
   "actions": [],

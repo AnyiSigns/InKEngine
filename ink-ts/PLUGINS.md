@@ -21,10 +21,13 @@
 强制区分，不靠文档自觉。
 
 ```ts
+type FirstPartyKind = 'tool' | 'command' | 'ui_feature' | 'endpoint' | 'mcp';
+// 第三方 kind = x-<vendor>.<name> 开放命名空间（§4 kind 注册与开放扩展）
+
 interface CapabilityComponent {
   id: string;                                          // 注册表键，全局唯一
-  kind: 'tool' | 'command' | 'ui_feature' | 'endpoint'  // 仅插件类型（机制件非插件，
-      | 'recipe' | 'executor' | 'mcp' | 'host';             // 走 MechanismContract，见 §3）
+  kind: FirstPartyKind | `x-${string}.${string}`;      // 首方 5 kind 或第三方 x-* 开放
+      // kind（机制件非插件，走 MechanismContract，见 §3）
   contract: {
     inputs?: unknown;
     outputs?: unknown;
@@ -69,7 +72,9 @@ MCP config / spawn 声明）+ 测试 + locale。`kind` 只决定三件事：
 契约模板、装载路径、需要哪些脸——**不是每类一种新格式**。插件源统一为
 `plugins/` 单源（真源）+ 派生视图（manifest/命令面/市场），见
 `docs/component_data_endgame.md` §三（宿主 `kind='host'` 例外：不走 npm 包分发，
-spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。
+spec 直接住 `hosts/<host>.spec.json`，faces 用 HostFaces，见 §2）。kind 注册表真源 =
+`plugins/kinds.json`（首方 kind → 契约模板/装载路径；第三方 `x-*` 开放命名空间规则），
+生成器 `sync_plugin_manifest.mjs` 与 `verify:unload` 均读该真源——**加 kind 不改脚本**。
 
 命令类（`kind='command'`）落地形态（阶段 3b1 定稿）：`plugins/commands/<method>/`
 单命令一目录，spec 的 `data.group` = 实现域（26 值，见生成器 DOMAIN_TABLE；
@@ -212,6 +217,38 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 - **verify 随行**：依赖单向（engine 不反向依赖插件层）、depends 循环拒绝 +
   卸载级联、0-IO 端口白名单、命令面声明即挂载、语义标签端到端断言
   （见 CODING.md §11）——每层 verify 脚本随插件源落地。
+
+## 4. kind 注册与开放扩展
+
+**首方 kind = 内置模板；第三方 kind = `x-*` 声明式模板，二者同校验、同装卸、
+同审计**——这是 kind 扩展的唯一口子，第三方不占首方 kind 名。
+
+| 面 | 首方 kind（内置模板） | 第三方 kind（开放命名空间） |
+|---|---|---|
+| 名单 | `tool` / `command` / `ui_feature` / `endpoint` / `mcp`（真源 `plugins/kinds.json`） | `x-<vendor>.<name>`（目录名即 kind，名字第三方自定） |
+| 声明 | `plugins/<dir>/<id>/spec.json`（kind 契约模板见 kinds.json 各条） | `plugins/x-<vendor>.<name>/<id>/spec.json`；模板由插件自带：`faces`（ui/logic/data 任意组合）、`contract.effects`（⊆ 端口词表）、`capability: 'external_tool'`、`data` schema、`loader` |
+| 校验 | 引擎按契约校验（生成器守形状、`verify:unload` 守语义） | 引擎**按契约校验，不认名单**；`verify:unload`/生成器统一 fail-closed（命名空间前缀、faces ≥1、effects ⊆ 端口词表、entry 相对插件目录且文件同住、无孤儿、无环） |
+| 装卸/审计 | 受控动作（审批/审计/回退） | 与首方同装卸、同审计 |
+
+规则：
+
+1. **kind 注册表数据化**：`plugins/kinds.json` 是 kind 唯一真源（首方 5 kind →
+   `{dir, contractTemplate, faces, capabilityDefault, loader}` + 第三方规则）。
+   `sync_plugin_manifest.mjs` 与 `verify_unload.ts` 读该真源，不再写死 kind 清单
+   ——**加 kind（首方或第三方）不改 TS/JS 脚本**。
+2. **开放命名空间**：`kind` 允许 `x-<vendor>.<name>`（vendor/name 非空、合法字符），
+   名字由第三方自定；第三方 kind 插件住 `plugins/<kind>/<id>/spec.json`，声明式
+   模板由插件自带，引擎按契约校验不认名单；`verify_unload`/生成器对 `x-*` 做
+   统一 fail-closed 校验（命名空间前缀、faces/effects/entry、无孤儿、无环），
+   与首方 kind 同装卸/同审计。
+3. **死 kind 已移除**：`recipe`/`executor` 两个声明未落地的旧 kind 值已从闭集移除
+   （清语义）；第三方要的"新形态"走 (2) 的开放命名空间，不占首方 kind 名。
+4. **`host` 例外不变**：`kind='host'` 仍住 `hosts/<host>.spec.json`，不走
+   `plugins/`，不进第三方开放命名空间（宿主是装配期特权面，见 §2）。
+5. **生成器与门禁同源**：生成器（进派生视图前的形状/命名空间守卫）与
+   `verify:unload`（语义 fail-closed）共用同一 `x-*` 正则与同一 kinds.json 真源，
+   防止"声明绕过首方目录约定"（§3 机制闭集不适用于插件 kind；kind 只定契约模板/
+   装载路径/需要的脸，capability 档位另管装卸权限，见 §2）。
 
 ---
 

@@ -1,8 +1,8 @@
 /**
  * eval/arms 测试（C.7 三臂 + 两诊断/上界臂 + evaluateArm 口径）：
- * ①HeuristicArm 与 parseRecipe 手工参照逐字一致（同一函数同一输入）、lexicon 线性
- * 渲染可还原故 accepted 非零、goal 任务抛 N/A、gold 字段经 Proxy 毒化后 solve 照样
- * 完成（零泄漏的运行证）；②RandomArm 同 seed 逐字确定且与直接 rollout(Policy.random)
+ * ①HeuristicArm 与测试内独立重算的弱词法扫描参照逐字一致（同语义非同源，同位命中按
+ * LEX_OPS_BASE 固定序取首、不做类型消歧）；lexicon 线性渲染可还原故 accepted 非零；
+ * 钉 seed 59/77/150 验 `取反` 恒选 neg → reverse 任务稳定失败；goal 抛 N/A；gold 毒化照样完成；②RandomArm 同 seed 逐字确定且与直接 rollout(Policy.random)
  * 一致（委托单一实现）、异 seed 权重必不同（轨迹不强断言，仅记录）；③TrainedArm 的
  * save→fromWeights 往返与注入同 seed Policy 逐字同解；④PlannerArm 对 goal 任务
  * accepted 必真且 trace 与 planBfs 同源、follow 抛 N/A、预算守卫先行；⑤ContractRouteArm
@@ -17,20 +17,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  ContractRouteArm,
-  HeuristicArm,
-  PlannerArm,
-  RandomArm,
-  TrainedArm,
-  evaluateArm,
-} from '../eval/arms.js';
+import { ContractRouteArm, HeuristicArm, PlannerArm, RandomArm, TrainedArm, evaluateArm } from '../eval/arms.js';
 import { ci95, passAt1 } from '../eval/metrics.js';
 import { Policy } from '../controller/policy.js';
 import { rollout, type RolloutResult, type RolloutStep } from '../runner/rollout.js';
 import { MAX_STEPS, GRAPH, candidates } from '../runner/graph.js';
-import { EXIT, applyOp, initState, obsSnapshot, type Graph, type State } from '../world/operators.js';
-import { parseRecipe } from '../world/render.js';
+import { EXIT, LEX_OPS_BASE, applyOp, initState, obsSnapshot, type Graph, type State } from '../world/operators.js';
+import { LEXICON } from '../world/lexicon.js';
+import { findSequence, senseTokens, tokens } from '../world/tokenize.js';
 import { planBfs } from '../teacher/search.js';
 import { accept } from '../verify/acceptor.js';
 import { makeTask } from '../gen/generator.js';
@@ -66,16 +60,27 @@ function withoutGold(task: Task): Task {
   }) as Task;
 }
 
-/** 任务书钉死的手工参照：parseRecipe 输出逐步重放（在候选才走，错位跳步，末尾 EXIT）。 */
+/** 手工参照：测试内独立重算弱扫描（首现位置升序、同位按 LEX_OPS_BASE 取首、无类型消歧），
+ *  再逐步重放（在候选才走，错位跳步，末尾 EXIT）。 */
 function heuristicReference(task: Task): RolloutStep[] {
+  const toks = tokens(task.instruction);
+  const byFirst = new Map<number, string[]>();
+  for (const opId of LEX_OPS_BASE) {
+    for (const sense of LEXICON[opId] ?? []) {
+      const at = findSequence(toks, senseTokens(sense));
+      if (at < 0 || byFirst.get(at)?.includes(opId)) continue;
+      byFirst.set(at, [...(byFirst.get(at) ?? []), opId]);
+    }
+  }
   let st: State = initState(task.x, task.spec);
   const steps: RolloutStep[] = [];
-  for (const opId of parseRecipe(task.instruction, task.root)) {
+  for (const at of [...byFirst.keys()].sort((a, b) => a - b)) {
+    const chosen = byFirst.get(at)!.reduce((a, b) => (LEX_OPS_BASE.indexOf(b) < LEX_OPS_BASE.indexOf(a) ? b : a));
     const cand = candidates(GRAPH, st, st.hist);
-    if (!cand.includes(opId)) continue;
-    const next = applyOp(GRAPH, opId, st);
+    if (!cand.includes(chosen)) continue;
+    const next = applyOp(GRAPH, chosen, st);
     if (next === null) continue;
-    steps.push({ obs: obsSnapshot(st), candidates: cand, action: opId });
+    steps.push({ obs: obsSnapshot(st), candidates: cand, action: chosen });
     st = next;
   }
   steps.push({ obs: obsSnapshot(st), candidates: candidates(GRAPH, st, st.hist), action: EXIT });
@@ -98,11 +103,21 @@ describe('HeuristicArm：follow 重放 + 零泄漏 + goal N/A', () => {
   const arm = new HeuristicArm();
   const tasks = collectTasks('follow', 5);
 
-  it('trace 与手工参照逐字一致（同一函数同一输入的逐步比对）', () => {
+  it('trace 与手工参照逐字一致（测试内独立弱扫描参照的逐步比对）', () => {
     for (const task of tasks) {
       const r = arm.solve(task, GRAPH);
       expect(r.trace).toEqual(heuristicReference(task));
       expect(r.trace[r.trace.length - 1]!.action).toBe(EXIT);
+    }
+  });
+
+  it('非类型感知确实生效：reverse·`取反` 任务恒误选 neg 而失败（seed 59/77/150）', () => {
+    for (const seed of [59, 77, 150]) {
+      const t = makeTask(seed, 'follow');
+      if (t === null) throw new Error(`seed=${seed} 应稳定产出 follow 任务`);
+      expect([t.root, t.plan_hidden.includes('reverse'), t.instruction.includes('取反')]).toEqual(['Str', true, true]);
+      expect(arm.solve(t, GRAPH).trace.some((s) => s.action === 'reverse')).toBe(false);
+      expect(arm.solve(t, GRAPH).accepted).toBe(false);
     }
   });
 

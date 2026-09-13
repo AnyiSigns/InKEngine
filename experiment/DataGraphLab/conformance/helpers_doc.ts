@@ -107,7 +107,7 @@ const CORE: readonly HelperRow[] = [
   { name: 'routingAcc', signature: 'routingAcc(policy, graph, tasks): {match; total}', file: 'eval/metrics.ts', status: '已落地', note: 'teacher-forced 逐步路由（oracleTrace 上 greedy act）；仅诊断项不入门禁；坏标签任务整任务跳过' },
   { name: 'ci95', signature: 'ci95(p, n): [number, number]', file: 'eval/metrics.ts', status: '已落地', note: 'Wilson score 95% 区间钳 [0,1]；n=0 返 [0,0]；全仓唯一 CI 口径' },
   { name: 'calibrationEce', signature: 'calibrationEce(confs, outcomes, bins?): number', file: 'eval/metrics.ts', status: '已落地', note: '等宽分桶 ECE（§7 校准列）；长度不一致即抛' },
-  { name: 'HeuristicArm', signature: 'class HeuristicArm { solve(task, graph): RolloutResult }', file: 'eval/arms.ts', status: '已落地', note: '仅 follow：parseRecipe(Lexicon 首现) 线性重放；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected' },
+  { name: 'HeuristicArm', signature: 'class HeuristicArm { solve(task, graph): RolloutResult }', file: 'eval/arms.ts', status: '已落地', note: '仅 follow：弱词法扫描（义项首现升序，同位命中按 LEX_OPS_BASE 固定序取最小、放弃类型消歧，C.7 规格）；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected' },
   { name: 'RandomArm', signature: 'new RandomArm(seed, featureSet?)', file: 'eval/arms.ts', status: '已落地', note: '同架构 Policy.random(seed) 下界，greedy rollout；同 seed 两次 solve 逐字相同（G1.1 臂）' },
   { name: 'TrainedArm', signature: 'new TrainedArm(policy); static fromWeights(path, expect?)', file: 'eval/arms.ts', status: '已落地', note: '训练产物臂唯一入口；fromWeights 走 Policy.load arch fail-fast（F.2）' },
   { name: 'PlannerArm', signature: 'class PlannerArm { solve(task, graph): RolloutResult }', file: 'eval/arms.ts', status: '已落地', note: '仅 goal：planBfs 公开规划上界（G1.3 必含臂）；无解/超预算记 accepted=false；follow N/A；产出永不回灌训练（E.13）' },

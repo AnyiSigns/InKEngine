@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
-// gate: test-exempt - 验证门禁脚本自身（P9 kind 开放改造）：plugins/scripts 无测试基建，
-// 行为由 P9 验收口径 `verify_unload PASS` 直接验证（第三方 x-* kind fail-closed 已用
-// 临时样例实测：孤儿/无 faces/capability 不符即拒、合法消费即过，样例验证后已删除）。
+// gate: test-exempt - 验证门禁脚本自身（P9 kind 开放 + S0 faces.logic 契约扩面）：
+// plugins/scripts 测试基建已随 S0 落地（scripts/verify_unload.test.ts 失败用例夹具），
+// 本脚本仍由 `verify_unload PASS` 验收口径 + 该测试双重复验。
 /**
  * verify:unload —— 插件卸载一致性审计（阶段 4：faces/depends 卸载级联，fail-closed）。
  *
@@ -18,6 +18,9 @@
  *   --plan <id> 输出阻断方与子树影响面（卸载前先查拆除清单）。
  * - faces 结构校验：ui/logic/data 三脸，target ∈ engine|host|web，entry 非空；
  *   contract.effects ⊆ 机制端口词表。
+ * - S0 faces.logic 装载契约：logic face entry 默认导出 = 统一工厂
+ *   （`(init?: unknown) => 实例`，装载器只装载不解析）——静态守默认导出存在，
+ *   缺 = 装配前拒绝（规则 auditLogicFaceContract）。
  * - 阶段 9b 接入契约：faces.ui.access（store/inject 声明式接入）仅真 ui 面插件合法，
  *   槽位名称须命中接入词表单一真源（hosts/web/src/app/shell/hostAccessVocab.ts ——
  *   store=ProductShellModel 数据/服务座位、inject=ProductShellActions 动作，编译期锁 keyof）。
@@ -30,6 +33,7 @@
  *
  * 用法：tsx plugins/scripts/verify_unload.ts           # 全量审计（exit 1 = 违规）
  *       tsx plugins/scripts/verify_unload.ts --plan <id>  # 输出卸载影响面/阻断方
+ *       tsx plugins/scripts/verify_unload.ts --root <dir> # 夹具根（S0 失败用例测试）
  * 退出码：0 = PASS；1 = 违规或未知插件。
  */
 
@@ -41,18 +45,21 @@ import { MECHANISM_PORT_IDS } from '../../engine/src/dock/ports.js';
 import { UI_STORE_SET, UI_INJECT_SET } from '../../hosts/web/src/app/shell/hostAccessVocab.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PLUGINS_ROOT = join(HERE, '..');
-const MANIFEST_PATH = join(PLUGINS_ROOT, 'manifest.json');
-const KINDS_PATH = join(PLUGINS_ROOT, 'kinds.json');
+/** 插件根（默认 = plugins/；`--root <dir>` 可覆盖——S0 失败用例测试注入夹具根）。 */
+let PLUGINS_ROOT = join(HERE, '..');
+let KINDS_PATH = join(PLUGINS_ROOT, 'kinds.json');
+let MANIFEST_PATH = join(PLUGINS_ROOT, 'manifest.json');
 
 /** 首方 kind 注册表真源（plugins/kinds.json，§4.6）：kind → dir。加 kind 只改真源，
- *  不改本脚本（verify_unload 与生成器同源）。 */
+ *  不改本脚本（verify_unload 与生成器同源）。惰性加载 + `--root` 覆盖后重载。 */
+let kindDirsCache: { kind: string; dir: string }[] | null = null;
+
 function loadKindDirs(): { kind: string; dir: string }[] {
   let text: string;
   try {
     text = readFileSync(KINDS_PATH, 'utf8');
   } catch {
-    throw new Error('plugins/kinds.json 缺失或不可解析（kind 注册表真源）——先建该文件');
+    throw new Error('kinds.json 缺失或不可解析（kind 注册表真源）——先建该文件');
   }
   let kinds: { kinds?: unknown };
   try {
@@ -73,12 +80,23 @@ function loadKindDirs(): { kind: string; dir: string }[] {
   return out;
 }
 
+function getKindDirs(): { kind: string; dir: string }[] {
+  if (kindDirsCache === null) kindDirsCache = loadKindDirs();
+  return kindDirsCache;
+}
+
+/** `--root <dir>` 覆盖插件根（S0 失败用例测试）：重设路径并强制重载 kind 注册表。 */
+function applyRootOverride(root: string): void {
+  PLUGINS_ROOT = root;
+  KINDS_PATH = join(root, 'kinds.json');
+  MANIFEST_PATH = join(root, 'manifest.json');
+  kindDirsCache = null;
+}
+
 /** 第三方 kind 开放命名空间（§4.6）：目录名 = kind = x-<vendor>.<name>，与生成器同源正则。 */
 const THIRD_PARTY_KIND_RE = /^x-[A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** plugins/ 顶层非 kind 目录（脚本/依赖/真源文件所在），扫描时跳过。 */
 const EXCLUDED_TOP_DIRS = new Set(['node_modules', 'scripts']);
-
-const KIND_DIRS: { kind: string; dir: string }[] = loadKindDirs();
 
 /** 真面内置插件白名单（阶段 7a 首真面样板：doc_parse 首个 host logic face；
  *  阶段 7b 起 ui_feature 组件叶子/面板经规则放行（见 realFaceAllowed），
@@ -209,7 +227,7 @@ function uiAccessOf(kind: string, spec: Record<string, unknown>): { store: strin
 
 function loadUniverse(): Map<string, Plugin> {
   const universe = new Map<string, Plugin>();
-  for (const { kind, dir } of KIND_DIRS) {
+  for (const { kind, dir } of getKindDirs()) {
     let entries: string[] = [];
     try {
       entries = readdirSync(join(PLUGINS_ROOT, dir), { withFileTypes: true })
@@ -242,7 +260,7 @@ function loadUniverse(): Map<string, Plugin> {
   } catch {
     // 顶层不可枚举 = 全仓级故障，下方按空处理
   }
-  const firstPartyDirs = new Set(KIND_DIRS.map((k) => k.dir));
+  const firstPartyDirs = new Set(getKindDirs().map((k) => k.dir));
   for (const kind of topLevel) {
     if (EXCLUDED_TOP_DIRS.has(kind) || firstPartyDirs.has(kind)) continue;
     if (!THIRD_PARTY_KIND_RE.test(kind)) {
@@ -413,6 +431,39 @@ function auditRealFaceEntries(universe: Map<string, Plugin>): void {
       if (!existsSync(target)) {
         violation(plugin.id, `faces.${face} entry 文件缺失（测试/实现须随插件同住）: ${plugin.dir}/${entry}`);
       }
+    }
+  }
+}
+
+/** S0 faces.logic 装载契约（§PLUGINS.md「faces.logic 装载与守卫」）：logic face 的
+ *  entry 默认导出 = 统一工厂（`(init?: unknown) => 实例`），装载器只装载不解析、
+ *  实例形状由插件自有契约定义。静态守卫：logic face entry 文件须含 `export default`
+ *  （缺 = 装载期必然 fail-closed 的声明，装配前拒绝）；entry 越界/缺文件由
+ *  auditRealFaceEntries 统一报，此处不重复。 */
+const LOGIC_FACE_DEFAULT_EXPORT_RE = /\bexport\s+default\b/;
+
+function auditLogicFaceContract(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    const logic = plugin.faces['logic'];
+    if (logic === undefined) continue;
+    if (!realFaceAllowed(plugin)) continue;
+    const entry = logic.entry;
+    const safe = !entry.startsWith('/') && !/(^|[\\/])\.\.([\\/]|$)/.test(entry) && !/^[a-zA-Z]:/.test(entry);
+    if (!safe) continue;
+    const target = join(PLUGINS_ROOT, plugin.dir, entry);
+    if (!existsSync(target)) continue;
+    let text: string;
+    try {
+      text = readFileSync(target, 'utf8');
+    } catch {
+      continue;
+    }
+    if (!LOGIC_FACE_DEFAULT_EXPORT_RE.test(text)) {
+      violation(
+        plugin.id,
+        `faces.logic entry 缺默认导出（S0 装载契约：默认导出 = 统一工厂 (init?: unknown) => 实例，` +
+          `装载器只装载不解析）: ${plugin.dir}/${entry}`,
+      );
     }
   }
 }
@@ -601,6 +652,11 @@ function printViolations(): void {
 }
 
 function main(): void {
+  const rootArg = process.argv.indexOf('--root');
+  if (rootArg !== -1 && process.argv[rootArg + 1] !== undefined && process.argv[rootArg + 1] !== '') {
+    applyRootOverride(process.argv[rootArg + 1]!);
+  }
+
   const planArg = process.argv.indexOf('--plan');
   const planId = planArg !== -1 ? process.argv[planArg + 1] : undefined;
 
@@ -627,6 +683,7 @@ function main(): void {
   auditFacesAndContract(universe);
   auditUiAccessContract(universe);
   auditRealFaceEntries(universe);
+  auditLogicFaceContract(universe);
   auditManifestParity(universe);
   auditDataOnlyState(universe);
   auditUiReachability(universe, referrers);

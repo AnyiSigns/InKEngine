@@ -175,6 +175,61 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 - **卸载顺序（固化先停后卸）**：先停子进程/容器，再注销各 face
   （ui/logic/data 三脸或 host 的 HostFaces——无"按钮还在、后端已删"的孤儿）。
 
+### 2.2 faces.logic 装载与守卫契约（S0 冻结，轨道 B S3/S4 前置门）
+
+**装载协议**：
+
+- **声明**：`faces.logic = { target: 'engine' | 'host' | 'web', entry: string }`；
+  entry 为相对插件目录路径，实现与其 `*.test.ts` 同目录并列（物理单目录不变式）。
+  当前先例：`tools/doc_parse`（target='host'，首真面样板）。
+- **默认导出 = 统一工厂**：logic face 的 entry 默认导出须为
+  `(init?: unknown) => 实例`——**装载器只装载不解析**（实例形状 = 插件自有契约，
+  由插件 spec/AGENTS 定义）；缺默认导出 = 装配前拒绝（`verify:unload` 静态守
+  `auditLogicFaceContract`，entry 越界/缺文件另有 `auditRealFaceEntries`）。
+- **装载时机按 target**：
+  - `host`：宿主装配期**动态 import**（`hosts/lib/src/face/loader.ts` 按声明
+    entry 装载；动态 import 防全部插件静态进 bundle）；契约不符 = 装配期
+    fail-closed，插件源缺失 = 消费方缺省降级路径（doc_parse 样板语义）；
+  - `engine`：引擎侧逻辑面——0-IO 纪律不变，副作用只经 `contract.effects`
+    声明端口；
+  - `web`：前端逻辑面（先冻结语义；当前真 ui 面走 faces.ui + 后端 logic
+    分工，前端"逻辑"是薄适配，归 faces.ui 领域）。
+- **actions**：spec.actions = logic face 暴露的命令/操作，命令面从此派生
+  （禁手写数组，见 §1 命令类）。
+
+**contract.effects 端口白名单**：
+
+- `contract.effects ⊆ 端口词表`（单一真源 `engine/src/dock/ports.ts`：现
+  storage_seam / llm_port / exec_envelope / rounds_port；`verify:unload` 与 boot
+  密封共用同一词表）；
+- logic face 内**只经声明过的端口做副作用**，直接 IO（node:*/子进程/网络/文件
+  系统）违契约；
+- **端口扩展流程**：`dock/ports.ts` 加值 → `verify:unload` 与 boot 密封自动继承
+  （零脚本改动，词表不自维护第二份）。
+
+**卸载级联**：
+
+- 卸载 = 删插件目录 + 移除引用方 `depends` + 删父容器 `data.children.$ref` +
+  重跑生成器 + `verify:unload`；
+- **有活动下游依赖（depends 反向引用或 ui 组合引用）= 拒卸**（fail-closed；
+  `tsx plugins/scripts/verify_unload.ts --plan <id>` 输出阻断方与子树影响面）；
+- 治理资产随插件行同消（approval/网络策略随声明消失，审计归因按插件 id 清理）。
+
+**治理随插件走（vetting/审批/审计职责分工）**：
+
+| 面 | 谁守 | 随插件走的内容 |
+|---|---|---|
+| 审批策略 | **插件声明** | `data` 档位：approval（allow/review/deny）、network_policy、endpoint_config——策略随插件走，卸载即随行消失 |
+| vetting | **引擎运行期** | 按 capability 档位判定（§2 表）：core_tool 机制闭集 / host_tool 宿主注入 / external_tool 逐件 vetting spec + impl（按本契约编写的第三方） |
+| 审计 | **引擎审计管线** | 统一 audit_log，归因键 = 插件 id；装载/回退/卸载按 id 记录并清理归因 |
+| 装载 | **宿主（只装配）** | 选端口实现 + 注入 seam + 按 faces.logic 声明装载逻辑面 + mount 命令面（经派生生成物，无手写注册表） |
+
+**校验归属（S0 落地）**：`verify:unload` 新审计 `auditLogicFaceContract`（logic
+face 默认导出静态守卫）+ 失败用例 `plugins/scripts/verify_unload.test.ts`
+（`--root` 夹具根注入：合法对照组 PASS；缺默认导出 / effects 越界 / entry 逃逸
+三类违规 fail-closed）。
+
+
 ### 2.1 工具类插件（分发单位 vs 控制单位，正交）
 
 - 工具声明 = `kind:'tool'` 插件数据；内置工具声明源 = `plugins/tools/<tool-name>/`

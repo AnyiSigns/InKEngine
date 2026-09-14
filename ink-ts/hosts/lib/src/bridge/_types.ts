@@ -14,6 +14,26 @@ import type { InkHost } from '../host.js';
 import { HOST_SESSIONS_COLLECTION } from '../sessions/model.js';
 import type { HostSessionRecord } from '../sessions/model.js';
 
+/**
+ * 工作区授权台账契约（S4 域逻辑下沉：值随 plugins/domains/workspace，
+ * 装配契约类型留宿本文件——HostBridgeDeps.workspace / 命令领域类型从这里派生）。
+ * data_dir/workspace.json 持久化（createWorkspaceStore 随域插件）。
+ */
+export interface WorkspaceState {
+  root: string | null;
+  mounts: string[];
+}
+
+export interface WorkspaceStore {
+  state(): WorkspaceState;
+  setRoot(path: string): WorkspaceState;
+  revoke(): WorkspaceState;
+  addMount(path: string): WorkspaceState;
+  removeMount(path: string): WorkspaceState;
+  /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态台账）。 */
+  reload(): void;
+}
+
 /** bridge 处理器上下文（与 cli rpc HandlerContext 结构一致，供 cli 直接并入命令面）。 */
 export interface BridgeContext {
   autoApprove: boolean;
@@ -128,7 +148,6 @@ export interface HostBridgeDeps {
 import type { CapabilityStore } from '../capability/store.js';
 import type { DocParser } from '../doc/_types.js';
 import type { SearchKeysStore } from '../search/keys.js';
-import type { WorkspaceStore } from '../workspace/store.js';
 export type { DocParser };
 export type { SearchKeysStore };
 
@@ -141,4 +160,3 @@ export interface CatalogFetch {
     signal?: AbortSignal;
   }): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 }
-export type { WorkspaceStore };

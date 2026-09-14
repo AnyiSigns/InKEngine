@@ -7,8 +7,12 @@
  * 对象身份 WeakMap 缓存兜底 store。
  */
 
-import { BridgeError, createEphemeralWorkspaceStore } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { HostBridgeDeps, WorkspaceState, WorkspaceStore } from '@ink-ts/host';
+// S4：值随 plugins/domains/workspace（域逻辑唯一实现位）；装配契约类型
+// （WorkspaceState/WorkspaceStore）仍从 @ink-ts/host 派生。兜底 store 工厂
+// 随域插件同住——改台账语义只改域插件。
+import { createEphemeralWorkspaceStore } from '../../domains/workspace/faces/logic/index.js';
 
 export function pathParam(raw: unknown, key: string): string {
   const value =

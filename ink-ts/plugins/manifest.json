@@ -1905,6 +1905,19 @@
           "entry": "./faces/logic/index.ts"
         }
       }
+    },
+    {
+      "id": "workspace",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-workspace",
+      "dir": "domains/workspace",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     }
   ],
   "tools": [
@@ -4810,7 +4823,12 @@
       "entry": "./faces/logic/index.ts"
     }
   ],
-  "domains": [],
+  "domains": [
+    {
+      "id": "workspace",
+      "entry": "./faces/logic/index.ts"
+    }
+  ],
   "ui_features": {
     "components": [
       "agent_input",

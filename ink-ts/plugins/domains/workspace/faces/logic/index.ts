@@ -1,6 +1,7 @@
 /**
  * 工作区授权存储（host 本地持久化）。
  *
+ * S4 从 hosts/lib/src/workspace/store.ts 迁入（域逻辑唯一实现位 = 域服务插件）。
  * 授权根/挂载目录清单落 data_dir/workspace.json：单授权根（root，可为空）
  * + 额外挂载目录集合（mounts）。目录须为绝对路径且存在（授权前校验）。
  *
@@ -16,20 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-export interface WorkspaceState {
-  root: string | null;
-  mounts: string[];
-}
-
-export interface WorkspaceStore {
-  state(): WorkspaceState;
-  setRoot(path: string): WorkspaceState;
-  revoke(): WorkspaceState;
-  addMount(path: string): WorkspaceState;
-  removeMount(path: string): WorkspaceState;
-  /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态台账）。 */
-  reload(): void;
-}
+import type { WorkspaceState, WorkspaceStore } from '@ink-ts/host';
 
 export class WorkspaceStoreError extends Error {
   readonly code: string;
@@ -141,4 +129,10 @@ export function createWorkspaceStore(dataDir: string): WorkspaceStore {
       cached = readState();
     },
   };
+}
+
+/** S0 域服务工厂（S4 域逻辑唯一实现位装载契约）：init 注入 data_dir，
+ *  返回持久化形态工作区台账（createHost 装配注入 deps.workspace）。 */
+export default function createWorkspaceDomain(init: { data_dir: string }): WorkspaceStore {
+  return createWorkspaceStore(init.data_dir);
 }

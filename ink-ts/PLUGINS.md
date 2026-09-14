@@ -284,8 +284,10 @@ backup/mcp/os/collab/plugin/execution…）随 S4 从 `hosts/lib/src` 移入对�
   `auditDomainService` 守声明必在（fail-closed：缺 data.service = 拒绝）；
 - `faces.logic = { target: 'host', entry }`，默认导出 = **域服务工厂**
   `(init?) => 域服务实例`（S0 装载契约，`auditLogicFaceContract` 守默认导出）；
-  域服务间接 IO 经注入依赖（宿主服务/端口 seam）——不是端口实装位，**不适用
-  S2 豁免子句**（域服务字节含直接 IO = 违规，直接 IO 只归端口提供方/宿主装配）；
+  **域服务 IO 边界 = 注入依赖**：对注入的 `data_dir` 做自有台账 IO（workspace.json/
+  capability.json/会话簿记等）属域服务自身数据层职责（S4 随迁语义零改），不视为
+  «直接 IO 违契约»；跨注入依赖之外的机制端口/进程/网络须走端口 seam（与 S0 纪律
+  同口径，域的台账数据不借机制端口形态走私）；
 - 装载：hosts/lib 装配层按 `manifest.domains[]` 清单动态 import 工厂、实例注入
   `HostBridgeDeps` 域字段（createHost/reboot 同链）；命令逻辑面与 _shared 经
   `@ink-ts/host` 装配契约类型引用域服务（值经 deps 注入）；

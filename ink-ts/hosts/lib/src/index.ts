@@ -20,6 +20,8 @@ import type { HostSurface } from './host_spec.js';
 import type { McpClientManagerLike } from './assembly/ports.js';
 
 import { createRestoreRunner } from './backup/restore_runtime.js';
+import { buildDomainsSeam } from './assembly/domains.js';
+import type { DomainsSeam } from './assembly/domains.js';
 import { assembleHostParts } from './boot.js';
 import type { HostBootParts } from './boot.js';
 import type { BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
@@ -32,7 +34,7 @@ import type { DocParser } from './doc/_types.js';
 import { createCapabilityStore } from './capability/store.js';
 import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
-import { createWorkspaceStore } from './workspace/store.js';
+import type { WorkspaceStore } from './bridge/_types.js';
 import { buildPluginCommandTools } from './plugin_command.js';
 import { buildCollabCommandTools } from './collab_command.js';
 import type { HostExecutionService } from './execution/service.js';
@@ -134,9 +136,14 @@ export async function createHost(
     });
   }
   const search = buildHostSearch();
-  const workspaceStore = createWorkspaceStore(resolved.data_dir);
   const capabilityStore = createCapabilityStore(resolved.data_dir);
   const gate = createHostOpGate();
+  // S4：域逻辑唯一实现位 = 域服务插件（plugins/domains/<id>）。域插件在
+  // manifest 声明即被 loadHostLogicFaces 全量装载（target=host 同 doc_parse/
+  // 命令逻辑面），createHost 经 buildDomainsSeam 取域位并按域 init 构造实例；
+  // 插件缺失 = 域面 null（命令面内存兜底降级，fail 前显式）。
+  const domains: DomainsSeam = buildDomainsSeam(logicFaces, { data_dir: resolved.data_dir });
+  const workspaceStore: WorkspaceStore | null = domains.workspace;
   const bootInput = {
     resolved,
     recipe: recipe ?? null,
@@ -154,7 +161,7 @@ export async function createHost(
     docTextCap: resolved.round_doc_text_cap,
     docParse: docService,
     searchKeys: search.keys,
-    workspace: workspaceStore,
+    workspace: workspaceStore ?? undefined,
     capability: capabilityStore,
     data_dir: resolved.data_dir,
     seed_dir: resolved.seed_dir,
@@ -219,7 +226,7 @@ export async function createHost(
 
   /** 重装配（restore 目录替换后调用）：台账重读 + 新装配 + 活引用切换。 */
   const reboot = async (): Promise<void> => {
-    workspaceStore.reload();
+    if (workspaceStore !== null) workspaceStore.reload();
     capabilityStore.reload();
     parts = await assembleHostParts(bootInput);
     applyParts(parts);
@@ -383,9 +390,9 @@ export type {
 // ── 检索域（web_search 执行体注入 + 密钥内存存取）──
 export { SearchKeysStore, maskKey } from './search/keys.js';
 
-// ── 工作区授权域（data_dir/workspace.json 持久化）──
-export { WorkspaceStoreError, createWorkspaceStore, createEphemeralWorkspaceStore } from './workspace/store.js';
-export type { WorkspaceState, WorkspaceStore } from './workspace/store.js';
+// ── 工作区授权域契约（值随 plugins/domains/workspace——S4 域逻辑唯一实现位；
+// 装配契约类型留宿：HostBridgeDeps.workspace 从这里派生）──
+export type { WorkspaceState, WorkspaceStore } from './bridge/_types.js';
 
 // ── 能力记录域（data_dir/capability.json 持久化）──
 export {

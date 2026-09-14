@@ -1,0 +1,21 @@
+{
+  "id": "workspace",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "工作区授台账域（workspace.state/set/revoke + mount.*）：授权根/挂载目录清单落 data_dir/workspace.json；纯授权台账不参与工具执行裁决（裁决面门在 exec/envelope）。S4 从 hosts/lib/src/workspace 迁入。",
+      "inject": [
+        "data_dir"
+      ]
+    }
+  }
+}

@@ -35,9 +35,9 @@ type BlockView = {
   readonly content: string;
   readonly seq: number;
 };
+import { HostExecutionService } from './service.js';
 
-import { HostExecutionService } from '../src/execution/service.js';
-import { convene } from '../src/execution/convene.js';
+import { convene } from './convene.js';
 
 type ScriptItem = Record<string, unknown>;
 

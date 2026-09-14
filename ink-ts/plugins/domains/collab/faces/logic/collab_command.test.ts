@@ -24,16 +24,16 @@ import {
   COLLAB_REQUEST_ENDPOINT,
   collabRequestDefinition,
   collabRequestExecutor,
-} from '../src/collab_command.js';
-import { ConveneError } from '../src/execution/convene.js';
-import { HostExecutionService } from '../src/execution/service.js';
+} from './collab_command.js';
 
+import { ConveneError } from './convene.js';
+import { HostExecutionService } from './service.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** collab_request 真源行（plugins spec.json data.tool）。 */
 function pluginToolRow(): Record<string, unknown> {
   const raw = JSON.parse(
-    readFileSync(join(HERE, '..', '..', '..', 'plugins', 'tools', 'collab_request', 'spec.json'), 'utf8'),
+    readFileSync(join(HERE, '..', '..', '..', '..', 'tools', 'collab_request', 'spec.json'), 'utf8'),
   ) as { data: { tool: Record<string, unknown> } };
   return raw.data.tool;
 }

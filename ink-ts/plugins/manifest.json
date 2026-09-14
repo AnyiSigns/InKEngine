@@ -1933,6 +1933,19 @@
       }
     },
     {
+      "id": "collab",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-collab",
+      "dir": "domains/collab",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "material",
       "kind": "domain",
       "capability": "host_tool",
@@ -4934,6 +4947,10 @@
     },
     {
       "id": "capability",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "collab",
       "entry": "./faces/logic/index.ts"
     },
     {

@@ -24,9 +24,9 @@ import {
   EntitySpec,
 } from '@ink-ts/engine';
 import type { ExecutionRequest } from '@ink-ts/engine';
+import { HostExecutionService } from './service.js';
 
-import { HostExecutionService } from '../src/execution/service.js';
-import { ConveneError, convene } from '../src/execution/convene.js';
+import { ConveneError, convene } from './convene.js';
 import type { ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 
 type ScriptItem = Record<string, unknown> | { fail: true; reason: string };

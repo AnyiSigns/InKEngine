@@ -34,8 +34,10 @@ import type { DocParser } from './doc/_types.js';
 import type { InkHost } from './host.js';
 import type { WorkspaceStore, CapabilityStore } from './bridge/_types.js';
 import { buildPluginCommandTools } from './plugin_command.js';
-import { buildCollabCommandTools } from './collab_command.js';
-import type { HostExecutionService } from './execution/service.js';
+// collab 域插件装配（S4 域组3：collab_request 组织类工具执行接线值随插件；
+// buildCollabCommandTools 经跨树引用——装配契约类型 type import 取用）
+import { buildCollabCommandTools } from '../../../plugins/domains/collab/faces/logic/index.js';
+import type { HostExecutionService } from '../../../plugins/domains/collab/faces/logic/index.js';
 import type { ProductRecipeInit } from './recipe.js';
 // 检索域装配契约类型（S4 域组2：值随 plugins/domains/retrieval；host 侧
 // HostHandle/装配面经跨树 type import 取用，type 擦除不构成运行期依赖）
@@ -404,31 +406,14 @@ export type {
   PluginCommandTools,
 } from './plugin_command.js';
 
-// ── collab_request 组织类工具执行接线（执行模型 §7.1：子执行 + 归并契约后端）──
-export {
-  COLLAB_REQUEST_ENDPOINT,
-  buildCollabCommandTools,
-  collabRequestDefinition,
-  collabRequestExecutor,
-} from './collab_command.js';
-export type { CollabCommandTools, CollabRequestService } from './collab_command.js';
-
-// ── 宿主执行装配（ExecutionRuntime 依赖注入面 + 多协作者召集协议）──
-export { HostExecutionService, transitionApprovalSeam } from './execution/service.js';
+// ── collab 域插件（S4 域组3：convene/collab_command/HostExecutionService 值随
+// plugins/domains/collab——命令面/演化资产经跨树 import 域插件取用；宿主只留
+// 装配契约类型（HostBridgeDeps.execution / HostHandle.execution，type import））──
+export type { HostExecutionService } from '../../../plugins/domains/collab/faces/logic/index.js';
 export type {
   HostExecutionServiceInit,
   RunExecutionOptions,
-} from './execution/service.js';
-export {
-  CONVENE_MAX_N,
-  CONVENE_MAX_ROUNDS,
-  ConveneError,
-  convene,
-  normalize_convene_params,
-  resolve_convene_target,
-} from './execution/convene.js';
-export type { ConveneChildOutcome, ConveneResult } from './execution/convene.js';
-export { TEMP_SIGHTINGS_COLLECTION } from './execution/convene_board.js';
+} from '../../../plugins/domains/collab/faces/logic/index.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

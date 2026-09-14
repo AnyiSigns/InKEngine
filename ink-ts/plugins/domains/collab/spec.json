@@ -1,0 +1,19 @@
+{
+  "id": "collab",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "collab 域（多协作者召集协议 + 宿主执行装配）：convene 召集编排/白板装配/参数归一 + collab_request 组织类工具执行接线 + HostExecutionService（ExecutionRuntime 依赖注入面，run/resume/branch 三入口 + 审批挂卡 seam）。执行依赖（loadScope/makeTurn/storage/审批策略/白板护栏）经 boot 装配注入面注入，域服务只编排不摸存储。S4 域组3 自 hosts/lib/src/execution/convene{,_board,_params}.ts + collab_command.ts + service.ts 迁入。",
+      "inject": []
+    }
+  }
+}

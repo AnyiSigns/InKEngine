@@ -21,10 +21,14 @@ import type { GuardrailConfig } from '@ink-ts/engine';
 import type { CapabilityStore } from './bridge/_types.js';
 import type { McpClientManagerLike, McpClientPortSeam, PortsSeam } from './assembly/ports.js';
 import { loadPortsSeam } from './assembly/ports.js';
-import { configureCollabTempSightingSink } from './collab_command.js';
+// collab 域插件（S4 域组3：convene/collab_command/HostExecutionService 值随插件；
+// boot 只装配——DI 注入面 + 临时观测 sink 装配位经跨树引用插件包）
+import {
+  HostExecutionService,
+  TEMP_SIGHTINGS_COLLECTION,
+  configureCollabTempSightingSink,
+} from '../../../plugins/domains/collab/faces/logic/index.js';
 import type { ResolvedHostConfig } from './config.js';
-import { TEMP_SIGHTINGS_COLLECTION } from './execution/convene_board.js';
-import { HostExecutionService } from './execution/service.js';
 import { InkHost } from './host.js';
 import { asProvider, isRecord } from './model_providers.js';
 import type { ProviderRecord } from './model_providers.js';

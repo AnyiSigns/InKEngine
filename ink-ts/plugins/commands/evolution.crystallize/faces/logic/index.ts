@@ -8,7 +8,7 @@ import { EntitySpec, ControlledEvolutionApplier, evaluate_temp_sightings, make_t
 import type { EvolutionProposal, ExecutionRuntimeDeps, LoadedScope, TrialRunner } from '@ink-ts/engine';
 import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
-import { TEMP_SIGHTINGS_COLLECTION } from '@ink-ts/host';
+import { TEMP_SIGHTINGS_COLLECTION } from '../../../../domains/collab/faces/logic/index.js';
 import {
   CARDLESS_CTX,
   applyProposalSet,

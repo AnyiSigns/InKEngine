@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BRIDGE_METHODS } from '@ink-ts/host';
 import { createHost } from '@ink-ts/host';
 import type { HostHandle } from '@ink-ts/host';
-import { TEMP_SIGHTINGS_COLLECTION } from '@ink-ts/host';
+import { TEMP_SIGHTINGS_COLLECTION } from '../../../../domains/collab/faces/logic/index.js';
 import { FakeOpenAIServer } from '../../../../../hosts/lib/test/_fake_openai.js';
 
 const CTX = { autoApprove: false };

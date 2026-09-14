@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { ORG_ARCHIVE_SCHEMA_VERSION } from '@ink-ts/engine';
-import { loadTestStorage } from './port_seam.js';
-import { HostExecutionService } from '../src/execution/service.js';
+import { loadTestStorage } from '../../../../../hosts/lib/test/port_seam.js';
+import { HostExecutionService } from './service.js';
 import type { ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 import type { Storage } from '@ink-ts/engine';
 

@@ -191,8 +191,10 @@ export interface HostBridgeDeps {
   /** backup.restore 恢复编排（createHost 注入：停 → 换 → 装配 → 报告）。 */
   restore?: HostRestoreFn;
   /** 宿主执行装配（ExecutionRuntime 依赖注入面；execution.run 消费。
-   *  缺省 = 执行命令面显式拒绝，不静默。 */
-  execution?: import('../execution/service.js').HostExecutionService | null;
+   *  缺省 = 执行命令面显式拒绝，不静默。
+   *  值随 collab 域插件（S4 域组3：拆薄壳——DI 注入面留 composition，装配契约
+   *  类型跨树 type import）。 */
+  execution?: import('../../../../plugins/domains/collab/faces/logic/index.js').HostExecutionService | null;
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 

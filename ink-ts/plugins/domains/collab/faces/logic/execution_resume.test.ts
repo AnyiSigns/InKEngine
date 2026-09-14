@@ -21,10 +21,10 @@ import {
   EntitySpec,
   default_channel_seeds,
 } from '@ink-ts/engine';
-import { loadTestStorage } from './port_seam.js';
+import { loadTestStorage } from '../../../../../hosts/lib/test/port_seam.js';
 import type { ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 
-import { HostExecutionService } from '../src/execution/service.js';
+import { HostExecutionService } from './service.js';
 
 type ScriptItem = Record<string, unknown> | { fail: true; reason: string };
 

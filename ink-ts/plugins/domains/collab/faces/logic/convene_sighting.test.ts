@@ -18,10 +18,10 @@ import { describe, expect, it } from 'vitest';
 import { EntitySpec } from '@ink-ts/engine';
 import type { RunEvent, ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 
-import { HostExecutionService } from '../src/execution/service.js';
-import { resolve_convene_target, summarize_temp_def } from '../src/execution/convene_params.js';
-import { convene } from '../src/execution/convene.js';
-import { make_temp_sighting, record_temp_sighting } from '../src/execution/convene_board.js';
+import { HostExecutionService } from './service.js';
+import { resolve_convene_target, summarize_temp_def } from './convene_params.js';
+import { convene } from './convene.js';
+import { make_temp_sighting, record_temp_sighting } from './convene_board.js';
 
 type ScriptItem = Record<string, unknown> | { fail: true; reason: string };
 

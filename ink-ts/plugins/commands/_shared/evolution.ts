@@ -15,8 +15,10 @@ import type {
 } from '@ink-ts/engine';
 import { BridgeError } from '@ink-ts/host';
 import type { HostBridgeDeps } from '@ink-ts/host';
-import type { HostExecutionService } from '@ink-ts/host';
-import { TEMP_SIGHTINGS_COLLECTION } from '@ink-ts/host';
+// collab 域插件（S4 域组3：HostExecutionService 类型 + TEMP_SIGHTINGS_COLLECTION
+// 值随插件，命令共享件跨树取用）
+import type { HostExecutionService } from '../../domains/collab/faces/logic/index.js';
+import { TEMP_SIGHTINGS_COLLECTION } from '../../domains/collab/faces/logic/index.js';
 
 /** 组织参数产品配置节名（model_config 既有透传通道下；报告声明同此）。 */
 export const ORG_EVOLUTION_SECTION = 'org_evolution';

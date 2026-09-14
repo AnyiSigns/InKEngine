@@ -21,9 +21,9 @@ import {
   type DeclarativeToolExecutors,
 } from '@ink-ts/engine';
 
-import type { HostExecutionService } from './execution/service.js';
-import { convene, ConveneError } from './execution/convene.js';
-import type { TempSightingSink } from './execution/convene_board.js';
+import type { HostExecutionService } from './service.js';
+import { convene, ConveneError } from './convene.js';
+import type { TempSightingSink } from './convene_board.js';
 
 /** 内置端点名（与 engine EndpointType.COLLAB_REQUEST / plugin 声明行一致）。 */
 export const COLLAB_REQUEST_ENDPOINT = 'collab_request';

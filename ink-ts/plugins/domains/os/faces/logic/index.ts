@@ -7,11 +7,13 @@
  * 经 allow_mechanism 作用域）。声明不在此层：约束（roots/allowlist）随请求
  * 现取，与 exec 零声明表纪律一致。网络出网（http op）已从 exec 移除，不走
  * 本执行器——由引擎声明式端点承载。env 保留键禁覆写（见 validate）。
+ *
+ * S4 域组2 从 hosts/lib/src/os/runner.ts 迁入（域逻辑唯一实现位 = os 域插件），
+ * 语义零改；exec 原生件经 @ink-ts/host 公共面取用（域组3 exec → exec_client 改口）。
  */
 
-import { ExecClient, EXEC_SESSION_KEY_ENV } from '../exec/client.js';
-import type { ExecOutcome } from '../exec/_types.js';
-import { locateNativeBinary } from '../exec/binary.js';
+import { ExecClient, EXEC_SESSION_KEY_ENV, locateNativeBinary } from '@ink-ts/host';
+import type { ExecOutcome } from '@ink-ts/host';
 import type { GuardedStorage } from '@ink-ts/engine';
 import { SET_AUDIT_COLLECTION } from '@ink-ts/engine';
 
@@ -154,4 +156,18 @@ export class HostOsRunner {
       await client.close();
     }
   }
+}
+
+/** S4 域服务工厂（S0 装载契约）：返回 os 域服务面（os.run 命令面经插件包
+ *  直接 import HostOsRunner/OsError 构造；审计留痕 writeOsAudit 同面）。 */
+export default function createOsDomain(): {
+  HostOsRunner: typeof HostOsRunner;
+  OsError: typeof OsError;
+  writeOsAudit: typeof writeOsAudit;
+} {
+  return {
+    HostOsRunner,
+    OsError,
+    writeOsAudit,
+  };
 }

@@ -347,10 +347,6 @@ export type {
   StorageGetter,
 } from './bridge/_types.js';
 
-// ── 受控 OS 执行器域 ──
-export { HostOsRunner, OsError, writeOsAudit } from './os/runner.js';
-export type { OsApproval, OsToolRequest } from './os/runner.js';
-
 // ── 文档解析执行体域（doc_parse 插件 logic face 消费面；rounds/material 注入）──
 // 执行体实现随插件同住（plugins/tools/doc_parse/faces/logic，阶段 7a），
 // host 经 face loader 装配期按声明装载；此处只导出数据形态 seam。

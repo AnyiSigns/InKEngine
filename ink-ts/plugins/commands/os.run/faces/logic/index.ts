@@ -5,8 +5,11 @@
  */
 
 import type { GuardedStorage } from '@ink-ts/engine';
-import { BridgeError, HostOsRunner, OsError } from '@ink-ts/host';
-import type { BridgeHandler, HostBridgeDeps, OsToolRequest } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
+import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
+// os 域值随域插件（S4 域组2）
+import { HostOsRunner, OsError } from '../../../../domains/os/faces/logic/index.js';
+import type { OsToolRequest } from '../../../../domains/os/faces/logic/index.js';
 
 function asOsRequest(raw: unknown): { request: OsToolRequest; trace_id: string | null } {
   const params = raw as Record<string, unknown> | null;

@@ -1959,6 +1959,19 @@
       }
     },
     {
+      "id": "os",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-os",
+      "dir": "domains/os",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "retrieval",
       "kind": "domain",
       "capability": "host_tool",
@@ -4929,6 +4942,10 @@
     },
     {
       "id": "mcp_service",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "os",
       "entry": "./faces/logic/index.ts"
     },
     {

@@ -1,0 +1,22 @@
+{
+  "id": "os",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "os 域（受控 OS 执行器）：headless/operator 显式放行路径 → exec 原生件，host 裁决面门 + 审计留痕（set_audit 受控集合）；roots/allowlist 随请求现取，env 保留键禁覆写。S4 域组2 自 hosts/lib/src/os/runner.ts 迁入。",
+      "inject": [
+        "exec_envelope",
+        "storage_seam"
+      ]
+    }
+  }
+}

@@ -38,8 +38,9 @@ import {
   operation_of,
   self_tool_specs,
 } from '@ink-ts/engine';
-import type { AssemblyRecipeInit, ToolWiring, AsyncLLM } from '@ink-ts/engine';
+import type { AssemblyRecipeInit, ToolWiring, AsyncLLM, EnginePoolSeed } from '@ink-ts/engine';
 import { UI_CANONICAL_COMPONENTS } from './bridge/ui_canonical.generated.js';
+import { graphNodeAssemblySeed } from './graph/node_builders.js';
 
 /** 产品机制开关默认表（机制开关全开；关闭只走显式产品配置）。 */
 export const PRODUCT_SWITCH_DEFAULTS = {
@@ -84,6 +85,9 @@ export interface ProductRecipeInit extends ProductSwitchOverrides {
     | null;
   ui_allowed_components?: readonly string[];
   ui_allowed_theme_tokens?: readonly string[];
+  /** 装配池种子（S1-b2 装配权威迁移：undefined = 注入 plugins 清单派生的
+   *  装配池；显式 null = 引擎出厂默认兜底；显式池 = 完全覆写）。 */
+  pool_seed?: EnginePoolSeed | null;
 }
 
 /**
@@ -181,6 +185,7 @@ export function build_product_recipe(
   assert_product_switches_all_on();
   const recipe = new AssemblyRecipe({
     set_id: 'default',
+    pool_seed: init.pool_seed === undefined ? graphNodeAssemblySeed() : init.pool_seed,
     boot_system_prompt: BOOT_SYSTEM_PROMPT,
     harness_definitions: [boot_harness_definition()],
     event_type_specs: [...BOOT_EVENT_TYPES],

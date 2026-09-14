@@ -47,12 +47,20 @@ function withExt(stem: string, ext: string, test: boolean): string {
   return test ? `${stem}.test${ext}` : `${stem}${ext}`;
 }
 
-/** dir 的 src↔test 镜像目录（无 src/test 段时返回 null）。 */
+/** dir 的 src↔test 镜像目录（无 src/test 段时返回 null）。按段匹配（含顶层
+ *  src/test 目录名，非仅 `/src/` 中段——hosts/lib/src 顶层文件镜像配对曾失效）。 */
 function mirroredDir(dir: string): string | null {
-  if (dir.includes('/src/')) return dir.replace('/src/', '/test/');
-  if (dir.includes('/test/')) return dir.replace('/test/', '/src/');
-  if (dir === 'engine/src') return 'engine/test';
-  if (dir === 'engine/test') return 'engine/src';
+  const parts = dir.split('/');
+  const srcIdx = parts.lastIndexOf('src');
+  if (srcIdx >= 0) {
+    parts[srcIdx] = 'test';
+    return parts.join('/');
+  }
+  const testIdx = parts.lastIndexOf('test');
+  if (testIdx >= 0) {
+    parts[testIdx] = 'src';
+    return parts.join('/');
+  }
   return null;
 }
 

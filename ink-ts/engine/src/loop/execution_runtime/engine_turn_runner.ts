@@ -22,6 +22,7 @@ import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
 import type { ToolSpec } from '../../model/llm/tools.js';
 import { register_engine_node_types, bind_engine_node_seams, default_engine_pool_seed } from '../../graph/nodes/index.js';
+import type { EnginePoolSeed } from '../../graph/nodes/pool_seed.js';
 import { _build_agent_scope_graph } from '../../graph/nodes/agent.js';
 import { STATE_ROUND_MODEL, STATE_ROUND_POSE } from '../../graph/nodes/constants.js';
 import { failed_turn, ok_turn, type ScopeTurnResult, type ScopeTurnRunner } from './scope_turn.js';
@@ -43,6 +44,9 @@ export interface EngineTurnRunnerInit {
   boot_system_prompt?: string;
   /** 工具回合上限（缺省 = 引擎常量；run 级覆写经 ScopeTurnContext 透传）。 */
   max_tool_rounds?: number;
+  /** 装配池种子（S1-b2 装配权威迁移：缺省 = 引擎出厂默认 default_engine_pool_seed；
+   *  装配方显式注入 = 节点实例构图取此清单，与 runtime recipe.pool_seed 同源）。 */
+  pool_seed?: EnginePoolSeed | null;
 }
 
 function model_label(model: Record<string, string>): string {
@@ -147,7 +151,7 @@ export function make_engine_turn_runner(init: EngineTurnRunnerInit): ScopeTurnRu
       // boot 基线合成在 llm_decider 内部）
       const graph: Graph = _build_agent_scope_graph(ctx.scope, config);
       const registries = new GraphRegistries();
-      register_engine_node_types(registries, default_engine_pool_seed().node_types);
+      register_engine_node_types(registries, (init.pool_seed ?? default_engine_pool_seed()).node_types);
       bind_engine_node_seams(registries, {
         llm,
         tool_pipeline: init.tool_pipeline,

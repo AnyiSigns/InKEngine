@@ -114,4 +114,26 @@ describe('产品配方默认表（保留机制开关全开）', () => {
     expect(merge_capability_tier_gate(null, {})).toBeNull();
     expect(merge_capability_tier_gate(null, null)).toBeNull();
   });
+
+  it('装配池种子：缺省注入清单装配池（非 agent 7 条），init 可覆写/显式 null 回落', () => {
+    const recipe = build_product_recipe();
+    expect(recipe.pool_seed).not.toBeNull();
+    const seeds = recipe.pool_seed!.node_types;
+    expect(seeds.length).toBe(7);
+    expect(seeds.map((s) => s.type)).not.toContain('agent');
+    expect(seeds.map((s) => s.type).sort()).toEqual([
+      'llm_decider',
+      'llm_main',
+      'llm_planner',
+      'llm_reviewer',
+      'router_judge',
+      'router_plan_judge',
+      'tool_pipeline',
+    ]);
+    expect(seeds.every((s) => s.executor !== undefined)).toBe(true);
+    const overridden = build_product_recipe({ pool_seed: { enabled: true, node_types: [] } });
+    expect(overridden.pool_seed!.node_types).toEqual([]);
+    const explicitNull = build_product_recipe({ pool_seed: null });
+    expect(explicitNull.pool_seed).toBeNull();
+  });
 });

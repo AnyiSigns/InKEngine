@@ -473,6 +473,18 @@ describe('test-protection 测试保护', () => {
     ]);
     expect(violations).toEqual([]);
   });
+
+  it('顶层 src 目录镜像配对（hosts/lib/src 顶层文件 ↔ hosts/lib/test 顶层测试）', async () => {
+    const violations = await checkTestProtection('/nonexistent-root', [
+      'hosts/lib/src/recipe.ts',
+      'hosts/lib/test/recipe.test.ts',
+    ]);
+    expect(violations).toEqual([]);
+    const alone = await checkTestProtection('/nonexistent-root', ['hosts/lib/src/boot.ts']);
+    expect(alone.map((v) => v.rule)).toContain('test-protection');
+    const testAlone = await checkTestProtection('/nonexistent-root', ['hosts/lib/test/host_spec.test.ts']);
+    expect(testAlone.map((v) => v.rule)).toContain('test-protection');
+  });
 });
 
 describe('no-pending 禁待定字面', () => {

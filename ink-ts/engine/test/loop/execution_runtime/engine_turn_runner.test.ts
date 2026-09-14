@@ -152,6 +152,57 @@ describe('persona/boot 分层与模型解析', () => {
 });
 
 describe('端到端：ExecutionRuntime + 引擎装载 runner', () => {
+  it('装配池注入被消费：空池注入 → 作用域回合显式失败（节点类型缺失）', async () => {
+    const llm = new ScriptedLLM('default', ['{"message":"答复"}']);
+    const runner = make_engine_turn_runner({
+      llm,
+      tool_pipeline: inert_pipeline(),
+      boot_system_prompt: '',
+      pool_seed: { enabled: true, node_types: [] },
+    });
+    await expect(
+      runner.run_scope_turn({
+        run_id: 'r3',
+        step: 1,
+        scope: entity('main', '主持人'),
+        boot_system_prompt: '',
+        input: 'hi',
+        payload: {},
+        thread_id: 't',
+      }),
+    ).rejects.toThrow(/未知节点类型/);
+  });
+
+  it('装配池注入被消费：显式种子覆盖 llm_decider 缺省 config → 回合走注入档', async () => {
+    const llm = new ScriptedLLM('default', ['{"message":"注入池答复"}']);
+    const runner = make_engine_turn_runner({
+      llm,
+      tool_pipeline: inert_pipeline(),
+      boot_system_prompt: '',
+      pool_seed: {
+        enabled: true,
+        node_types: [
+          {
+            type: 'llm_decider',
+            executor: 'llm_decider',
+            default_config: { max_tool_rounds: 1 },
+            contract: null,
+          },
+        ],
+      },
+    });
+    const result = await runner.run_scope_turn({
+      run_id: 'r4',
+      step: 1,
+      scope: entity('main', '主持人'),
+      boot_system_prompt: '',
+      input: 'hi',
+      payload: {},
+      thread_id: 't',
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it('fake llm JSON 回复 → `__next` 文本解析 → delegate 子执行 → 汇聚点产物', async () => {
     const scopes = new Map<string, EntitySpec>([
       ['main', entity('main', '主持人')],

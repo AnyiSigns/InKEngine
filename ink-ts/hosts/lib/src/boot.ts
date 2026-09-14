@@ -1,3 +1,5 @@
+// gate: test-exempt - boot 装配组合面（createHost 全链由既有 hosts 装配/recipe/
+// bridge 测试覆盖；S1-b2 装配池透传链由 recipe.test + engine_turn_runner 注入测试守）
 /**
  * host 运行时装配（composition root 的可替换装配面）。
  *
@@ -231,6 +233,8 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
     makeTurn: async () =>
       make_engine_turn_runner({
         llm: (await inkHost.resolve_llm()) as unknown as EngineTurnInit['llm'],
+        // S1-b2 装配权威迁移：节点实例构图池与 runtime recipe 同源（清单注入）
+        pool_seed: assemblyRecipe.pool_seed,
         resolve_scope_llm: ((model: Record<string, string>) =>
           inkHost.resolve_scope_model(model)) as unknown as EngineTurnInit['resolve_scope_llm'],
         tool_pipeline: runtime.tool_pipeline,

@@ -13,9 +13,14 @@ import {
   has_engine_executor,
   register_node_builder,
 } from '@ink-ts/engine';
+import type {
+  EngineNodeTypeSeed,
+  EnginePoolSeed,
+} from '@ink-ts/engine';
 import {
   GRAPH_NODE_DECLS,
   graphNodeKernels,
+  type GraphNodeDecl,
 } from '../assembly/graph_nodes.generated.js';
 
 /** 引擎节点执行体构造器签名（经公共面 register_node_builder 参数推导，不触私有 seams 类型）。 */
@@ -70,4 +75,68 @@ export function injectGraphNodeBuilders(
     }
   }
   return injection;
+}
+
+/** 清单声明 → 引擎池种子（S1-b2 装配权威迁移：节点实例构图声明落 plugins
+ *  真源，engine 出厂 default 与之对齐锁之，退役前双源结构面一致）。 */
+function _declToSeed(decl: GraphNodeDecl): EngineNodeTypeSeed {
+  return {
+    type: decl.type,
+    executor: decl.executor,
+    kind: decl.kind ?? undefined,
+    label: decl.label ?? undefined,
+    description: decl.description ?? undefined,
+    flags: decl.flags ?? undefined,
+    default_config: decl.config_defaults,
+    contract: (decl.contract as unknown) as EngineNodeTypeSeed['contract'],
+  };
+}
+
+/** 完整清单池种子（8 条，含 agent 实体——与 register_agent_node_type 同体装配面）。 */
+export function graphNodeInstanceSeeds(): EnginePoolSeed {
+  return {
+    enabled: true,
+    node_types: GRAPH_NODE_DECLS.map(_declToSeed),
+  };
+}
+
+/** 装配注入面池种子（非 agent 7 条：agent 执行体走 register_agent_node_type
+ *  专用入口，不入池——与 engine 出厂 default_engine_pool_seed() 结构面对齐）。 */
+export function graphNodeAssemblySeed(): EnginePoolSeed {
+  return {
+    enabled: true,
+    node_types: GRAPH_NODE_DECLS.filter((decl) => decl.type !== 'agent').map(_declToSeed),
+  };
+}
+
+/** 装配权威一致性 lock：清单非 agent 7 条与引擎出厂默认结构面对齐（type
+ *  集合逐条相等；contract 不比——装配面幂等再派生，实例契约随 config 派生）。
+ *  任一漂移抛错，防『插件真源声明与引擎出厂节点两轨分化』。 */
+export function assertGraphNodeSeedsAligned(engineDefault: EnginePoolSeed): void {
+  const decls = graphNodeAssemblySeed().node_types;
+  const defs = engineDefault.node_types;
+  const declTypes = new Set(decls.map((seed) => seed.type));
+  const defTypes = new Set(defs.map((seed) => seed.type));
+  const drift: string[] = [];
+  for (const type of defTypes) {
+    if (!declTypes.has(type)) drift.push(`引擎出厂多出清单未声明类型：${type}`);
+  }
+  for (const type of declTypes) {
+    if (!defTypes.has(type)) drift.push(`清单声明引擎出厂缺失类型：${type}`);
+  }
+  if (drift.length > 0) throw new Error(`图节点装配池与引擎出厂池类型集漂移：${drift.join('；')}`);
+  const defByType = new Map(defs.map((seed) => [seed.type, seed]));
+  for (const seed of decls) {
+    const def = defByType.get(seed.type);
+    if (def === undefined) continue;
+    const declExec = seed.executor ?? seed.type;
+    const defExec = def.executor ?? def.type;
+    if (declExec !== defExec) {
+      drift.push(`${seed.type}：executor 清单 ${declExec} ≠ 引擎出厂 ${defExec}`);
+    }
+    const declCfg = JSON.stringify(seed.default_config ?? {});
+    const defCfg = JSON.stringify(def.default_config ?? {});
+    if (declCfg !== defCfg) drift.push(`${seed.type}：config_defaults 漂移（清单 ${declCfg} ≠ 出厂 ${defCfg}）`);
+  }
+  if (drift.length > 0) throw new Error(`图节点装配池与引擎出厂池漂移：${drift.join('；')}`);
 }

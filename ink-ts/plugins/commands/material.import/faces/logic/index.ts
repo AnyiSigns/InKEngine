@@ -4,8 +4,10 @@
  * 随结果返回；越限 fail-closed，MaterialError code 透传归类）。
  */
 
-import { BridgeError, MaterialError, scanMaterial } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
+// material 域值随域插件（S4 域组1 遗留改口：域组2 补正）
+import { MaterialError, scanMaterial } from '../../../../domains/material/faces/logic/index.js';
 
 interface MaterialImportParams {
   root: string;

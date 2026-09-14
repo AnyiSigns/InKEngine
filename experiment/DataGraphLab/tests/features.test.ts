@@ -12,9 +12,11 @@ import {
   KIND_LIST,
   K_OFF,
   MENTION_DIM,
+  NEXT_OP_DIM,
   NUM_DIM,
   OBS_DIM,
   OP_BUCKETS,
+  ORDER_DIM,
   P_OFF,
   STATE_DIM,
   STEP_DIM,
@@ -44,19 +46,23 @@ describe('特征 dims 恒等（防手写漂移）', () => {
     expect(GOAL_HINT_DIM).toBe(8);
     expect(NUM_DIM).toBe(8);
     expect(HASH_DIM).toBe(256);
+    expect(ORDER_DIM).toBe(120);
+    expect(NEXT_OP_DIM).toBe(15);
     expect(STATE_DIM).toBe(30);
     expect(HIST_LEN).toBe(12);
     expect(HIST_SLOTS).toBe(32);
     expect(HIST_DIM).toBe(384);
     expect(GOAL_STRUCT_DIM).toBe(8);
-    expect(OBS_DIM.lang).toBe(732);
+    // R6 词法顺序槽 + R7 进度对齐槽：OBS_DIM 852→867（+15），hash_only 消融
+    // 删段含顺序槽与进度槽均不变。
+    expect(OBS_DIM.lang).toBe(867);
     expect(OBS_DIM.hash_only).toBe(671);
-    expect(OBS_DIM.struct).toBe(740);
-    expect(MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + HASH_DIM + NON_INSTR - GOAL_STRUCT_DIM).toBe(
+    expect(OBS_DIM.struct).toBe(875);
+    expect(MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + ORDER_DIM + NEXT_OP_DIM + HASH_DIM + NON_INSTR - GOAL_STRUCT_DIM).toBe(
       OBS_DIM.lang,
     );
     expect(HASH_DIM + NON_INSTR - GOAL_STRUCT_DIM).toBe(OBS_DIM.hash_only);
-    expect(MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + HASH_DIM + NON_INSTR).toBe(OBS_DIM.struct);
+    expect(MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + ORDER_DIM + NEXT_OP_DIM + HASH_DIM + NON_INSTR).toBe(OBS_DIM.struct);
   });
 
   it('ACT_DIM 由偏移推导、块界互不重叠', () => {
@@ -274,7 +280,7 @@ describe('白名单审计（唯一特征源不看见 spec/expected）', () => {
       expect(v.length).toBe(OBS_DIM[fs]);
       for (const x of v) expect(Number.isNaN(x)).toBe(false);
     }
-    // struct 臂：基座 732，goal 段由诊断侧自行追加成 740。
+    // struct 臂：基座 867（lang 含进度槽），goal 段由诊断侧自行追加成 875。
     const base = featurizeObs('先变号再取模七', obs, 'struct');
     expect(base.length).toBe(OBS_DIM.lang);
     const full = new Float32Array(OBS_DIM.struct);

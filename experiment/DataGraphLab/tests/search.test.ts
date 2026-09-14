@@ -84,10 +84,14 @@ describe('teacher/planBfs：真实任务可解必找到', () => {
     }
   });
 
-  it('金标 plan 之外确有更短解（口径取 ≤ 而非相等的实证）', () => {
+  it('R5：follow 族更短解按定义不存在——BFS 解 = gold（等长），G2.2 归零的实证', () => {
+    // R5 轨迹约束：验收要求 hist == spec.trace 精确匹配，plan_bfs 沿 trace 前缀
+    // 剪枝后唯一解即金计划本身（等长）。旧版实测"follow value seed1 金标 5 步、
+    // 真最短 4 步"的多算子巧合捷径已被轨迹约束按定义排除。
     const t = taskFor('follow', 'value', [1]);
     const plan = planBfs(t, GRAPH)!;
-    expect(plan.length).toBeLessThan(t.plan_hidden.length);
+    expect(plan.length).toBe(t.plan_hidden.length);
+    expect(plan).toEqual(t.plan_hidden);
     expect(accept(t, replay(t, plan))).toBe(true);
   });
 });

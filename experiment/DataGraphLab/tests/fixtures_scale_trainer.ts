@@ -98,7 +98,7 @@ ap.add_argument("--val")
 ap.add_argument("--out")
 ap.add_argument("--save-last-k", type=int, dest="save_last_k")
 args, _rest = ap.parse_known_args()
-doc = {"arch": "v1:lang:" + str(OBS) + ":" + str(ACT) + ":" + str(H) + ":progress",
+doc = {"arch": "v4:lang:" + str(OBS) + ":" + str(ACT) + ":" + str(H) + ":progress",
        "dims": {"featureSet": "lang", "obsDim": OBS, "actDim": ACT, "h": H, "head": "progress"},
        "params": p_zero(),
        "train_meta": {"records_bin_sha256": "0", "code_hash": "0", "seed": 0, "batch": 512,

@@ -42,10 +42,10 @@ function validFile(): { file: WeightsFile; path: string } {
 
 describe('arch 契约（跨语言唯一权重建）', () => {
   it('规范串格式与三套特征集取值', () => {
-    expect(ARCH_VERSION).toBe(1);
-    expect(currentArch('lang', 'progress')).toBe('v1:lang:732:83:128:progress');
-    expect(currentArch('hash_only', 'none')).toBe(`v1:hash_only:${OBS_DIM.hash_only}:${ACT_DIM}:${H}:none`);
-    expect(currentArch('struct', 'progress')).toContain(':struct:740:');
+    expect(ARCH_VERSION).toBe(4);
+    expect(currentArch('lang', 'progress')).toBe('v4:lang:867:83:128:progress');
+    expect(currentArch('hash_only', 'none')).toBe(`v4:hash_only:${OBS_DIM.hash_only}:${ACT_DIM}:${H}:none`);
+    expect(currentArch('struct', 'progress')).toContain(':struct:875:');
   });
 
   it('写→读往返参数逐位一致；Policy.load 后行为与保存方一致', () => {
@@ -82,7 +82,7 @@ describe('arch 契约（跨语言唯一权重建）', () => {
 describe('fail-fast 审计（禁跨版本静默加载）', () => {
   it('arch 篡改一位 → read throw', () => {
     const { path } = validFile();
-    const raw = readFileSync(path, 'utf8').replace('"v1:lang:732', '"v1:lang:733');
+    const raw = readFileSync(path, 'utf8').replace('"v4:lang:867', '"v4:lang:868');
     const bad = tmpName('arch');
     writeFileSync(bad, raw, 'utf8');
     expect(() => readWeightsJson(bad)).toThrow(/arch/);

@@ -4,10 +4,13 @@
  * 验收只读两类输入：任务的公开侧（family/expected/spec，经 acceptorView 投影）
  * 与运行时状态的产物字段（answer/verdict）。expected 与 spec.goal 只在此处可见，
  * 绝不进入 obs 或任何控制器特征（白名单红线）。家族决定判定方式：配方族
- * （value/verify）按值深等比对 expected；目标族（goal/goal_verify）按公开目标
- * 谓词判定，多解可接受。verify/goal_verify 是双生产者族，answer 与 verdict 必须
- * 分别由 submit 与 check_* 通道供给，错误生产者喂不饱验收；且 verdict 必须是指纹
- * 承诺 "pass:"+hash8(answer)（B.4 R2-P0-1 绑定），旧值携带的 pass 指纹配不上被换
+ * （value/verify）按值深等比对 expected，**且（R5 轨迹约束）要求 hist 精确等于
+ * 公开 spec.trace（= 含收尾终算子的渲染序列，机读指令规格）**——终值对但
+ * 轨迹不符（模交换重排/替换）一律拒，follow 的考核语义即"按公开序列执行"；
+ * 目标族（goal/goal_verify）按公开目标谓词判定，多解可接受，无轨迹约束。
+ * verify/goal_verify 是双生产者族，answer 与 verdict 必须分别由 submit 与
+ * check_* 通道供给，错误生产者喂不饱验收；且 verdict 必须是指纹承诺
+ * "pass:"+hash8(answer)（B.4 R2-P0-1 绑定），旧值携带的 pass 指纹配不上被换
  * 掉的 answer。acceptChannelled 在此之上先按 CHANNEL 只读本族允许的产物字段，
  * 字段缺失（含 null）即返回 missing 原因码，再把判定交给 accept，不重复实现第二
  * 份判定。
@@ -38,9 +41,13 @@ export function acceptorView(task: Task): {
 /**
  * B.4 唯一签名：answer 为 null 即拒；配方族深等 expected，目标族走 goalOk
  * （类型不匹配返回 false，不抛异常）；未知 family 抛错，不静默放过。
- * 两生产者族的 verdict 不是布尔旗标而是指纹承诺（B.4 606 行逐字）：
- * `verdict === "pass:"+hash8(answer)`——旧 verdict 复用（先 check 后改值再 submit）
- * 因 answer 指纹漂移必拒；合法路径 submit 与 check 之间 x 不变，恒一致。
+ * R5 轨迹约束（仅 follow 族）：配方族判定在值深等之上，若公开 spec.trace 存在
+ * （生成端 _commit 恒写），还要求 `deepEq(state.hist, trace)` 精确匹配——终值对
+ * 但轨迹不符（模交换重排/替换恒合法）即拒；trace 缺失（旧任务/手工任务）按只
+ * 判值处理，不静默改判。两生产者族的 verdict 不是布尔旗标而是指纹承诺（B.4
+ * 606 行逐字）：`verdict === "pass:"+hash8(answer)`——旧 verdict 复用（先 check
+ * 后改值再 submit）因 answer 指纹漂移必拒；合法路径 submit 与 check 之间 x 不变，
+ * 恒一致。
  */
 export function accept(task: Task, state: State): boolean {
   const av = acceptorView(task);
@@ -49,6 +56,8 @@ export function accept(task: Task, state: State): boolean {
   let ok: boolean;
   if (av.family === 'value' || av.family === 'verify') {
     ok = deepEq(ans, av.expected);
+    const trace = av.spec.trace;
+    if (ok && Array.isArray(trace)) ok = deepEq(state.hist, trace as unknown[]);
   } else if (av.family === 'goal' || av.family === 'goal_verify') {
     ok = goalOk(ans, av.spec as Readonly<{ goal: Goal }>);
   } else {

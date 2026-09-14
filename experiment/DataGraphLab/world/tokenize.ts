@@ -136,3 +136,27 @@ export function mentionStats(toks: readonly string[], key: string | readonly str
   }
   return { hits, first, rank };
 }
+
+/**
+ * 逐位置义项命中组（R7 进度对齐槽与弱扫描共用的唯一实现）：token 流上按义项命中
+ * 位置升序，同一位置命中多个算子（共享义项如 `取反` → neg/reverse）同组、组内按
+ * LEX_OPS_BASE 序；**枚举义项全部命中位置**（同一义项重复渲染 → 重复占位），
+ * 与 `countOccurrences` 同源（允许重叠）。与 `weakLexicalPlan` 的还原口径逐字
+ * 同构：弱扫描组内取最小序位即动作计划（含重复算子 → 计划更长、可回放重复步）。
+ */
+export function occurrencePlan(toks: readonly string[]): readonly (readonly number[])[] {
+  const byFirst = new Map<number, number[]>();
+  for (let k = 0; k < LEX_OPS_BASE.length; k++) {
+    for (const sense of LEXICON[LEX_OPS_BASE[k]!]!) {
+      const st = senseTokens(sense);
+      if (st.length === 0 || st.length > toks.length) continue;
+      for (let i = 0; i + st.length <= toks.length; i++) {
+        if (!seqAt(toks, st, i)) continue;
+        const group = byFirst.get(i) ?? [];
+        if (!group.includes(k)) group.push(k);
+        byFirst.set(i, group);
+      }
+    }
+  }
+  return [...byFirst.keys()].sort((a, b) => a - b).map((pos) => byFirst.get(pos)!);
+}

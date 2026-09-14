@@ -32,9 +32,9 @@ import train_nn  # noqa: E402
 MAGIC = b"DGLB"
 BIN_VERSION = 2
 HEADER = struct.Struct("<4sIIIII")
-EXPECTED_OBS_DIM = 732  # 主臂特征集 lang 的 obs 宽度，与 arch 串互相钉死
+EXPECTED_OBS_DIM = 867  # 主臂特征集 lang 的 obs 宽度（R6 词法顺序槽 +120、R7 进度对齐槽 +15），与 arch 串互相钉死
 EXPECTED_ACT_DIM = 83  # 动作特征宽度（契约派生+哈希桶），与 arch 串互相钉死
-ARCH_VERSION = 1
+ARCH_VERSION = 4
 H = 128
 ACT_DIM = 83
 

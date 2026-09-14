@@ -119,7 +119,7 @@ def main(argv=None):
         out = []
         for k, g in enumerate(groups):
             params = _resolve_weights(g, fx, args.in_path, args.weights, f"f1#{k}")
-            p = _run_group(params, g, fx.get("obsDim", 732), f"f1#{k}", False)
+            p = _run_group(params, g, fx.get("obsDim", 867), f"f1#{k}", False)
             out.append({"scores": [float(x) for x in p]})
     else:
         tasks = fx.get("tasks")

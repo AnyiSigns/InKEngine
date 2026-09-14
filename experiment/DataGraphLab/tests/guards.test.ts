@@ -24,6 +24,7 @@ import {
 } from '../gen/generator.js';
 import { GRAPH } from '../runner/graph.js';
 import { _commit } from '../gen/producibility.js';
+import { accept } from '../verify/acceptor.js';
 import { initState, runPlan, verdictPass } from '../world/operators.js';
 import { instanceFollow } from '../gen/generator.js';
 import { makeRng } from '../world/rng.js';
@@ -118,25 +119,25 @@ describe('gen/guards/goalEligible（R2-P0-2 适格性直测）', () => {
   });
 });
 
-describe('gen/guards/hasShortcut（R2-P0-3 follow 极小性守卫直测）', () => {
-  it('mod7 开头场景：x∈0..6 时存在更短合法计划 → 判捷径', () => {
-    // [add3 尾随] 骨架 [mod7,add3]，x=3：expected=6；捷径 [add3,submit]（2 步 < 3 步）。
-    expect(hasShortcut(followTask('value', ['mod7', 'add3'], 3), GRAPH)).toBe(true);
-    // 深度 1：[mod7] x=3 → expected=3 = x，0-op [submit]（1 步 < 2 步）判捷径。
-    expect(hasShortcut(followTask('value', ['mod7'], 3), GRAPH)).toBe(true);
-    // verify 族同样收口：捷径计划带自洽 check 后缀也算。
-    expect(hasShortcut(followTask('verify', ['mod7', 'add3'], 3), GRAPH)).toBe(true);
-  });
-
-  it('反例：x 出域或深度-1 自算子等价长度都不判捷径', () => {
-    // x=10：mod7→3→add3→6；单步域内无 g 使 g(10)=6（mul2 20/add3 13/…均不等）。
+describe('gen/guards/hasShortcut（R5 轨迹约束后按定义恒 false，保留为安全网）', () => {
+  it('恒 false 自证：原 R2-P0-3 命中场景（mod7 恒等、删步、替换）现在全部不判捷径', () => {
+    // R5：follow 验收要求 hist == spec.trace 精确匹配，任何"更短合法计划"自带不同
+    // trace → 验收拒 → hasShortcut 按定义恒 false（保留代码作安全网，不再滤任务；
+    // follow 可产域随之恢复 829 级）。下列断言即该语义的回归钉死。
+    expect(hasShortcut(followTask('value', ['mod7', 'add3'], 3), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('value', ['mod7'], 3), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('verify', ['mod7', 'add3'], 3), GRAPH)).toBe(false);
     expect(hasShortcut(followTask('value', ['mod7', 'add3'], 10), GRAPH)).toBe(false);
-    // 深度 1 骨架 [add3] x=0：唯一等值单步是骨架自己，长度不严格更短。
     expect(hasShortcut(followTask('value', ['add3'], 0), GRAPH)).toBe(false);
     expect(hasShortcut(followTask('verify', ['add3', 'mul2'], 2), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('value', ['add3', 'mod7', 'add3'], -1), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('verify', ['add3', 'mod7', 'add3'], -1), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('value', ['add3', 'add3'], 6), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('value', ['add3'], 5), GRAPH)).toBe(false);
+    expect(hasShortcut(followTask('value', ['add3', 'add3', 'add3'], 10), GRAPH)).toBe(false);
   });
 
-  it('产出任务无单步捷径：instanceFollow/makeSplit 的 follow 任务逐条复核', () => {
+  it('产出任务复评：instanceFollow/makeSplit/覆盖集的 follow 任务 hasShortcut 恒 false（安全网不误伤）', () => {
     const plans: ReadonlyArray<readonly string[]> = [
       ['mod7', 'add3'],
       ['mul2'],
@@ -153,24 +154,60 @@ describe('gen/guards/hasShortcut（R2-P0-3 follow 极小性守卫直测）', () 
         }
       }
     }
-  }, 60_000);
-
-  it('覆盖/配额流不回归：val 覆盖集全量任务无捷径、回放穿验收', () => {
     const info = makeCoverageSplitInfo('val', 0);
-    // 覆盖声明缩到适格池并显式上报不适格数（val 池同样适用 R2-P0-2）。
     expect(info.ineligibleCount).toBeGreaterThan(0);
     expect(info.tasks.length).toBeGreaterThan(0);
     for (const t of info.tasks) {
       if (t.style === 'follow') {
         expect(hasShortcut(t, GRAPH), `${t.style}/${t.family}`).toBe(false);
       }
-      const st = runPlan(t.plan_hidden, initState(t.x, t.spec))!;
-      expect(st.answer).not.toBeNull();
     }
     for (const t of makeSplit('val', 2, 3)) {
       if (t.style === 'follow') expect(hasShortcut(t, GRAPH), t.family).toBe(false);
     }
   }, 180_000);
+});
+
+describe('gen/guards/R5 轨迹约束（follow 验收 = 终值 ∧ hist == spec.trace）', () => {
+  it('follow 任务 spec 恒带公开 trace 且 == plan_hidden（含收尾终算子）', () => {
+    for (const plan of [['mul2'], ['mod7', 'add3'], ['cond_even', 'add3']] as const) {
+      for (const family of ['value', 'verify'] as const) {
+        for (let seed = 0; seed < 4; seed++) {
+          const t = instanceFollow(makeRng(seed), 'Int', plan, family);
+          if (t === null) continue;
+          expect(t.spec.trace, `${plan.join(',')} ${family} seed=${seed}`).toEqual(t.plan_hidden);
+        }
+      }
+    }
+  });
+
+  it('金计划回放穿验收（hist == trace），轨迹不符必拒', () => {
+    const t = followTask('value', ['mul2'], 4);
+    expect(t.spec.trace).toEqual(['mul2', 'submit']);
+    // 回放：hist == trace → 收
+    expect(accept(t, runPlan(t.plan_hidden, initState(t.x, t.spec))!)).toBe(true);
+    // 终值对但轨迹不符（恒等双负绕路 / 等价重排到同终值）→ 拒
+    expect(accept(t, runPlan(['neg', 'neg', 'mul2', 'submit'], initState(t.x, t.spec))!)).toBe(false);
+    expect(accept(t, runPlan(['add3', 'add3', 'sub1', 'sub1', 'submit'], initState(t.x, t.spec))!)).toBe(false);
+    // 多走冗余步绕回 gold（加前缀）同样不符 → 拒
+    expect(accept(t, runPlan(['neg', 'neg', ...t.plan_hidden], initState(t.x, t.spec))!)).toBe(false);
+  });
+
+  it('verify 族：值+指纹对但轨迹不符 → 拒；回放 → 收', () => {
+    const t = followTask('verify', ['mul2'], 4);
+    expect(t.spec.trace).toEqual(['mul2', 'submit', 'check_parity']);
+    expect(accept(t, runPlan(t.plan_hidden, initState(t.x, t.spec))!)).toBe(true);
+    const bypass = runPlan(['neg', 'neg', 'mul2', 'submit', 'check_parity'], initState(t.x, t.spec))!;
+    expect(accept(t, bypass)).toBe(false);
+  });
+
+  it('goal 族不设轨迹约束：spec 无 trace、多解仍可接受', () => {
+    const t = makeTask(7, 'goal', 'goal');
+    expect(t).not.toBeNull();
+    if (t === null) return;
+    expect('trace' in t.spec).toBe(false);
+    expect(accept(t, runPlan(t.plan_hidden, initState(t.x, t.spec))!)).toBe(true);
+  });
 });
 
 describe('gen/guards/verdictPass 与采样链的端到端绑定', () => {

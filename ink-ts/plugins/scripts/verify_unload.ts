@@ -132,6 +132,8 @@ interface Plugin {
   portImplemented?: string;
   /** 纯数据资产形态（S2 端口提供方：boot 类，无 implemented + data.boot 存在）。 */
   hasPortDataAssets: boolean;
+  /** 宿主域服务声明（S4，kind='domain'）：data.service（域服务插件形态）。 */
+  hasServiceData: boolean;
 }
 
 interface Violation {
@@ -356,6 +358,11 @@ function pluginOf(spec: Record<string, unknown>, kind: string, dir: string): Plu
       typeof data === 'object' &&
       data !== null &&
       (data as Record<string, unknown>).boot !== undefined,
+    hasServiceData:
+      kind === 'domain' &&
+      typeof data === 'object' &&
+      data !== null &&
+      (data as Record<string, unknown>).service !== undefined,
   };
 }
 
@@ -429,12 +436,13 @@ function auditFacesAndContract(universe: Map<string, Plugin>): void {
 }
 
 /** 真面许可：声明了全脸字段的插件须为 capability=external_tool、白名单内置
- *  （阶段 7a doc_parse 样板）、ui_feature 组件节点（阶段 7b：布局叶子/设置
- *  面板的独占 UI 实现随插件 faces/ui 同住）、graph_node kind（S1-b：图节点
- *  注册清单 = 真声明——faces.logic 节点工厂入口 + data.node 契约数据）、ports kind
- *  （S2：端口提供方 = 端口实装位）或 command kind（S3：命令逻辑面 = 命令实现位，
- *  faces.logic target=host 命令工厂，声明 faces.logic 的命令插件即真面、真面许可
- *  随声明走）；kind 级放行不论 capability。data-only（无声明）不在此判定。 */
+  *  （阶段 7a doc_parse 样板）、ui_feature 组件节点（阶段 7b：布局叶子/设置
+  *  面板的独占 UI 实现随插件 faces/ui 同住）、graph_node kind（S1-b：图节点
+  *  注册清单 = 真声明——faces.logic 节点工厂入口 + data.node 契约数据）、ports kind
+  *  （S2：端口提供方 = 端口实装位）、command kind（S3：命令逻辑面 = 命令实现位，
+  *  faces.logic target=host 命令工厂，声明 faces.logic 的命令插件即真面、真面许可
+  *  随声明走）或 domain kind（S4：宿主域服务 = 域逻辑唯一实现位，faces.logic
+  *  target=host 域服务工厂）；kind 级放行不论 capability。data-only（无声明）不在此判定。 */
 function realFaceAllowed(plugin: Plugin): boolean {
   return (
     plugin.capability === 'external_tool' ||
@@ -442,7 +450,8 @@ function realFaceAllowed(plugin: Plugin): boolean {
     plugin.isUiComponent === true ||
     plugin.kind === 'graph_node' ||
     plugin.kind === 'ports' ||
-    plugin.kind === 'command'
+    plugin.kind === 'command' ||
+    plugin.kind === 'domain'
   );
 }
 
@@ -698,6 +707,32 @@ function auditPortProvider(universe: Map<string, Plugin>): void {
   }
 }
 
+/** S4 宿主域服务审计（kind='domain'，域逻辑唯一实现位）：data.service = 宿主域服务
+ *  声明（id/服务面描述/注入依赖）；faces.logic（target=host）默认导出 = 统一工厂
+ *  `(init?: unknown) => 域服务实例`（S0 装载契约，由 auditLogicFaceContract 统一守）；
+ *  注入依赖（storage_seam/data_dir/宿主服务引用）在 data.service 声明——域服务间接 IO
+ *  经注入依赖（宿主服务/端口 seam），直接 IO 违契约（与 command 逻辑面同口径，非 S2
+ *  端口实装位豁免）；manifest「domains 段」即装配引入（hosts/lib 注入 deps），不适用
+ *  「第三方须被 depends 引用」的孤儿口径（宿主装配 = 消费出边）。 */
+function auditDomainService(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    if (plugin.kind !== 'domain') continue;
+    if (!plugin.hasServiceData) {
+      violation(
+        plugin.id,
+        'domain 插件须声明 data.service（宿主域服务声明：服务面/注入依赖）——域逻辑唯一实现位',
+      );
+    }
+    const logic = plugin.faces['logic'];
+    if (logic === undefined) {
+      violation(plugin.id, 'domain 插件须声明 faces.logic（target=host，域服务工厂入口）');
+    }
+    if (logic !== undefined && logic.target != null && logic.target !== 'host') {
+      violation(plugin.id, `domain 插件 faces.logic 须 target=host（宿主装配面装载）: ${logic.target}`);
+    }
+  }
+}
+
 function printViolations(): void {
   if (violations.length === 0) return;
   console.error(`verify:unload FAIL (${violations.length} 违规)`);
@@ -751,6 +786,7 @@ function main(): void {
   auditUiReachability(universe, referrers);
   auditThirdPartyKind(universe);
   auditPortProvider(universe);
+  auditDomainService(universe);
 
   if (violations.length > 0) {
     printViolations();

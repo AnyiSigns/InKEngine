@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "插件 kind 注册表真源（PLUGINS.md §1/§4.6）：首方 kind = 内置模板，住 plugins/<dir>/<id>/spec.json；第三方 kind = x-<vendor>.<name> 开放命名空间，目录名即 kind，声明式模板由插件自带（faces/contract.effects/capability='external_tool'/data/loader），与首方同校验、同装卸、同审计。改 kind 只改本文件——sync_plugin_manifest.mjs 与 verify_unload.ts 均读本真源，不加 kind 不改脚本。kind='host' 例外住 hosts/<host>.spec.json，不进 plugins/，不开放命名空间。S2 增首方 kind='ports'（端口提供方插件：data.port.implemented ⊆ dock/ports 词表，boot 纯数据省略 implemented；faces.logic = 端口实装位，S0 §2.2 豁免子句适用）。",
+  "note": "插件 kind 注册表真源（PLUGINS.md §1/§4.6）：首方 kind = 内置模板，住 plugins/<dir>/<id>/spec.json；第三方 kind = x-<vendor>.<name> 开放命名空间，目录名即 kind，声明式模板由插件自带（faces/contract.effects/capability='external_tool'/data/loader），与首方同校验、同装卸、同审计。改 kind 只改本文件——sync_plugin_manifest.mjs 与 verify_unload.ts 均读本真源，不加 kind 不改脚本。kind='host' 例外住 hosts/<host>.spec.json，不进 plugins/，不开放命名空间。S2 增首方 kind='ports'（端口提供方插件：data.port.implemented ⊆ dock/ports 词表，boot 纯数据省略 implemented；faces.logic = 端口实装位，S0 §2.2 豁免子句适用）。S4 增首方 kind='domain'（宿主域服务插件：hosts/lib 域逻辑唯一实现位，data.service 声明 + faces.logic 默认导出 = 域服务工厂 (init)=>实例）。",
   "kinds": [
     {
       "kind": "tool",
@@ -85,6 +85,17 @@
       ],
       "capabilityDefault": "host_tool",
       "loader": "sync_plugin_manifest.mjs ports 段：聚合 ports[] 端口提供方清单（id/implemented/entry/capability）+ plugins[] 索引；hosts/lib 装配经该清单注入引擎 seam + verify:unload 守同装卸同审计"
+    },
+    {
+      "kind": "domain",
+      "dir": "domains",
+      "contractTemplate": "data.service（宿主域服务声明：id/服务面描述/注入依赖）——每域一插件（sessions/workspace/capability/search/retrieval/material/backup/mcp/os/collab/plugin/execution…），hosts/lib 域逻辑唯一实现位；faces.logic（target='host'，默认导出 = 统一工厂 (init?: {data_dir,storage_seam,…}) => 域服务实例，S0 装载契约）",
+      "faces": [
+        "logic",
+        "data"
+      ],
+      "capabilityDefault": "host_tool",
+      "loader": "sync_plugin_manifest.mjs domains 段：聚合 domains[] 域服务清单（id/entry/capability）+ plugins[] 索引；hosts/lib 装配经该清单装载域插件（经宿主装配面注入 deps）+ verify:unload 守同装卸同审计"
     }
   ],
   "thirdParty": {

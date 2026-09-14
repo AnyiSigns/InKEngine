@@ -22,6 +22,9 @@ const KINDS = {
     { kind: 'command', dir: 'commands' },
     { kind: 'ui_feature', dir: 'ui_features' },
     { kind: 'endpoint', dir: 'endpoints' },
+    { kind: 'graph_node', dir: 'graph_nodes' },
+    { kind: 'ports', dir: 'ports' },
+    { kind: 'domain', dir: 'domains' },
   ],
 };
 
@@ -98,6 +101,23 @@ function commandSpec(id: string, extra: Record<string, unknown> = {}): Record<st
 
 /** 命令 logic face 样板（默认导出 = 统一工厂 (deps) => BridgeHandler）。 */
 const GOOD_COMMAND_FILE = `import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';\nexport default function createCmd(deps: HostBridgeDeps): BridgeHandler {\n  return () => ({ ok: true });\n}\n`;
+
+/** 域服务插件夹具（S4 域逻辑下沉：faces.logic target=host + data.service 声明）。 */
+function domainSpec(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    kind: 'domain',
+    capability: 'host_tool',
+    depends: [],
+    actions: [],
+    faces: { logic: { target: 'host', entry: './faces/logic/index.ts' } },
+    data: { service: { description: `域服务 ${id}`, inject: ['data_dir'] } },
+    ...extra,
+  };
+}
+
+/** 域服务工厂样板（默认导出 = 统一工厂 (init) => 服务实例）。 */
+const GOOD_DOMAIN_FILE = `export interface DomainSvc {\n  hello(): string;\n}\nexport default function createSvc(init?: unknown): DomainSvc {\n  return { hello: () => 'hi' };\n}\n`;
 
 const tmpRoots: string[] = [];
 
@@ -210,5 +230,60 @@ describe('verify:unload S3 命令逻辑面（command kind 真面放行 + 装载�
     const { status, out } = runVerify(root);
     expect(status).toBe(1);
     expect(out).toContain('faces.logic entry 越界');
+  });
+});
+
+describe('verify:unload S4 宿主域服务（domain kind 真面放行 + data.service 契约）', () => {
+  it('合法域服务插件（默认导出 = 服务工厂 + data.service 声明）全量审计 PASS', () => {
+    const root = makeFixtureRoot([
+      { id: 'dom.good', dir: 'domains/dom.good', spec: domainSpec('dom.good'), logicFile: GOOD_DOMAIN_FILE },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(0);
+    expect(out).toContain('verify:unload PASS');
+  });
+
+  it('域服务插件缺 data.service 被拒（S4 域逻辑唯一实现位声明）', () => {
+    const root = makeFixtureRoot([
+      { id: 'dom.good', dir: 'domains/dom.good', spec: domainSpec('dom.good'), logicFile: GOOD_DOMAIN_FILE },
+      { id: 'dom.no_service', dir: 'domains/dom.no_service', spec: domainSpec('dom.no_service', { data: {} }), logicFile: GOOD_DOMAIN_FILE },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(1);
+    expect(out).toContain('domain 插件须声明 data.service');
+    expect(out).toContain('dom.no_service');
+  });
+
+  it('域服务插件 faces.logic 非 target=host 被拒（宿主装配面装载）', () => {
+    const root = makeFixtureRoot([
+      { id: 'dom.good', dir: 'domains/dom.good', spec: domainSpec('dom.good'), logicFile: GOOD_DOMAIN_FILE },
+      {
+        id: 'dom.bad_target',
+        dir: 'domains/dom.bad_target',
+        spec: domainSpec('dom.bad_target', {
+          faces: { logic: { target: 'web', entry: './faces/logic/index.ts' } },
+        }),
+        logicFile: GOOD_DOMAIN_FILE,
+      },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(1);
+    expect(out).toContain('domain 插件 faces.logic 须 target=host');
+    expect(out).toContain('dom.bad_target');
+  });
+
+  it('域服务插件 logic face 缺默认导出被拒（S4 守 S0 装载契约）', () => {
+    const root = makeFixtureRoot([
+      { id: 'dom.good', dir: 'domains/dom.good', spec: domainSpec('dom.good'), logicFile: GOOD_DOMAIN_FILE },
+      { id: 'dom.no_export', dir: 'domains/dom.no_export', spec: domainSpec('dom.no_export'), logicFile: NO_EXPORT_FILE },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(1);
+    expect(out).toContain('faces.logic entry 缺默认导出');
+    expect(out).toContain('dom.no_export');
   });
 });

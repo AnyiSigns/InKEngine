@@ -269,6 +269,32 @@ storage/llm/mcp/boot）或第三方 `plugins/x-<vendor>.<port>/`（同契约、�
   三者三角色）；第三方新端口实现一律走 `x-<vendor>.<port>`，不占 `ports`
   首方名。
 
+### 2.2ter 宿主域服务插件（S4 域逻辑下沉，2026-09-14 用户拍板）
+
+**定位**：宿主域服务的实现位 = 域服务插件（`kind='domain'`，`plugins/domains/<id>/`）。
+hosts/lib 其余域逻辑（sessions/workspace/capability/search/retrieval/material/
+backup/mcp/os/collab/plugin/execution…）随 S4 从 `hosts/lib/src` 移入对应域插件，
+宿主只留装配——`hosts/lib` 降到装配量级（目标 < ~3k 行），域实现不落宿主
+第二面。与 S2 端口提供方、S3 命令逻辑面同一个「插件 = 唯一实现位」家族。
+
+**声明与装载**：
+
+- `spec.data.service` = 宿主域服务声明（服务面描述 / 注入依赖 `inject`：
+  data_dir / storage_seam / 其它宿主服务引用）——`verify:unload` 经
+  `auditDomainService` 守声明必在（fail-closed：缺 data.service = 拒绝）；
+- `faces.logic = { target: 'host', entry }`，默认导出 = **域服务工厂**
+  `(init?) => 域服务实例`（S0 装载契约，`auditLogicFaceContract` 守默认导出）；
+  域服务间接 IO 经注入依赖（宿主服务/端口 seam）——不是端口实装位，**不适用
+  S2 豁免子句**（域服务字节含直接 IO = 违规，直接 IO 只归端口提供方/宿主装配）；
+- 装载：hosts/lib 装配层按 `manifest.domains[]` 清单动态 import 工厂、实例注入
+  `HostBridgeDeps` 域字段（createHost/reboot 同链）；命令逻辑面与 _shared 经
+  `@ink-ts/host` 装配契约类型引用域服务（值经 deps 注入）；
+- 卸载：删插件目录 + 移除宿主装配引用 + 重跑生成器 + `verify:unload`
+  （`auditDomainService` 守声明/工厂/target=host/无孤儿/无环），治理资产随
+  行同消；
+- 域服务 = 宿主域逻辑**唯一实现位**：改域功能只改对应 `plugins/domains/<id>/`
+  （spec + faces/logic + 同住测试）；宿主出现域逻辑 = S5 门禁红。
+
 
 ### 2.1 工具类插件（分发单位 vs 控制单位，正交）
 

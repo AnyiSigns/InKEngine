@@ -9,9 +9,16 @@
  *
  * 本对象为**异步面**（aembed_* 返回 Promise）；引擎 seam 同步直返形态由
  * 接线层（语义检索消费方）await 收口后注入——本模块不提供进程侧等待。
+ *
+ * S4 域组2 从 hosts/lib/src/embedder 迁入检索域插件（用户裁决：embedder
+ * 不独立，并入 retrieval 域），语义零改；exec 原生件（SupervisedNativeSession
+ * 等）经 @ink-ts/host 公共面取用（域组3 exec → plugins/ports/exec_client 时
+ * 改口）。
  */
 
-import type { RestartPolicy } from '../exec/_types.js';
+import type { RestartPolicy } from '@ink-ts/host';
+import { SupervisedNativeSession } from '@ink-ts/host';
+import type { SessionOpener } from '@ink-ts/host';
 import { deterministicVector, l2Normalize } from './deterministic.js';
 import { InferClient } from './infer_client.js';
 import { remoteEmbed } from './remote.js';

@@ -37,8 +37,9 @@ import { buildPluginCommandTools } from './plugin_command.js';
 import { buildCollabCommandTools } from './collab_command.js';
 import type { HostExecutionService } from './execution/service.js';
 import type { ProductRecipeInit } from './recipe.js';
-import type { HostRetrievalDomain } from './retrieval/domain.js';
-import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
+// 检索域装配契约类型（S4 域组2：值随 plugins/domains/retrieval；host 侧
+// HostHandle/装配面经跨树 type import 取用，type 擦除不构成运行期依赖）
+import type { HostRetrievalDomain, SyncEmbedderSeam } from '../../../plugins/domains/retrieval/faces/logic/index.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
 import type { McpPluginService } from './mcp/plugin.js';
 
@@ -155,6 +156,7 @@ export async function createHost(
     recipe: recipe ?? null,
     capability: capabilityStore,
     search,
+    retrieval: domains.retrieval,
   };
 
   let parts: HostBootParts = await assembleHostParts(bootInput);
@@ -345,11 +347,6 @@ export type {
   StorageGetter,
 } from './bridge/_types.js';
 
-// ── 宿主检索域（向量/FTS 检索源 + AsyncEmbedder seam）──
-export { buildHostRetrieval, FtsRetriever, RetrievalStore, VectorRetriever, SOURCE_FTS, SOURCE_VECTOR } from './retrieval/domain.js';
-export type { HostRetriever, HostRetrievalDomain, RetrievalChunk, RetrievalDoc } from './retrieval/domain.js';
-export { SyncEmbedderSeam, attachToolIndexEmbedder } from './retrieval/sync_seam.js';
-
 // ── 受控 OS 执行器域 ──
 export { HostOsRunner, OsError, writeOsAudit } from './os/runner.js';
 export type { OsApproval, OsToolRequest } from './os/runner.js';
@@ -468,18 +465,6 @@ export type {
   ExecOutcome,
   RestartPolicy,
 } from './exec/_types.js';
-export { EmbeddingAdapter } from './embedder/adapter.js';
-export type { EmbedOutput, EmbeddingAdapterOptions } from './embedder/adapter.js';
-export { deterministicVector, l2Normalize } from './embedder/deterministic.js';
-export { InferClient } from './embedder/infer_client.js';
-export type { InferEmbedWire, InferPlanWire } from './embedder/infer_client.js';
-export { remoteEmbed } from './embedder/remote.js';
-export { GRANITE_97M_DIM, GRANITE_MODEL_DIR_DEFAULT, resolveEmbeddingPlan } from './embedder/resolve_plan.js';
-export type {
-  EmbeddingPlan,
-  EmbeddingSourceName,
-  RemoteEmbeddingEndpoint,
-} from './embedder/resolve_plan.js';
 
 // ── data_dir 快照域（backup.export/preview/restore 消费的宿主领域层）──
 export {

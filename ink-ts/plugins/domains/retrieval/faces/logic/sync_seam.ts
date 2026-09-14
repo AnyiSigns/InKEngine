@@ -10,8 +10,8 @@
 
 import type { Runtime } from '@ink-ts/engine';
 
-import type { EmbeddingAdapter } from '../embedder/adapter.js';
-import type { EmbedOutput } from '../embedder/adapter.js';
+import type { EmbeddingAdapter } from './embedder/adapter.js';
+import type { EmbedOutput } from './embedder/adapter.js';
 
 /** 同步嵌入 seam（引擎 AsyncEmbedder 形态；缓存命中直返、缺失抛错降级）。 */
 export class SyncEmbedderSeam {

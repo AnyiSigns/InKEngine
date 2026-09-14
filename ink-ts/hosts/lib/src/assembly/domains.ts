@@ -16,6 +16,9 @@
  */
 
 import type { CapabilityStore, WorkspaceStore } from '../bridge/_types.js';
+// 装配契约窄面：检索域工厂返回的实例结构契约（值随插件；host 侧只做注入，
+// 类型经跨树 type import 取用——type 擦除后不构成运行期 host→plugin 依赖）。
+import type { HostRetrievalDomain } from '../../../../plugins/domains/retrieval/faces/logic/index.js';
 
 /** 检索域窄面（plugins/domains/search 工厂实例面；结构契约，host 侧本地型）。
  *  value 随域插件——web_search 执行体 + 内存密钥 store + 注册接线。
@@ -37,6 +40,13 @@ export interface SearchEngineWiring {
   register(declarative: unknown): void;
 }
 
+/** 检索域窄面（plugins/domains/retrieval 工厂实例面；结构契约，host 侧本地型）。
+ *  value 随域插件——向量/FTS 文档库 + 嵌入适配器三态计划 + tool_index seam。
+ *  buildHostRetrieval 工厂面按每 boot 构造实例（restore 重装共用 seam）。 */
+export interface RetrievalDomainSeam {
+  buildHostRetrieval(options?: Record<string, unknown>): HostRetrievalDomain;
+}
+
 /** 域服务装配产物（每域一项；null = 未装配/宿主降级）。 */
 export interface DomainsSeam {
   /** 工作区授权台账（plugins/domains/workspace；data_dir 持久化）。 */
@@ -45,6 +55,8 @@ export interface DomainsSeam {
   capability: CapabilityStore | null;
   /** 检索域窄面（plugins/domains/search；执行体 + 密钥 store 工厂）。 */
   search: SearchDomainSeam | null;
+  /** 检索域窄面（plugins/domains/retrieval；文档库 + 嵌入适配器工厂）。 */
+  retrieval: RetrievalDomainSeam | null;
 }
 
 function factoryOf(module: unknown, id: string): (init: Record<string, unknown>) => unknown {
@@ -82,11 +94,20 @@ export function buildDomainsSeam(
   const workspaceModule = faces['workspace'];
   const capabilityModule = faces['capability'];
   const searchModule = faces['search'];
+  const retrievalModule = faces['retrieval'];
   let search: SearchDomainSeam | null = null;
   if (searchModule !== undefined && searchModule !== null) {
     const searchFactory = factoryOf(searchModule, 'search');
     const inst = instanceOrNull(searchFactory, 'search', {}) as Record<string, unknown>;
     search = { buildHostSearch: serviceMethod(inst, 'buildHostSearch', 'search') as SearchDomainSeam['buildHostSearch'] };
+  }
+  let retrieval: RetrievalDomainSeam | null = null;
+  if (retrievalModule !== undefined && retrievalModule !== null) {
+    const retrievalFactory = factoryOf(retrievalModule, 'retrieval');
+    const inst = instanceOrNull(retrievalFactory, 'retrieval', { data_dir: init.data_dir }) as Record<string, unknown>;
+    retrieval = {
+      buildHostRetrieval: serviceMethod(inst, 'buildHostRetrieval', 'retrieval') as RetrievalDomainSeam['buildHostRetrieval'],
+    };
   }
   return {
     workspace: workspaceModule !== undefined && workspaceModule !== null
@@ -96,5 +117,6 @@ export function buildDomainsSeam(
       ? (instanceOrNull(factoryOf(capabilityModule, 'capability'), 'capability', { data_dir: init.data_dir }) as CapabilityStore)
       : null,
     search,
+    retrieval,
   };
 }

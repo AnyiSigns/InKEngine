@@ -9,10 +9,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { locateNativeBinary } from '../../src/exec/binary.js';
-import { deterministicVector } from '../../src/embedder/deterministic.js';
-import { InferClient } from '../../src/embedder/infer_client.js';
-import { GRANITE_97M_DIM } from '../../src/embedder/resolve_plan.js';
+import { locateNativeBinary } from '@ink-ts/host';
+import { deterministicVector } from './deterministic.js';
+import { InferClient } from './infer_client.js';
+import { GRANITE_97M_DIM } from './resolve_plan.js';
 
 const inferBinary = locateNativeBinary('infer');
 const describeOrSkip = inferBinary === null ? describe.skip : describe;

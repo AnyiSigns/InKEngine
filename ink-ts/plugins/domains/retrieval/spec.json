@@ -1,0 +1,22 @@
+{
+  "id": "retrieval",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "检索域（向量/FTS 文档库 + 嵌入三态适配器 + tool_index 语义 seam）：数据落 data_dir/retrieval，嵌入按 env 三态路由（远端/deterministic 保底/local_infer 经 infer 子进程）；embedder/* 按用户裁决并入本域。S4 域组2 自 hosts/lib/src/retrieval + embedder 迁入。",
+      "inject": [
+        "data_dir",
+        "exec_envelope"
+      ]
+    }
+  }
+}

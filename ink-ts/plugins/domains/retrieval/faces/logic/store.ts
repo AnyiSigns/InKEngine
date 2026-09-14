@@ -6,14 +6,17 @@
  * 持久化于 data_dir/retrieval）与嵌入（EmbeddingAdapter 三态计划）均属
  * 宿主领域层。降级可观测：chunk.meta.note 携带嵌入来源（确定性保底注记
  * 不静默），store.describe() 暴露当前计划与文档/向量计数。
+ *
+ * S4 域组2 从 hosts/lib/src/retrieval/domain.ts 迁入（域逻辑唯一实现位 =
+ * 检索域插件；embedder/* 并按用户裁决并入本域），语义零改。
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { EmbeddingAdapter } from '../embedder/adapter.js';
-import type { EmbeddingAdapterOptions } from '../embedder/adapter.js';
-import type { EmbeddingSourceName } from '../embedder/resolve_plan.js';
+import { EmbeddingAdapter } from './embedder/adapter.js';
+import type { EmbeddingAdapterOptions } from './embedder/adapter.js';
+import type { EmbeddingSourceName } from './embedder/resolve_plan.js';
 
 /** 检索源名（引擎注册表内的源标识）。 */
 export const SOURCE_VECTOR = 'vector';

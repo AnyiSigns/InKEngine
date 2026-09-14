@@ -7,9 +7,9 @@
  * source/dim/note）、ping；监督/重启/熔断全部经 SupervisedNativeSession。
  */
 
-import type { RestartPolicy } from '../exec/_types.js';
-import type { SessionOpener } from '../exec/session.js';
-import { SupervisedNativeSession } from '../exec/session.js';
+import type { RestartPolicy } from '@ink-ts/host';
+import type { SessionOpener } from '@ink-ts/host';
+import { SupervisedNativeSession } from '@ink-ts/host';
 import type { EmbeddingSourceName } from './resolve_plan.js';
 
 /** infer.plan 响应（wire）。 */

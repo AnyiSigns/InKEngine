@@ -35,10 +35,11 @@ import { McpPluginService } from './mcp/plugin.js';
 import { findPluginsManifest, pluginsRootOf } from './plugins_fs.js';
 import { build_product_recipe, merge_capability_tier_gate } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';
-import { buildHostRetrieval } from './retrieval/domain.js';
-import type { HostRetrievalDomain } from './retrieval/domain.js';
-import { attachToolIndexEmbedder } from './retrieval/sync_seam.js';
-import type { SyncEmbedderSeam } from './retrieval/sync_seam.js';
+import type { RetrievalDomainSeam } from './assembly/domains.js';
+// 检索域装配（S4 域组2：域实现位 = plugins/domains/retrieval；boot 只装配——
+// seam 工厂取每 boot 实例 + attachToolIndexEmbedder 接线，值/类型经跨树引用）
+import { attachToolIndexEmbedder } from '../../../plugins/domains/retrieval/faces/logic/index.js';
+import type { HostRetrievalDomain, SyncEmbedderSeam } from '../../../plugins/domains/retrieval/faces/logic/index.js';
 
 /** 装配输入（createHost 持久件 + 运行配置；每次装配重读 data_dir）。 */
 export interface HostBootInput {
@@ -48,6 +49,8 @@ export interface HostBootInput {
   capability: CapabilityStore;
   /** 检索接线（createHost 持有；register 按每装配运行时执行体注册）。 */
   search: SearchEngineWiring;
+  /** 检索域 seam（createHost 经 domains seam 装载；每 boot 构造文档库实例）。 */
+  retrieval: RetrievalDomainSeam | null;
 }
 
 /** 单次装配产物（restore 后整体替换的可变装配态）。 */
@@ -188,7 +191,10 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
   // boot），缺省 = null（消费方降级）；契约不符 fail-closed（见 assembly/ports.ts）
   const ports = await loadPortsSeam(input.resolved.seed_dir);
   const bootAssets = ports.boot ?? undefined;
-  const retrieval = buildHostRetrieval(input.resolved.data_dir);
+  if (input.retrieval === null) {
+    throw new Error('retrieval 域插件缺失（plugins/domains/retrieval）——装配必需检索域不可用');
+  }
+  const retrieval = input.retrieval.buildHostRetrieval();
   const inkHost = new InkHost(
     input.resolved,
     () => input.capability.get(),

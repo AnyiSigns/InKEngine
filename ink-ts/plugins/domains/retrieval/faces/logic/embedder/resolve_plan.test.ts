@@ -16,7 +16,7 @@ import {
   GRANITE_97M_DIM,
   REMOTE_ADAPTER_DEFAULT,
   resolveEmbeddingPlan,
-} from '../../src/embedder/resolve_plan.js';
+} from './resolve_plan.js';
 
 function envOf(record: Record<string, string>): NodeJS.ProcessEnv {
   return { ...record };

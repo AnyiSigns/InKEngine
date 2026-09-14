@@ -1933,6 +1933,19 @@
       }
     },
     {
+      "id": "retrieval",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-retrieval",
+      "dir": "domains/retrieval",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "search",
       "kind": "domain",
       "capability": "host_tool",
@@ -4882,6 +4895,10 @@
     },
     {
       "id": "material",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "retrieval",
       "entry": "./faces/logic/index.ts"
     },
     {

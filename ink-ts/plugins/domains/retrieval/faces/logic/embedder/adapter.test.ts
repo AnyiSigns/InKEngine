@@ -12,9 +12,9 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { EmbeddingAdapter } from '../../src/embedder/adapter.js';
-import { deterministicVector } from '../../src/embedder/deterministic.js';
-import { GRANITE_97M_DIM } from '../../src/embedder/resolve_plan.js';
+import { EmbeddingAdapter } from './adapter.js';
+import { deterministicVector } from './deterministic.js';
+import { GRANITE_97M_DIM } from './resolve_plan.js';
 
 describe('EmbeddingAdapter 三态路由（in-process）', () => {
   it('确定性保底：LOCAL=off → 直算向量（单位化 + 同文再生）', async () => {

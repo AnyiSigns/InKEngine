@@ -36,7 +36,7 @@ import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 import type { LlmPortSeam, PortsSeam, StoragePortSeam } from './assembly/ports.js';
 import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
-import type { CapabilityRecord } from './capability/store.js';
+import type { CapabilityRecord } from './bridge/_types.js';
 import { applyProvidersConfig, asProvider, endpointForPick, isRecord, providerModelIds } from './model_providers.js';
 import {
   load_persisted_model_config,

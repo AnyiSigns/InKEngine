@@ -18,7 +18,7 @@ import {
 } from '@ink-ts/engine';
 import type { Host, LoadedScope, Storage } from '@ink-ts/engine';
 import type { GuardrailConfig } from '@ink-ts/engine';
-import type { CapabilityStore } from './capability/store.js';
+import type { CapabilityStore } from './bridge/_types.js';
 import type { McpClientManagerLike, McpClientPortSeam, PortsSeam } from './assembly/ports.js';
 import { loadPortsSeam } from './assembly/ports.js';
 import { configureCollabTempSightingSink } from './collab_command.js';

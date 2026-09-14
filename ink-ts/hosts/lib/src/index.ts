@@ -31,10 +31,9 @@ import { resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { loadHostLogicFaces } from './face/loader.js';
 import type { DocParser } from './doc/_types.js';
-import { createCapabilityStore } from './capability/store.js';
 import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
-import type { WorkspaceStore } from './bridge/_types.js';
+import type { WorkspaceStore, CapabilityStore } from './bridge/_types.js';
 import { buildPluginCommandTools } from './plugin_command.js';
 import { buildCollabCommandTools } from './collab_command.js';
 import type { HostExecutionService } from './execution/service.js';
@@ -136,7 +135,6 @@ export async function createHost(
     });
   }
   const search = buildHostSearch();
-  const capabilityStore = createCapabilityStore(resolved.data_dir);
   const gate = createHostOpGate();
   // S4：域逻辑唯一实现位 = 域服务插件（plugins/domains/<id>）。域插件在
   // manifest 声明即被 loadHostLogicFaces 全量装载（target=host 同 doc_parse/
@@ -144,6 +142,12 @@ export async function createHost(
   // 插件缺失 = 域面 null（命令面内存兜底降级，fail 前显式）。
   const domains: DomainsSeam = buildDomainsSeam(logicFaces, { data_dir: resolved.data_dir });
   const workspaceStore: WorkspaceStore | null = domains.workspace;
+  // capability 是装配必需（InkHost 审批策略活读面 + boot 装配 + mcp 台账），
+  // 域插件缺失 = fail-closed（不静默降级——能力档位必须可判定）。
+  if (domains.capability === null) {
+    throw new Error('capability 域插件缺失（plugins/domains/capability）——装配必需能力台账不可用');
+  }
+  const capabilityStore: CapabilityStore = domains.capability;
   const bootInput = {
     resolved,
     recipe: recipe ?? null,
@@ -386,14 +390,9 @@ export { SearchKeysStore, maskKey } from './search/keys.js';
 // 装配契约类型留宿：HostBridgeDeps.workspace 从这里派生）──
 export type { WorkspaceState, WorkspaceStore } from './bridge/_types.js';
 
-// ── 能力记录域（data_dir/capability.json 持久化）──
-export {
-  CapabilityError,
-  createCapabilityStore,
-  defaultCapabilityRecord,
-  parseRecord,
-} from './capability/store.js';
-export type { CapabilityRecord, CapabilityStore } from './capability/store.js';
+// ── 能力记录域契约（值随 plugins/domains/capability——S4 域逻辑唯一实现位；
+// 装配契约类型留宿：HostBridgeDeps.capability / InkHost 审批策略从这里派生）──
+export type { CapabilityRecord, CapabilityStore } from './bridge/_types.js';
 
 // ── 模型提供方映射（model_providers 宿主服务：role pick/掩码合并；models 命令消费）──
 export { asProvider, providerModelIds, samePick } from './model_providers.js';

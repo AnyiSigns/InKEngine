@@ -195,7 +195,30 @@ export interface HostBridgeDeps {
   /** 最近在途 run 取消句柄登记（rounds.abort 经 runtime 中止）。 */
 }
 
-import type { CapabilityStore } from '../capability/store.js';
+/**
+ * 能力记录契约（S4 域逻辑下沉：值随 plugins/domains/capability，
+ * 装配契约类型留宿本文件——InkHost 审批策略/boot 装配/McpPluginService
+ * 从 @ink-ts/host 取类型）。data_dir/capability.json 持久化（工厂随域插件）。
+ */
+/** 能力记录（除下述已具名字段外的键原样透传保留）。 */
+export interface CapabilityRecord {
+  max_tool_rounds?: number;
+  auto_approve_tools: string[];
+  auto_approve_all_review: boolean;
+  [key: string]: unknown;
+}
+
+export interface CapabilityStore {
+  /** 读取记录（无记录 = 缺省；读档时不落盘缺省字段）。 */
+  get(): CapabilityRecord;
+  /** 合并写入（单字段语义：先读既有记录再并入；返回合并后记录）。 */
+  put(patch: Record<string, unknown>): CapabilityRecord;
+  /** 恢复出厂记录（整体清空为缺省；B6 恢复设置默认逃生用）。 */
+  reset(): CapabilityRecord;
+  /** 从磁盘重读缓存（data_dir 目录恢复后刷新为恢复态记录）。 */
+  reload(): void;
+}
+
 import type { DocParser } from '../doc/_types.js';
 import type { SearchKeysStore } from '../search/keys.js';
 export type { DocParser };

@@ -8,8 +8,9 @@
  */
 
 import type { CapabilityRecord, CapabilityStore } from '@ink-ts/host';
-import { BridgeError, defaultCapabilityRecord, parseRecord } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { HostBridgeDeps } from '@ink-ts/host';
+import { defaultCapabilityRecord, parseRecord } from '../../domains/capability/faces/logic/index.js';
 
 /** capability.json 内 baseline 镜像键名。 */
 export const BASELINE_KEY = 'tool_baseline';

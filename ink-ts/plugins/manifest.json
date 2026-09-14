@@ -1907,6 +1907,19 @@
       }
     },
     {
+      "id": "capability",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-capability",
+      "dir": "domains/capability",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "sessions",
       "kind": "domain",
       "capability": "host_tool",
@@ -4837,6 +4850,10 @@
     }
   ],
   "domains": [
+    {
+      "id": "capability",
+      "entry": "./faces/logic/index.ts"
+    },
     {
       "id": "sessions",
       "entry": "./faces/logic/index.ts"

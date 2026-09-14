@@ -1,7 +1,7 @@
 /**
- * 能力记录域测试：持久化并入语义 + 推演档位语义已移除（历史键丢弃）+
- * bridge 缺省注入 + host 审批策略并入（auto_approve_tools /
- * auto_approve_all_review 活读面）。
+ * 能力记录域测试（S4 随迁域插件同住）：持久化并入语义 + 推演档位语义已移除
+ * （历史键丢弃）。宿主审批策略并入（InkHost 活读面）仍由 hosts/lib 装配测试
+ * 覆盖（capability.host_policy.test.ts）。
  */
 
 import { tmpdir } from 'node:os';
@@ -9,9 +9,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { createCapabilityStore } from '../../src/capability/store.js';
-import { parseRecord } from '../../src/capability/store.js';
-import { InkHost, resolve_host_config } from '../../src/index.js';
+import { createCapabilityStore, parseRecord } from './index.js';
 
 function tempDir(prefix: string): string {
   return path.join(tmpdir(), `${prefix}-${Math.random().toString(36).slice(2)}`);
@@ -77,33 +75,5 @@ describe('能力记录域（capability.json 持久化 + 档位语义移除）', 
     const reread = createCapabilityStore(dir);
     expect(reread.get().auto_approve_tools).toEqual([]);
     expect('mcp_plugins_extra' in reread.get()).toBe(false);
-  });
-});
-
-describe('能力记录 → host 审批策略（活读面并入）', () => {
-  it('auto_approve_tools 命中直过；未列工具仍全量挂起', () => {
-    const dir = tempDir('ink-policy-');
-    const store = createCapabilityStore(dir);
-    const config = resolve_host_config({ data_dir: dir, autoApprove: false });
-    const host = new InkHost(config, () => store.get());
-    const policy = host.interrupt_policy();
-    store.put({ auto_approve_tools: ['inspect_graph'] });
-    expect(policy.should_approve('gate:tool', { tool: 'inspect_graph' })).toBe(false);
-    expect(policy.should_approve('gate:tool', { tool: 'other_tool' })).toBe(true);
-  });
-
-  it('auto_approve_all_review = 全量直过；autoApprove 显式 true 亦直过', () => {
-    const dir = tempDir('ink-policy2-');
-    const store = createCapabilityStore(dir);
-    const config = resolve_host_config({ data_dir: dir, autoApprove: false });
-    const host = new InkHost(config, () => store.get());
-    const policy = host.interrupt_policy();
-    store.put({ auto_approve_all_review: true });
-    expect(policy.should_approve('patch:apply', { tool: 'anything' })).toBe(false);
-    expect(policy.timeout_for('patch:apply', { tool: 'anything' })).toBeNull();
-
-    const configAuto = resolve_host_config({ data_dir: dir, autoApprove: true });
-    const hostAuto = new InkHost(configAuto, () => store.get());
-    expect(hostAuto.interrupt_policy().should_approve('x', { tool: 'y' })).toBe(false);
   });
 });

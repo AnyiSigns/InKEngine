@@ -27,7 +27,7 @@ import type {
   McpClientPortSeam,
   McpServerConfigLike,
 } from '../assembly/ports.js';
-import type { CapabilityStore } from '../capability/store.js';
+import type { CapabilityStore } from '../bridge/_types.js';
 
 /** 启用集台账键（capability.json；数组 = 已启用 plugin/server id）。 */
 export const MCP_PLUGINS_ENABLED_KEY = 'mcp_plugins_enabled';

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createCapabilityStore } from '@ink-ts/host';
+import { createCapabilityStore } from '../../../../domains/capability/faces/logic/index.js';
 import createCapabilityGet from './index.js';
 import createCapabilityPut from '../../../capability.put/faces/logic/index.js';
 

@@ -1,0 +1,21 @@
+{
+  "id": "capability",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "能力记录域（capability.get/put/baseline/tier）：auto_approve 预授权字段/max_tool_rounds 声明落 data_dir/capability.json；InkHost 审批策略与装配（boot/reboot）按注入实例活读。S4 从 hosts/lib/src/capability 迁入。",
+      "inject": [
+        "data_dir"
+      ]
+    }
+  }
+}

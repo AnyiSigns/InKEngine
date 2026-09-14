@@ -5,7 +5,7 @@ const rep = runScale({
   grid: [1000, 10000],
   seeds: [0, 1, 2],
   outRoot: join(process.cwd(), 'runs'),
-  runId: `scale-20260914T23-r7-smoke`,
+  runId: `scale-20260914T23-r7b-smoke`,
   includeKCoverage: false,
 });
 writeScaleResults(join(rep.runDir, 'results.json'), join(rep.runDir, 'results.csv'), rep);

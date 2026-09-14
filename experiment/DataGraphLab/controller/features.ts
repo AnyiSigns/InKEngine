@@ -13,7 +13,7 @@
  * hist 用追加式稳定槽位，动作特征走契约派生 + 哈希桶。
  */
 
-import { EXIT, LEX_OPS_BASE, emod, type Graph } from '../world/operators.js';
+import { EXIT, LEX_OPS_BASE, OPS, emod, requiresTypes, type Graph } from '../world/operators.js';
 import { TYPE_INDEX, TYPE_LIST, t } from '../world/types.js';
 import { GOAL_CONNECTORS, GOAL_LEX, mentionStats, tokens } from '../world/grammar.js';
 import { crc32 } from '../world/hash.js';
@@ -313,7 +313,28 @@ export function featurizeObs(
  * 动作特征：契约派生 + 哈希算子桶。同契约算子靠哈希桶区分，替换/新增同契约算子
  * 不改 ACT_DIM。`entry` 永不作为候选，直接调用视为编程错误；`exit` 是结构节点、
  * 只置 kind 位；`"any"` 不是类型格成员，accepts/returns 两侧一律不置位。
+ *
+ * 哈希桶采用「同签名类内无碰撞」分配（R7 复评 P0）：契约三要素 + kind 全同的节点
+ * （如 add3/mod7，Int→Int op）若同桶，动作特征逐位相同 → 指针得分恒等、贪心
+ * tie-break 恒取候选序前者 → mod7 结构性不可学（冒烟 step0 66/66 全错选 add3，
+ * 三 seed 行为逐位一致即此结构性证据）。64 桶 > 22 节点，类内线性探测确定性分配；
+ * 其余节点桶位 = 原 crc32 基位，行为零变化。
  */
+const ACTION_BUCKETS: ReadonlyMap<string, number> = (() => {
+  const plan = new Map<string, number>();
+  const taken = new Map<string, number[]>();
+  for (const c of OPS) {
+    const sig = `${c.kind}|${c.provides ?? ''}|${requiresTypes(c).join(',')}|${c.out_type}`;
+    const used = taken.get(sig) ?? [];
+    let b = crc32(c.id) % OP_BUCKETS;
+    while (used.includes(b)) b = (b + 1) % OP_BUCKETS;
+    used.push(b);
+    taken.set(sig, used);
+    plan.set(c.id, b);
+  }
+  return plan;
+})();
+
 export function featurizeAction(graph: Graph, nid: string): Float32Array {
   const a = new Float32Array(ACT_DIM);
   if (nid === EXIT) {
@@ -335,6 +356,6 @@ export function featurizeAction(graph: Graph, nid: string): Float32Array {
   }
   const oi = (TYPE_LIST as readonly string[]).indexOf(node.out_type);
   if (oi >= 0) a[T_OFF + TYPE_LIST.length + oi] = 1;
-  a[E_OFF + (crc32(nid) % OP_BUCKETS)] = 1;
+  a[E_OFF + (ACTION_BUCKETS.get(nid) ?? crc32(nid) % OP_BUCKETS)] = 1;
   return a;
 }

@@ -1,7 +1,8 @@
 /**
  * 一次性重生成 conformance/ffixtures/{f1_forward,f2_roundtrip}.json（R6 顺序槽
  * obsDim 732→852、arch v1→v2；R7 进度对齐槽 obsDim 852→867、arch v2→v3；
- * R7 复评修正 occurrence 指针语义、arch v3→v4）。保留原 fixture 的
+ * R7 复评修正 occurrence 指针语义、arch v3→v4；R7 复评 P0 修复动作哈希桶
+ * 同签名类内无碰撞（add3/mod7 分桶）、arch v4→v5）。保留原 fixture 的
  * instruction/obs/candidates 文本，重算 obs_vec / candidates_act_feats /
  * weights（Policy.random 固定 seed）。
  */

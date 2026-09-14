@@ -156,7 +156,7 @@ describe('eval/reinforce：budgetSteps 预算封顶（C.8 同预算口径，roll
 });
 
 describe('REINFORCE 跨语言闭环：TS 采集 → Python 批量梯度 → weights.json', () => {
-  it('bin → train_reinforce.py → arch v4:lang:867:83:128:none 且可被 Policy.load', () => {
+  it('bin → train_reinforce.py → arch v5:lang:867:83:128:none 且可被 Policy.load', () => {
     const dir = tmpRoot();
     const tasks = makeSplit('train', 3, 5);
     const collected = collectReinforceRows(Policy.random(7, 'lang', 'none'), tasks, { seed: 1 });

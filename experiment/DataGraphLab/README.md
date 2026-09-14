@@ -7,15 +7,16 @@
 ## 现状（本波已闭环）
 
 世界层与合成数据生成器、可执行验收器、oracle 教师轨迹、内容寻址存储加 14 道门禁
-脚本已齐备：`npm run gate` 现 13/14 PASS（**G2.2 已按 R5 轨迹约束归零转绿**，G1.2
-仍如实红——旧数据基线，R5 后 follow 数据已全量重生成重训，冒烟/全量见「R5 落地」
-节），每次跑批把机器可读证据落进 `runs/gates-<stamp>/`（每门禁一份 JSON、两份 csv
+脚本已齐备：`npm run gate` 现 **14/14 PASS**（G1.2 已转绿——R7 冒烟
+`runs/scale-20260914T23-r7b-smoke/` 的 S_follow(10k)=1.0000 ≥ 0.80，见「待决」
+R7 复评节；此前红因 = R6 冒烟 0.238 与 v4 桶碰撞期 0.42 的如实证据链），每次跑批
+把机器可读证据落进 `runs/gates-<stamp>/`（每门禁一份 JSON、两份 csv
 明细、一份 run 级 `manifest.json`）。teacher/search（`planBfs`，R5 起 follow 沿
 `spec.trace` 前缀剪枝）与 controller 三件套（features/policy/checkpoint）、数据派生层
 （records v2 bin）、运行/评测（rollout/metrics/arms 五臂 + G2.2 超 oracle 判据 +
 REINFORCE 臂）、DAgger 编排、Python 训练器（train.py，含 `--loss reinforce`）已落地。
-全套 **449 项测试（39 个文件）可重跑复现**（`npm test`；实读口径 = `vitest list`
-收集 449/39，2026-09-15。全文测试数以此处为唯一数字源）。
+全套 **450 项测试（39 个文件）可重跑复现**（`npm test`；实读口径 = `vitest list`
+收集 450/39，2026-09-15。全文测试数以此处为唯一数字源）。
 「完成」的定义里，run 级版本快照与实测数字回填均已闭环——快照随 `createGateContext`
 给定 runId 时落盘，数字见「验证结果」节。
 
@@ -68,9 +69,10 @@ C:\...\.venv\Scripts\python.exe controller/train.py --train runs/train.bin --val
 C.8 第二跑证据（R5 前基线）：`runs/scale-20260913T094845/`（grid {1000,10000,30000}
 × seeds {0..4}，弱扫描口径，210 行长表 + 15 checkpoint + k% 覆盖度副轴）。
 
-- `npm run gate`：13/14 PASS（G1.2 如实红态——R5 前旧数据基线，判据不达标不改
-  阈值，见下；G2.2 已按 R5 归零转绿）；`npm run typecheck` 通过；全量 `npm test`
-  39 文件 449 项全绿（数字源见「现状」行，2026-09-15 实读）。
+- `npm run gate`：**14/14 PASS**（G1.2 已转绿——R7 冒烟 `runs/scale-20260914T23-r7b-smoke/`
+  S_follow(10k)=1.0000 ≥ 0.80，证据见「待决」R7 复评节）；`npm run typecheck` 通过；
+  全量 `npm test`
+  39 文件 450 项全绿（数字源见「现状」行，2026-09-15 实读）。
 - G0.1 确定性：跨进程 + 进程内复算逐字节一致，一致率 1.000（12 例 makeTask，
   fixture 复算 15/15 命中）。
 - G0.2 可解性：728 任务 solvable 比例 1.000，hidden plan 回放穿验收失败 0。
@@ -82,9 +84,9 @@ C.8 第二跑证据（R5 前基线）：`runs/scale-20260913T094845/`（grid {10
   N=1000/1000，9 个分层；gold 骨架 JS 散度 0.007174 仅 sanity）。
 - G0.6 目标可分性：4 类 top1 准确率均值 0.9852、标准差 0.0127（5 seed：
   0.9900/0.9620/0.9900/0.9840/1.0000；每类 held-out 54 条；编码器第 2 轮）。
-- G1.1 非免费午餐：random 臂 pass@1 follow=0.0000 / goal=0.0017（各 n=600，≤0.05；
+- G1.1 非免费午餐：random 臂 pass@1 follow=0.0000 / goal=0.0000（各 n=600，≤0.05；
   臂 seed=42——R7 arch v3 后 seed 123 抽签 submit 偏置票 0.0850 越线，G0.4 仍全绿
-  非泄漏，只换抽样参数阈值不动）。
+  非泄漏，只换抽样参数阈值不动；v5 桶位重排后 goal 票 0.0017→0.0000 如实更新）。
 - G1.2 主目标：`S_goal(10k)=0.585≥0.50` ✅、单调性 `S_goal(30k)=0.775≥S_goal(1k)=0.336`
   ✅（`monotonicity_checked=1`，R5 前第二跑基线）、`S_follow(10k)=0.247<0.80` ❌
   （R5 前基线；R5 后冒烟/全量见「R5 落地」节）、
@@ -242,8 +244,25 @@ follow ≈0.06 平台；k=100 余池空按契约报 n=0。
   68.6% 骨架与 oracle 标签冲突，审查后改 occurrence 指针语义直接 bump，v3 未
   训练无证据污染；修复后 train 池 3052 步仅余 17 步冲突全为登记的并列义项
   tie-break 简化；`weakLexicalPlan` 同步统一走 occurrencePlan，统计集 S_heur
-  实测仍 0.9750）。预期：step1–3 路由追平 step0、S_follow(10k) 冒烟 > 0.40。
+   实测仍 0.9750）。预期：step1–3 路由追平 step0、S_follow(10k) 冒烟 > 0.40。
   实现与复评见后续批次。
+- **R7 复评 + P0 修复（2026-09-14，动作哈希桶碰撞）**：冒烟 {1k,10k}×3（arch v4，
+  证据 `runs/scale-20260914T23-r7-smoke/`）：S_follow(10k) 三 seed 全 = 0.4200（N=1000
+  亦 0.4200，S_heur 0.9750）；首步路由 0.8900 < 0.90 判定线；step1–3 = 0.8433/0.8633/
+  0.8356（R6 0.74–0.75 实质提升但未追平 step0）。**关键证据：三 seed 行为逐位一致**
+  （step0 动作 600/600 相同、1k/10k 同值）→ 结构性而非学习噪声；逐步分解 step0 错例
+  66/66 全为 gold=mod7 且一律错选 add3，其余算子 100% 命中。**根因**：动作特征哈希桶
+  `crc32(id)%64` 碰撞 bucket=51 [add3, mod7]（二者契约 kind+Int→Int 全同）→ 动作特征
+  逐位相同 → 指针得分恒等 → 贪心按候选序 tie-break 恒选 add3 → **mod7 结构性不可学**
+  （R5/R6 期已存在，被其他误差掩盖）。**修复**：动作桶改「同签名类内无碰撞」分配
+  （类 = kind+provides+requires_types+out_type，类内线性探测；其余节点桶位不变），
+  arch v4→v5（特征语义变化，F.2 fail-fast），回归测试钉全 ROUTING 动作特征两两不同；
+  fixtures f1/f2 重生成（dims 不变 867）。**修复后冒烟 `runs/scale-20260914T23-r7b-smoke/`
+  （arch v5）达标：S_follow 六格全 1.0000（1k/10k × 3 seed，600/600）、routing_acc
+  1.0、分层诊断全 step 1.0000（含 len7 深链组、恒等冗余步组）、S_heur 0.9750 不变、
+  S_follow−S_heur = +0.0250 首次转正（并列义项类型消歧通道兑现）**；门禁 14/14 全绿
+  （G1.2 首次转绿：S_follow(10k)=1.0000≥0.8）。R7 判定达成 → 全量 {1k,10k,30k}×5
+  复评 A.1 晋级，详见计划 §10 R7 复评节。
 - **R3 核销（HeuristicArm 弱词法扫描，C.7 规格）**：committed 版曾用类型感知
   `parseRecipe`，实测 follow held-out pass@1=1.0，A.1 的 `S_follow−S_heur ≥ 0.05`
   结构上不可满足；已改 `weakLexicalPlan`（义项首现升序、同位命中按 LEX_OPS_BASE 固定

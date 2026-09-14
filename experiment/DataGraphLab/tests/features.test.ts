@@ -32,7 +32,7 @@ import {
   stateStats,
 } from '../controller/features.js';
 import { HIST_SLOTS, NODE_SLOT } from '../controller/slots.js';
-import { EXIT } from '../world/operators.js';
+import { EXIT, ROUTING } from '../world/operators.js';
 import { crc32 } from '../world/hash.js';
 import { applyOp, initState, GRAPH_BASE as G } from '../world/operators.js';
 import { GRAPH } from '../runner/graph.js';
@@ -224,6 +224,17 @@ describe('featurizeAction', () => {
   it('entry 不可特征化，未知节点 fail-fast', () => {
     expect(() => featurizeAction(GRAPH, 'entry')).toThrow();
     expect(() => featurizeAction(G, 'ghost')).toThrow();
+  });
+
+  it('R7 P0 回归：同签名类（add3/mod7）分桶，全路由节点动作特征两两不同', () => {
+    const vecs = ROUTING.map((nid) => Array.from(featurizeAction(GRAPH, nid)));
+    for (let i = 0; i < vecs.length; i++) {
+      for (let j = i + 1; j < vecs.length; j++) {
+        expect(vecs[i]).not.toEqual(vecs[j]);
+      }
+    }
+    expect(featurizeAction(GRAPH, 'add3')).not.toEqual(featurizeAction(GRAPH, 'mod7'));
+    expect(featurizeAction(GRAPH, 'add3')[E_OFF + (crc32('add3') % OP_BUCKETS)]).toBe(1);
   });
 });
 

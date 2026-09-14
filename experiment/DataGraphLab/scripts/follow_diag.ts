@@ -18,7 +18,7 @@ import { applyOp, initState, obsSnapshot } from '../world/operators.js';
 import { deepEq } from '../world/types.js';
 import type { Task } from '../schema.js';
 
-const RUN = 'runs/scale-20260914T23-r7-smoke';
+const RUN = 'runs/scale-20260914T23-r7b-smoke';
 
 const statFollow = makeSplit('heldout', 300, 0).filter((t) => t.style === 'follow');
 console.log(`统计集 follow 任务数: ${statFollow.length}`);

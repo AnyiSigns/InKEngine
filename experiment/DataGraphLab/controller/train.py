@@ -34,7 +34,7 @@ BIN_VERSION = 2
 HEADER = struct.Struct("<4sIIIII")
 EXPECTED_OBS_DIM = 867  # 主臂特征集 lang 的 obs 宽度（R6 词法顺序槽 +120、R7 进度对齐槽 +15），与 arch 串互相钉死
 EXPECTED_ACT_DIM = 83  # 动作特征宽度（契约派生+哈希桶），与 arch 串互相钉死
-ARCH_VERSION = 4
+ARCH_VERSION = 5  # v4→v5：动作哈希桶改同签名类内无碰撞（add3/mod7 原同桶致 mod7 结构性不可学，R7 复评 P0）
 H = 128
 ACT_DIM = 83
 

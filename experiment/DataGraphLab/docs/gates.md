@@ -249,7 +249,7 @@ interface GateResult {
 ## F1 前向一致
 
 - **输入**：`conformance/ffixtures/f1_forward.json`（冻结权重子集 + obs/候选动作特征，
-  arch `v4:lang:867:83:128:none`，无时间戳、git 跟踪）。
+  arch `v5:lang:867:83:128:none`，无时间戳、git 跟踪）。
 - **算法**：TS 与 Python 两侧统一 **float64 累加**重算前向（TS 走 `f_math.forward64`，
   Python 走 `conformance/py_forward.py`，前向数学 `import controller/train_nn`，两侧都不
   复刻公式），比对 softmax 分布逐元素。

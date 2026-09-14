@@ -5,11 +5,11 @@
 
 ## 1. 分层与依赖方向
 
-- `engine/`：L3 引擎库，现体七层 + 残部 + adapters；层向纪律以 gate `layer-dag`
-  矩阵为唯一口径（§7 表，P7-3 起强制），纯函数纪律作用集合 = coreDirs ∪
-  layerDirs（0-IO 条款：零框架依赖、零 node 内置、零裸包；JSON 进 JSON 出；
-  无 main、无全局状态、无 IO；副作用一律以 `dock/ports*` 端口 seam 声明、
-  机制契约落各机制层 `<mechanism>/contract.ts`）：
+- `engine/`：L3 引擎库，现体六层 + 残部（adapters 已随 S2 下沉移出）；层向纪律
+   以 gate `layer-dag` 矩阵为唯一口径（§7 表，P7-3 起强制），纯函数纪律作用集合 =
+   coreDirs ∪ layerDirs（0-IO 条款：零框架依赖、零 node 内置、零裸包；JSON 进
+   JSON 出；无 main、无全局状态、无 IO；副作用一律以 `dock/ports*` 端口 seam
+   声明、机制契约落各机制层 `<mechanism>/contract.ts`）：
   - `engine/src/model/`：数据面层——数据面契约生成物落点
     `model/contracts/generated/` + schema/events/graph 数据面/perception/plan/
     scopes/harness/state 形态等纯数据，零依赖首层。
@@ -28,13 +28,14 @@
     与 environments/harness 留守的过渡期纯逻辑，同受 0-IO 纪律，随 P8 逐层消化。
   - `engine/src/kernel/`（已退役）：simulation/multipath/spawn 旧推演机制件
     与 `core/fanout/` 已随 P8+S1 展开段退役删除，目录清零、禁复活。
-  - `engine/src/adapters/`：机制心跳（LLM/存储/MCP/启动装配 boot）的可选 IO
-    **真实现**，仍属引擎包而非宿主——机制层只给契约，适配实现按 DI 装载。llm 协议
-    适配器（openai-compatible / anthropic messages / openai responses，本地
-    OpenAI 兼容端点）只发协议级 HTTP，不 import 任何厂商 SDK；storage 驱动
-    （sqlite/memory 驱动，postgres 暂不提供）实现各机制层仓储契约；
-    mcp client 同层。本层允许 node:* 与驱动必需的第三方，但不得反向依赖
-    各机制层私有文件。
+- IO 端口实装位（S2 适配器下沉，2026-09-14 用户拍板）= **端口提供方插件**：
+  `plugins/ports/{storage,llm,mcp_client,boot}`（kind='ports'，spec 声明
+  `data.port.implemented` ∈ dock/ports 词表、faces.logic = 端口实装位，S0 §2.2
+  豁免子句）——引擎不再携带 `src/adapters/`；宿主经 hosts/lib 装配层（manifest
+  「ports」段）装载注入 engine seam。llm 协议适配器（openai-compatible /
+  anthropic messages / openai responses，本地 OpenAI 兼容端点）只发协议级 HTTP，
+  不 import 任何厂商 SDK；storage 驱动（sqlite/memory，postgres 暂不提供）实现
+  各机制层仓储契约；mcp client 同层。端口插件允许 node:* 与驱动必需的第三方。
 - `contracts` 已收编入 engine：数据面契约资产随引擎内置（JSON 真源
   `engine/schemas/` + `engine/fixtures/` 与生成器 `engine/scripts/`；生成 TS
   常量/类型入 `engine/src/model/contracts/generated/`，随 engine tsc/gate 守门，
@@ -44,7 +45,8 @@
 - `hosts/lib/`（原 `host/`→原 `backend/`）：宿主装配层 / composition root——装配
   engine Runtime、实现 `Host` 五件套、构建产品配方（AssemblyRecipe）、出宿主
   命令面 bridge（npm 包 @ink-ts/host）；只做「选哪个适配、读配置、注入 seam」与
-  宿主薄服务接线；**不写厂商适配与存储驱动**（那是 engine/adapters 的职责）。
+  宿主薄服务接线；**不写厂商适配与存储驱动**（那是端口提供方插件
+  plugins/ports 的职责）。
    机制语义（审批/补丁链/审计/闸门/沙箱判定）属 engine 对应机制层（gate 等），不得在此复制。
    不写 main、不监听端口、不是进程——只被 hosts/cli 与 vitest 链 import；
    renderer/hosts-web 侧经 cli serve 运行时通道消费，不静态 import host。
@@ -180,7 +182,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（现体 = `engine/src/{dock,model,graph,gate,loop,evolve}` 六层，P0-dock 起随 P2-P5 搬迁逐层加入、P7 扩面完成，禁逆向移除；两条款口径：0-IO 条款 `node:*`/裸包 + core-token 检查作用集合 = coreDirs ∪ layerDirs，禁反向依赖条款与私有 seam 检查仍只 core/kernel（见后两行）——dock 公共面承载 adapters re-export 属 S2 消亡物，其层向纪律由 layer-dag 矩阵执法） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
 | core/kernel 禁反向依赖 adapters | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | core/kernel 域间私有模块跨目录 import（`../<dir>/_*`） | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝（跨域共享 seam 例外：目标私有模块文件头标注「跨域契约模块」并注明理由，如 `_types/_constants/_injection` 类类型 seam 与共享工具） |
-| adapters 反向 import core/kernel 私有模块（`core/**/_*.ts`、`kernel/**/_*.ts`） | `engine/src/adapters/**` | 拒绝（公共 seam 例外同上标注，须注明为公共 seam） |
+| （S2 已消亡）adapters 反向 import core/kernel 私有模块 | `engine/src/adapters/**`（目录已随 S2 移出引擎，无扫描目标；保留行标历史） | （不适用） |
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
@@ -195,7 +197,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 设置段派生清单（settingsSections.generated.ts 禁手改） | `hosts/web/src/app/settings/settingsSections.generated.ts`（settings 段清单 key/label/order/icon，真源 = plugins/ui_features/*/spec.json 的 data.settings_section + faces.ui） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs 派生 order 升序，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；设置浮层读本清单渲染左导航、内容 DynamicComponent name=插件 id |
 | 插件全脸声明与卸载一致性（faces/depends/effects 语义） | `plugins/\<kind\>/\<id\>/spec.json` 顶层声明 + `plugins/manifest.json` plugins[] 注册表行 | 由 `verify:unload`（plugins/scripts/verify_unload.ts：depends 悬空/成环/未登记（插件 id 或机制端口）= 违规；faces 三脸结构（ui/logic/data × engine\|host\|web）+ `contract.effects` ⊆ 机制端口词表（单一真源 engine/src/dock/ports.ts）；manifest 平价 + data-only 状态引脚 + ui 可达性不变式（容器 $ref ∪ settings 派生清单引用，无孤儿无豁免）；真面许可（阶段 7a：capability=external_tool 或 `REAL_FACE_BUILTINS` 白名单 doc_parse logic 样板；阶段 7b：ui_feature 组件节点 isUiComponent 放行 faces.ui——canonical 叶子/设置面板/浮层）且 faces entry 物理同住（相对路径禁逃逸 + 文件真实存在）；阶段 9b 接入契约：faces.ui.access（store/inject 声明式接入）仅真 ui 面插件合法，store/inject 槽位名称须命中接入词表单一真源 `hosts/web/src/app/shell/hostAccessVocab.ts`（store=ProductShellModel 数据/服务座位、inject=ProductShellActions 动作，编译期锁 keyof）；`--plan \<id\>` 输出卸载阻断方（下游 depends / 父容器 $ref）与子树影响面，fail-closed）在 root `npm test` 与 CI 强制；生成器只守 JSON 形状（读/校验顶层声明并携带入注册表行） |
 | 宿主面 spec（hosts/\<host\>.spec.json 数据/装配面一致性） | `hosts/`（cli/web 本仓装配 implemented=true；tauri/ide 外部壳仓 implemented=false） | 由 `verify:host-spec`（hosts/verify_host_spec.ts：四宿主不变式 cli/web=true + tauri/ide=false；HostFaces 词汇校验经 hosts/lib/src/host_spec.ts validateHostSpec；implemented=true 须带 renderer 且 entry 在仓库根真实存在）在 root `npm test` 与 CI 强制；host.spec 类型/加载/校验单一真源 = hosts/lib/src/host_spec.ts（@ink-ts/host 公共面导出） |
-| 层向依赖 DAG（layer-dag） | `engine/src/{model,loop,graph,gate,evolve,dock,adapters}`（新七层；目录不存在即跳过）：model 零依赖；四件→model 放行；四件→dock 仅 `dock/ports(.ts|/*)`、`dock/registry(.ts|/*)` 前缀（写死清单不模糊匹配）；dock→model 放行；dock→四件/adapters 放行口径 = 死集 `{index,caps,calls,view}` 仅 export 形态且目标去层≤3 段非 `_` 前缀 + `dock/registry/**` 值 import 各机制 contract.ts + 其余 dock 文件仅 re-export 各机制 contract.ts；adapters 只 import dock/ports 前缀与 model（adapters→loop 为过渡边，S2 消亡位）；四件间允许边 loop→graph、loop→gate、evolve→gate、loop/runtime/**→evolve（装配位）；预登记过渡边常量 `TRANSITION_EDGES`（shrink-only、非 whitelist，条目注消解波 S6/P8/S2：loop→evolve/graph→loop/evolve→loop/evolve→graph/graph→evolve/gate→loop/adapters→loop）；未定义层间边一律违规。机制层（loop/graph/gate/evolve）红线：禁相对 import 命中旧组装模块（path_assembler/thread_skeleton/fingerprint_cache/core/assembly）、禁组装 token（组装路径/出厂图/默认拓扑/每回合拼图） | 强制（layerDagEnforce=true，P7-3 转强制；layerDagWhitelist 保持空、单调收缩只减不增；实施层：gate/src/layer_dag.ts） |
+| 层向依赖 DAG（layer-dag） | `engine/src/{model,loop,graph,gate,evolve,dock}`（六层，S2 后无 adapters；目录不存在即跳过）：model 零依赖；四件→model 放行；四件→dock 仅 `dock/ports(.ts|/*)`、`dock/registry(.ts|/*)` 前缀（写死清单不模糊匹配）；dock→model 放行；dock→四件放行口径 = 死集 `{index,caps,calls,view}` 仅 export 形态且目标去层≤3 段非 `_` 前缀 + `dock/registry/**` 值 import 各机制 contract.ts + 其余 dock 文件仅 re-export 各机制 contract.ts；四件间允许边 loop→graph、loop→gate、evolve→gate、loop/runtime/**→evolve（装配位）；预登记过渡边常量 `TRANSITION_EDGES`（shrink-only、非 whitelist，条目注消解波：loop→evolve/graph→loop/evolve→loop/evolve→graph/graph→evolve/gate→loop 共 6 条，adapters→loop 已随 S2 消亡删除）；未定义层间边一律违规。机制层（loop/graph/gate/evolve）红线：禁相对 import 命中旧组装模块（path_assembler/thread_skeleton/fingerprint_cache/core/assembly）、禁组装 token（组装路径/出厂图/默认拓扑/每回合拼图） | 强制（layerDagEnforce=true，P7-3 转强制；layerDagWhitelist 保持空、单调收缩只减不增；实施层：gate/src/layer_dag.ts） |
 | 测试保护（test-protection） | 输入 = `git diff --name-only HEAD`（check.ts 子进程收集；git 不可用则跳过该规则并注明）：范围内源码改动（engine/src、hosts/*/src、renderer/src、plugins 非 docs 的 .ts/.tsx）须同批含镜像 test 路径改动，或文件头 `// gate: test-exempt - 原因` 标注；反向：`*.test.ts(x)` 改动须同批含对应 src 改动（防改测试让绿灯）；`.mjs`/`.json`/快照与 scripts 目录（engine/scripts、gate 自身）豁免 | 自 P0 生效（报告模式；P8 行为波起强制；实施层：gate/src/test_protection.ts，按 `testProtectionEnforce` 分流） |
 | 公共 API 全量快照（public-api） | `engine/src/index.ts` 导出面（typescript checker 递归展开 `export * from`，符号 `name:kind` 排序去重）：`engine/scripts/dump_api_surface.mjs --print` 与提交基线 `engine/api.surface.snapshot` 逐字比对（机械波来源路径可变、符号集合必须逐字不变） | 拒绝（gate check.ts 子进程执行；导出符号增/删/改名即红，宿主零迁移机器判定） |
 | 禁待定字面（no-pending） | `engine/src`、`hosts/*/src`、`renderer/src`、`plugins` 的 .ts(x) 禁 token：`待接线`/`未来接线`/`待引擎补全`/`机制先行`（CODING §11.1.4；「占位」在产品占位语义下放行，机制层红线另行守） | 强制（P0 即转强制：保留 4 token 扫描零命中；实施层：gate config `noPendingTokens/noPendingEnforce`） |

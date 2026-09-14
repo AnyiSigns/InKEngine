@@ -1,6 +1,6 @@
 //! MCP stdio 分帧（读侧自适应 / 写侧 Content-Length）。
 //!
-//! 与宿主自写 MCP 客户端（engine/src/adapters/mcp/_framing.ts）对偶：
+//! 与宿主自写 MCP 客户端（plugins/ports/mcp_client/_framing.ts，S2 端口提供方）对偶：
 //! - 写侧恒用标准 Content-Length 分帧（LSP 风格 `Content-Length: N\r\n\r\n`
 //!   + body）——对外 client 均按此收发；
 //! - 读侧自适应两种形态：行首 `Content-Length:` = 按声明长度读 body；

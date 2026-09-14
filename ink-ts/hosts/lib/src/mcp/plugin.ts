@@ -20,12 +20,13 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import {
-  McpClientManager,
-  McpServerConfig,
-  type DeclarativeToolSpec,
-} from '@ink-ts/engine';
+import type { DeclarativeToolSpec } from '@ink-ts/engine';
 
+import type {
+  McpClientManagerLike,
+  McpClientPortSeam,
+  McpServerConfigLike,
+} from '../assembly/ports.js';
 import type { CapabilityStore } from '../capability/store.js';
 
 /** 启用集台账键（capability.json；数组 = 已启用 plugin/server id）。 */
@@ -147,8 +148,9 @@ function extraCandidate(id: string, config: McpPluginExtraConfig): McpPluginCand
   };
 }
 
-/** 从候选声明构建连接配置（plugins 真源；来源分类 UNKNOWN 兜底）。 */
-export function configFromCandidate(candidate: McpPluginCandidate): McpServerConfig {
+/** 从候选声明构建连接配置（plugins 真源；来源分类 UNKNOWN 兜底）。
+ *  McpServerConfig 类经端口提供方 seam 取（S2：plugins/ports/mcp_client）。 */
+export function configFromCandidate(candidate: McpPluginCandidate, seam: McpClientPortSeam): McpServerConfigLike {
   const transport = candidate.transport === 'stdio' ? 'stdio' : 'http';
   const data: Record<string, unknown> = { id: candidate.id, transport };
   if (transport === 'http') {
@@ -157,7 +159,7 @@ export function configFromCandidate(candidate: McpPluginCandidate): McpServerCon
     if (candidate.command !== null && candidate.command !== '') data['command'] = candidate.command;
     if (candidate.args.length > 0) data['args'] = [...candidate.args];
   }
-  return McpServerConfig.from_dict(data);
+  return seam.McpServerConfig.from_dict(data);
 }
 
 /** 扫描 plugins/mcp/<id>/spec.json 目录（与生成器同源扫描面）。 */
@@ -218,7 +220,8 @@ function parseCandidate(pluginsRoot: string, id: string): McpPluginCandidate | n
 export class McpPluginService {
   readonly pluginsRoot: string;
   readonly host: McpPluginHostSeam;
-  readonly manager: McpClientManager;
+  readonly manager: McpClientManagerLike;
+  private readonly _seam: McpClientPortSeam;
   readonly store: CapabilityStore | null;
   /** 已声明注册的工具名（server_id → 工具名；disable 摘除依据）。 */
   readonly _declared = new Map<string, Set<string>>();
@@ -228,12 +231,14 @@ export class McpPluginService {
   constructor(init: {
     pluginsRoot: string;
     host: McpPluginHostSeam;
-    manager: McpClientManager;
+    manager: McpClientManagerLike;
+    seam: McpClientPortSeam;
     store?: CapabilityStore | null;
   }) {
     this.pluginsRoot = init.pluginsRoot;
     this.host = init.host;
     this.manager = init.manager;
+    this._seam = init.seam;
     this.store = init.store ?? null;
   }
 
@@ -447,7 +452,7 @@ export class McpPluginService {
         tools: [...(this._declared.get(id) ?? this.manager.imported_tools(id))],
       };
     }
-    const config = configFromCandidate(candidate);
+    const config = configFromCandidate(candidate, this._seam);
     this._errors.delete(id);
     try {
       await this.manager.connect(config);

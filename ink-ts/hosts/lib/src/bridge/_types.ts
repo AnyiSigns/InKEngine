@@ -7,8 +7,9 @@
  * （(params, ctx) => result），host 不 import cli（依赖方向单向下）。
  */
 
-import type { McpClientManager, Runtime } from '@ink-ts/engine';
+import type { Runtime } from '@ink-ts/engine';
 
+import type { McpClientManagerLike } from '../assembly/ports.js';
 import type { InkHost } from '../host.js';
 import { HOST_SESSIONS_COLLECTION } from '../sessions/model.js';
 import type { HostSessionRecord } from '../sessions/model.js';
@@ -110,7 +111,7 @@ export interface HostBridgeDeps {
   /** 种子数据目录（mcp 域读该目录内 plugins 源；缺省按包位置探测 plugins/）。 */
   seed_dir?: string;
   /** MCP 管理器（H1 装配段产物；mcp.status/enable/disable 消费）。 */
-  mcpManager?: McpClientManager | null;
+  mcpManager?: McpClientManagerLike | null;
   /** MCP 工具型插件装载服务（B5；mcp.* 启停语义真源；缺省 = 未装配）。 */
   mcpPlugins?: import('../mcp/plugin.js').McpPluginService | null;
   /** 宿主命令闸（buildBridge 包装各方法；backup.restore 期间拒绝并发）。 */

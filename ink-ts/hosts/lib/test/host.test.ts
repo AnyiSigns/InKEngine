@@ -14,10 +14,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BOOT_SYSTEM_PROMPT } from '@ink-ts/engine';
 
 import { createHost } from '../src/index.js';
 import type { HostHandle } from '../src/index.js';
+import { loadTestBootAssets } from './port_seam.js';
 import { FakeOpenAIServer } from './_fake_openai.js';
 
 interface Ctx {
@@ -94,8 +94,10 @@ describe('host 装配冒烟（真存储 + 假 OpenAI + 一轮 round）', () => {
       messages: Array<{ role: string; content: string }>;
     }).messages;
     expect(sentMessages[0]!.role).toBe('system');
-    // 主线 system = boot 只读基线 + 作用域 persona 增量叠加（含 boot 前缀即对齐）
-    expect(sentMessages[0]!.content.startsWith(BOOT_SYSTEM_PROMPT)).toBe(true);
+    // 主线 system = boot 只读基线 + 作用域 persona 增量叠加（含 boot 前缀即对齐）。
+    // S2：boot 资产真源 = plugins/ports/boot（经端口装配面注入配方）
+    const bootAssets = await loadTestBootAssets();
+    expect(sentMessages[0]!.content.startsWith(bootAssets.BOOT_SYSTEM_PROMPT)).toBe(true);
 
     // 事件落文件实时刷新（非日志打印）：events 目录含 JSONL 且非空
     const files = readdirSync(ctx.events);

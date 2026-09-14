@@ -19,9 +19,9 @@ import {
   ChannelDirectory,
   ChannelSpec,
   EntitySpec,
-  create_storage,
   default_channel_seeds,
 } from '@ink-ts/engine';
+import { loadTestStorage } from './port_seam.js';
 import type { ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 
 import { HostExecutionService } from '../src/execution/service.js';
@@ -87,7 +87,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 
 describe('review 卡挂起 → resumeExecution 续跑（出结论）', () => {
   it('pending 挂起卡 + 恢复锚点；accept 决议续跑完成，main 首轮不重跑', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const runId = 'exec_resume_e2e';
     const script: Record<string, ScriptItem[]> = {
       [`${runId}:main`]: [
@@ -124,7 +124,7 @@ describe('review 卡挂起 → resumeExecution 续跑（出结论）', () => {
   });
 
   it('reject 决议 → 转场阻断收口 failure（fail-closed 方向）', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const runId = 'exec_resume_reject';
     const script: Record<string, ScriptItem[]> = {
       [`${runId}:main`]: [{ __next: { kind: 'channel', channel: 'guarded', target: 'subagent' } }],
@@ -156,7 +156,7 @@ describe('review 卡挂起 → resumeExecution 续跑（出结论）', () => {
 
 describe('§7.3 运行中注入（injectUserInput → 下一 main 轮消费）', () => {
   it('turn 1 在闸前阻塞时注入 → main 第二轮输入携带注入文本', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const runId = 'exec_inject_host';
     let releaseT1: () => void = () => {};
     const t1Gate = new Promise<void>((r) => {

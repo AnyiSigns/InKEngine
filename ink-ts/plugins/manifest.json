@@ -1451,6 +1451,76 @@
           "entry": "./faces/logic/index.ts"
         }
       }
+    },
+    {
+      "id": "boot",
+      "kind": "ports",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ports-boot",
+      "dir": "ports/boot",
+      "contract": {
+        "effects": []
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "llm",
+      "kind": "ports",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ports-llm",
+      "dir": "ports/llm",
+      "contract": {
+        "effects": [
+          "llm_port"
+        ]
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "mcp_client",
+      "kind": "ports",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ports-mcp-client",
+      "dir": "ports/mcp_client",
+      "contract": {
+        "effects": [
+          "exec_envelope"
+        ]
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "storage",
+      "kind": "ports",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-ports-storage",
+      "dir": "ports/storage",
+      "contract": {
+        "effects": [
+          "storage_seam"
+        ]
+      },
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     }
   ],
   "tools": [
@@ -4335,7 +4405,27 @@
       }
     }
   ],
-  "ports": [],
+  "ports": [
+    {
+      "id": "boot",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "llm",
+      "implemented": "llm_port",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "mcp_client",
+      "implemented": "exec_envelope",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "storage",
+      "implemented": "storage_seam",
+      "entry": "./faces/logic/index.ts"
+    }
+  ],
   "ui_features": {
     "components": [
       "agent_input",

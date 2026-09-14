@@ -90,7 +90,7 @@ export class SessionLostError extends Error {
   }
 }
 
-/** stdio 进程重启策略（镜像 engine adapters/mcp StdioRestartPolicy 保守缺省）。 */
+/** stdio 进程重启策略（镜像 mcp_client 端口提供方 StdioRestartPolicy 保守缺省，S2）。 */
 export interface RestartPolicy {
   /** 单次崩溃拉起尝试次数。 */
   max_retries: number;

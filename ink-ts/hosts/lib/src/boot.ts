@@ -16,9 +16,11 @@ import {
   default_scope_directory_seeds,
   make_engine_turn_runner,
 } from '@ink-ts/engine';
-import type { Host, LoadedScope, McpClientManager, Storage } from '@ink-ts/engine';
+import type { Host, LoadedScope, Storage } from '@ink-ts/engine';
 import type { GuardrailConfig } from '@ink-ts/engine';
 import type { CapabilityStore } from './capability/store.js';
+import type { McpClientManagerLike, McpClientPortSeam, PortsSeam } from './assembly/ports.js';
+import { loadPortsSeam } from './assembly/ports.js';
 import { configureCollabTempSightingSink } from './collab_command.js';
 import type { ResolvedHostConfig } from './config.js';
 import { TEMP_SIGHTINGS_COLLECTION } from './execution/convene_board.js';
@@ -54,12 +56,14 @@ export interface HostBootParts {
   inkHost: InkHost;
   retrieval: HostRetrievalDomain;
   toolEmbedder: SyncEmbedderSeam | null;
-  mcpManager: McpClientManager | null;
+  mcpManager: McpClientManagerLike | null;
   mcpStatus: McpConnectStatus[];
   /** MCP 工具型插件装载服务（null = plugins 源不可用未装配）。 */
   mcpPlugins: McpPluginService | null;
   /** 宿主执行装配（ExecutionRuntime 依赖注入面；execution.run/collab 共用）。 */
   execution: HostExecutionService;
+  /** 本次装配装载的端口提供方 seam（S2；recipe/存储/LLM/MCP/boot 装配真源）。 */
+  ports: PortsSeam;
 }
 
 /**
@@ -180,14 +184,25 @@ export function configGuardrails(
 
 /** 装配 host 运行时（boot 装配 + restore 后重装配共用同一路径）。 */
 export async function assembleHostParts(input: HostBootInput): Promise<HostBootParts> {
+  // S2 端口装配：按 manifest「ports」段装载端口提供方插件（storage/llm/mcp_client/
+  // boot），缺省 = null（消费方降级）；契约不符 fail-closed（见 assembly/ports.ts）
+  const ports = await loadPortsSeam(input.resolved.seed_dir);
+  const bootAssets = ports.boot ?? undefined;
   const retrieval = buildHostRetrieval(input.resolved.data_dir);
-  const inkHost = new InkHost(input.resolved, () => input.capability.get());
+  const inkHost = new InkHost(
+    input.resolved,
+    () => input.capability.get(),
+    ports,
+  );
   // 作用域 model 引用解析接线位（执行模型 §五/§7.5：目录作用域带 model 引用
   // 时按宿主用户 model 列表取端点；引用未命中 = 引擎显式失败，不静默跑父模型）
-  const assemblyRecipe = build_product_recipe({
-    ...(input.recipe ?? {}),
-    scope_model_llm: (model) => inkHost.resolve_scope_model(model),
-  });
+  const assemblyRecipe = build_product_recipe(
+    {
+      ...(input.recipe ?? {}),
+      scope_model_llm: (model) => inkHost.resolve_scope_model(model),
+    },
+    bootAssets,
+  );
   // 能力记录工具档位（tier_overrides 'review'）并入门禁配置：产品设置面声明
   // 的「工具转审批」经装配生效（装配期数据 → 引擎统一流水线 gate）
   const tierRaw = input.capability.get()['tier_overrides'];
@@ -213,7 +228,7 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
   } catch {
     toolEmbedder = null;
   }
-  const mcp = await assembleHostMcp(runtime, input.resolved.mcp);
+  const mcp = await assembleHostMcp(runtime, input.resolved.mcp, ports.mcpClient);
   const declarative = runtime.harness_registry?.declarative;
   if (declarative !== null && declarative !== undefined) {
     input.search.register(declarative as never);
@@ -263,6 +278,7 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
       pluginsRoot: pluginsRootOf(manifestPath),
       host: runtime as never,
       manager: mcp.manager,
+      seam: ports.mcpClient as McpClientPortSeam,
       store: input.capability,
     });
     try {
@@ -280,5 +296,6 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
     mcpStatus: mcp.status,
     mcpPlugins,
     execution,
+    ports,
   };
 }

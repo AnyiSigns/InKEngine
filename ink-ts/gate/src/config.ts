@@ -13,7 +13,8 @@ export interface GateConfig {
    *  禁反向依赖条款与私有 seam 检查仍只作用 coreDirs，P1 裁决 1）。P0 值 =
    *  ['engine/src/dock']：随 P2-P5 搬迁逐层加入，禁逆向移除。 */
   layerDirs: readonly string[];
-  /** adapters 区相对路径（反向依赖 core 私有模块检查）。 */
+  /** adapter 区相对路径（反向依赖 core 私有模块检查；S2 适配器下沉后目录
+   *  已移出引擎（端口提供方插件），留空——无引擎侧 adapter 区可扫）。 */
   adapterDirs: readonly string[];
   /** JSON 纪律扫描目录（parse/重复键/缩进，相对 ink-ts 根）。 */
   jsonScanDirs: readonly string[];
@@ -52,7 +53,7 @@ export const defaultConfig: GateConfig = {
   lineScanDirs: ['engine/src', 'engine/test', 'hosts/lib/src', 'hosts/lib/test', 'hosts/cli/src', 'hosts/cli/test', 'hosts/web/src', 'hosts/web/test', 'renderer/src', 'renderer/test', 'plugins/ui_features', 'plugins/tools/doc_parse/faces'],
   coreDirs: ['engine/src/core', 'engine/src/kernel'],
   layerDirs: ['engine/src/dock', 'engine/src/model', 'engine/src/graph', 'engine/src/gate', 'engine/src/loop', 'engine/src/evolve'],
-  adapterDirs: ['engine/src/adapters'],
+  adapterDirs: [],
   jsonScanDirs: ['plugins', 'engine/schemas', 'engine/fixtures'],
   coreSeamMarker: '跨域契约模块',
   coreForbiddenTokens: ['cordis', 'tauri', 'electron', 'vitest', 'react', 'inkling'],

@@ -538,12 +538,18 @@ async function derive() {
   const portRows = [];
   for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('ports')))) {
     const dir = join(PLUGINS_ROOT, kindDir('ports'), id);
+    // 共享/非插件目录（如 `_shared` 承载端口插件间私有共享件）无 spec.json，
+    // 跳过不扫（同 mesh 层其它 kind 目录下无 spec 子项的处置口径）。
+    if (!(await fileExists(join(dir, 'spec.json')))) continue;
     const spec = await readSpec(dir, 'ports');
     const port = spec.data?.port;
     if (typeof port !== 'object' || port === null) {
-      await fail(`ports 插件 ${id} 缺 data.port（端口提供方声明）`);
+      if (spec.data?.boot === undefined) {
+        await fail(`ports 插件 ${id} 缺 data.port（端口提供方声明）或 data.boot（纯数据资产）`);
+      }
     }
-    const implemented = typeof port.implemented === 'string' && port.implemented.length > 0
+    const implemented = typeof port === 'object' && port !== null
+      && typeof port.implemented === 'string' && port.implemented.length > 0
       ? port.implemented
       : undefined;
     if (implemented === undefined && spec.data?.boot === undefined) {

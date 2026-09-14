@@ -12,7 +12,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { McpClientManager, type DeclarativeToolSpec } from '@ink-ts/engine';
+import type { DeclarativeToolSpec } from '@ink-ts/engine';
+
+import type { McpClientManagerLike, McpClientPortSeam } from '../../src/assembly/ports.js';
+import { loadTestMcpSeam, newTestMcpManager } from '../port_seam.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createCapabilityStore } from '../../src/capability/store.js';
@@ -131,15 +134,15 @@ function makeHostSeam(
   };
 }
 
-function newManager(opener: unknown): McpClientManager {
-  const manager = new McpClientManager();
+function newManager(seam: McpClientPortSeam, opener: unknown): McpClientManagerLike {
+  const manager = new seam.McpClientManager();
   (manager as unknown as { _sdk_open: unknown })._sdk_open = opener;
-  return manager;
+  return manager as McpClientManagerLike;
 }
 
 describe('McpPluginService（B5 工具型插件装载）', () => {
   const cleanupDirs: string[] = [];
-  const managers: McpClientManager[] = [];
+  const managers: McpClientManagerLike[] = [];
 
   afterEach(async () => {
     for (const manager of managers) {
@@ -171,12 +174,13 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('enable → 注册+索引刷新+台账；status 可见；disable → 注销+摘除+台账清除', async () => {
     const { root, capFile, store, opener } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const manager = newManager(opener);
+    const manager = newManager(mcpSeam, opener);
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
 
     const initial = service.list();
     expect(initial).toHaveLength(1);
@@ -215,20 +219,21 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('restore 重启自动拉起台账启用集（fail-closed 只记状态不击穿）', async () => {
     const { root, capFile, store, opener } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const firstManager = newManager(opener);
+    const firstManager = newManager(mcpSeam, opener);
     managers.push(firstManager);
-    const first = new McpPluginService({ pluginsRoot: root, host: seam.host, manager: firstManager, store });
+    const first = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager: firstManager, store });
     await first.enable('demo.server');
     expect((JSON.parse(readFileSync(capFile, 'utf8')) as Record<string, unknown>)[MCP_PLUGINS_ENABLED_KEY]).toEqual([
       'demo.server',
     ]);
 
-    const secondManager = newManager(opener);
+    const secondManager = newManager(mcpSeam, opener);
     managers.push(secondManager);
-    const second = new McpPluginService({ pluginsRoot: root, host: seam.host, manager: secondManager, store });
+    const second = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager: secondManager, store });
     const failures = await second.restore();
     expect(failures).toEqual([]);
     expect(second.status('demo.server')).toMatchObject({ enabled: true, connected: true, tool_count: 1 });
@@ -237,12 +242,13 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('enable 幂等：已启用已连接重复调用短路，不销毁健康会话', async () => {
     const { root, store, opener } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const manager = newManager(opener);
+    const manager = newManager(mcpSeam, opener);
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
     const first = await service.enable('demo.server');
     expect(first.ok).toBe(true);
     const registeredAfterFirst = spy.registered.length;
@@ -258,13 +264,14 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('工具名冲突：跨 server 同名整批拒绝，不覆盖持方', async () => {
     const { root, store, opener } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root, 'demo.server');
     writeEchoServerSpec(root, 'demo.conflict');
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const manager = newManager(opener);
+    const manager = newManager(mcpSeam, opener);
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
 
     const first = await service.enable('demo.server');
     expect(first.ok).toBe(true);
@@ -287,14 +294,15 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('幽灵台账：候选目录移除 → restore 剪除清账 + list 残影行可停用清理', async () => {
     const { root, store, capFile } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const manager = newManager(
+    const manager = newManager(mcpSeam, 
       async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle(),
     );
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
     await service.enable('demo.server');
     expect((JSON.parse(readFileSync(capFile, 'utf8')) as Record<string, unknown>)[MCP_PLUGINS_ENABLED_KEY]).toEqual([
       'demo.server',
@@ -316,7 +324,8 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
     const third = new McpPluginService({
       pluginsRoot: root,
       host: seam.host,
-      manager: newManager(async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle()),
+      seam: mcpSeam,
+      manager: newManager(mcpSeam, async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle()),
       store: ghostStore,
     });
     const ghostFailures = await third.restore();
@@ -328,18 +337,19 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('enable 失败（连接抛错）→ 显式结果 + 台账不落；disable 未知候选显式拒绝', async () => {
     const { root, opener } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
     const dataDir = mkdtempSync(join(tmpdir(), 'ink-mcp-plugin-fail-'));
     cleanupDirs.push(dataDir);
     const store = createCapabilityStore(dataDir);
-    const manager = new McpClientManager();
+    const manager = new mcpSeam.McpClientManager() as McpClientManagerLike;
     managers.push(manager);
     (manager as unknown as { _sdk_open: unknown })._sdk_open = async () => {
       throw new Error('connect boom');
     };
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
 
     const failed = await service.enable('demo.server');
     expect(failed.ok).toBe(false);
@@ -352,14 +362,15 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('指定安装（http）：登记额外台账并启用装载；list 合并行；remove 停用+清配置', async () => {
     const { root, capFile, store } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root);
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
-    const manager = newManager(
+    const manager = newManager(mcpSeam, 
       async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle(),
     );
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
 
     const installed = await service.install('ext.demo', {
       transport: 'http',
@@ -396,17 +407,18 @@ describe('McpPluginService（B5 工具型插件装载）', () => {
 
   it('指定安装校验：http/stdio 缺地址或命令拒绝；与内置候选冲突拒绝', async () => {
     const { root } = setup();
+    const mcpSeam = await loadTestMcpSeam();
     writeEchoServerSpec(root, 'demo.server');
     const spy = makeDeclarativeSpy();
     const seam = makeHostSeam(spy);
     const dataDir = mkdtempSync(join(tmpdir(), 'ink-mcp-plugin-install-fail-'));
     cleanupDirs.push(dataDir);
     const store = createCapabilityStore(dataDir);
-    const manager = newManager(
+    const manager = newManager(mcpSeam, 
       async (): Promise<ReturnType<typeof makeSessionHandle>> => makeSessionHandle(),
     );
     managers.push(manager);
-    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, manager, store });
+    const service = new McpPluginService({ pluginsRoot: root, host: seam.host, seam: mcpSeam, manager, store });
 
     const noUrl = await service.install('ext.bad', { transport: 'http', url: null, command: null });
     expect(noUrl.ok).toBe(false);

@@ -1,0 +1,23 @@
+{
+  "id": "storage",
+  "kind": "ports",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": [
+      "storage_seam"
+    ]
+  },
+  "data": {
+    "port": {
+      "implemented": "storage_seam"
+    }
+  }
+}

@@ -157,7 +157,7 @@ ink_ts_mcp(.exe)`），使 host MCP 装配段能真正连接缺省内置 server�
 - 接入：host `hosts/lib/src/mcp/assembly.ts`（`BUILTIN_MCP_PROFILES` =
   inkling_exec→exec / inkling_shell→shell；`resolveBuiltinOverrides` 定位
   `ink_ts_mcp` + profile 参数 + content_length 分帧注入 connect overrides）；
-  engine 内置注册表（`engine/src/adapters/mcp/registry.ts`）两内置 server
+  engine 端口提供方（`plugins/ports/mcp_client/registry.ts`，S2 适配器下沉）两内置 server
   均为 STDIO + content_length 分帧。
 - 信任边界与 infer 同构：无监听 socket、无本地持久化台账；唯一通道 = 宿主
   spawn 的 stdio 管道，宿主不得转交不受信方。
@@ -169,4 +169,4 @@ ink_ts_mcp(.exe)`），使 host MCP 装配段能真正连接缺省内置 server�
   `exec/crates/mcp-server/src/{frame,profile,server}.rs`
 - TS：`hosts/lib/src/exec/{transport,binary,envelope,client,session,_types}.ts`
   （hosts/lib/src 只读侧；改动归宿主批次）、`hosts/lib/src/mcp/assembly.ts`、
-  `engine/src/adapters/mcp/{registry,stdio_transport,_framing}.ts`
+  `plugins/ports/mcp_client/{registry,stdio_transport,_framing}.ts`（S2 端口提供方）

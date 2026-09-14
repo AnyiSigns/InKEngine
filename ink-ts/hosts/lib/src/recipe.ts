@@ -23,17 +23,13 @@
  * （ROUND_CONTINUATION_STATE_KEY）已随组装回合自续跑机制退役
  * （self_tools.ts 随退），tool_wiring 直接接引擎 make_self_executor。
  *
- * boot 资产真源在 engine adapters/boot 与 core/self_tools：此处只引用。
+ * boot 资产真源在 plugins/ports/boot（S2）与 core/self_tools：此处只引用。
  */
 
 import {
   AssemblyRecipe,
-  BOOT_EVENT_TYPES,
-  BOOT_SYSTEM_PROMPT,
-  BOOT_UI_SPEC,
   RunOptions,
   ToolGateConfig,
-  boot_harness_definition,
   make_self_executor,
   operation_of,
   self_tool_specs,
@@ -179,17 +175,53 @@ export function assert_product_switches_all_on(): void {
  * 数据（引擎池种子 / 执行产物），配方不产任何图；检索源由装配方（createHost）
  * 注入 recipe.retrieval_sources。
  */
+/**
+ * @ink-ts/engine 面向宿主的 boot 引导数据资产（S2 adapters 下沉后：引擎公共面
+ * 停供 BOOT_* / boot_harness_definition；宿主装配层按 manifest「ports」段装载
+ * plugins/ports/boot 纯数据资产，经本面注入配方——不在此 import 引擎实现符号）。
+ * boot 数据真源 = plugins/ports/boot；缺省（端口面未装配）回落为空/最小形态。
+ */
+export interface BootAssets {
+  BOOT_EVENT_TYPES: readonly unknown[];
+  BOOT_METATOOLS: readonly unknown[];
+  BOOT_SYSTEM_PROMPT: string;
+  BOOT_UI_SPEC: Record<string, unknown>;
+  boot_harness_definition(): unknown;
+  build_boot_seed_entries(): unknown[];
+  BOOT_PROMPT_SEED_ID: string;
+}
+
+/** 缺省 boot 资产（装配期无端口面时的回落；真源 = plugins/ports/boot）。 */
+export const DEFAULT_BOOT_ASSETS: BootAssets = {
+  BOOT_EVENT_TYPES: [],
+  BOOT_METATOOLS: [],
+  BOOT_SYSTEM_PROMPT: '',
+  BOOT_UI_SPEC: {},
+  boot_harness_definition: () => null,
+  build_boot_seed_entries: () => [],
+  BOOT_PROMPT_SEED_ID: '',
+};
+
+/**
+ * 构建产品配方（装配面，无图配方位）。
+ *
+ * boot 资产注入面：boot 引导资产从装配层提供（默认 = DEFAULT_BOOT_ASSETS，
+ * 真源 = plugins/ports/boot 端口面经 assembly 装载）。host 本体/测试注入
+ * `bootAssets` 即可复用同一配方函数（S2 下沉后引擎公共面不再含 BOOT_*）。
+ */
 export function build_product_recipe(
   init: ProductRecipeInit = {},
+  bootAssets: BootAssets | null = null,
 ): AssemblyRecipe {
   assert_product_switches_all_on();
+  const boot = bootAssets ?? DEFAULT_BOOT_ASSETS;
   const recipe = new AssemblyRecipe({
     set_id: 'default',
     pool_seed: init.pool_seed === undefined ? graphNodeAssemblySeed() : init.pool_seed,
-    boot_system_prompt: BOOT_SYSTEM_PROMPT,
-    harness_definitions: [boot_harness_definition()],
-    event_type_specs: [...BOOT_EVENT_TYPES],
-    ui_spec: BOOT_UI_SPEC as Record<string, unknown>,
+    boot_system_prompt: boot.BOOT_SYSTEM_PROMPT,
+    harness_definitions: [boot.boot_harness_definition() as never],
+    event_type_specs: [...(boot.BOOT_EVENT_TYPES as never[])],
+    ui_spec: boot.BOOT_UI_SPEC as Record<string, unknown>,
     ui_allowed_components: [
       ...(init.ui_allowed_components ?? DEFAULT_UI_COMPONENTS),
     ],

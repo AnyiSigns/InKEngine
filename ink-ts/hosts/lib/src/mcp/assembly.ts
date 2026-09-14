@@ -3,9 +3,10 @@
  * 内置 server 二进制接线）。
  *
  * 只做三件事：
- * - 构造 McpClientManager 并注入引擎（register_mcp_executor 挂 MCP 端点
- *   分发；runtime.mcp_manager = 管理器——Runtime.stop 经 close_all 收口、
- *   _runtime_contexts 端点探活经 list_servers 判定）；
+ * - 经端口提供方 seam（S2：plugins/ports/mcp_client）构造 McpClientManager
+ *   并注入引擎（register_mcp_executor 挂 MCP 端点分发；runtime.mcp_manager =
+ *   管理器——Runtime.stop 经 close_all 收口、_runtime_contexts 端点探活经
+ *   list_servers 判定）；
  * - 按宿主配置逐 server connect_builtin；内置 server（inkling_exec /
  *   inkling_shell）由 ink-ts 产物内的原生 MCP server 二进制承载
  *   （`ink_ts_mcp <profile>`）——装配期经 [`resolveBuiltinOverrides`]
@@ -14,13 +15,12 @@
  *   结果状态可查（mcp 工具端点探活随 connected=false 标注）。
  */
 
-import {
-  BUILTIN_MCP_SERVERS,
-  McpClientManager,
-  register_mcp_executor,
-} from '@ink-ts/engine';
 import type { Runtime } from '@ink-ts/engine';
 
+import type {
+  McpClientManagerLike,
+  McpClientPortSeam,
+} from '../assembly/ports.js';
 import { locateNativeBinary } from '../exec/binary.js';
 
 /** 宿主 MCP 装配配置（环境连接位注入；不配置 = 装配管理器但不连接）。 */
@@ -57,7 +57,7 @@ export interface BuiltinOverridesResult {
  * （复用 exec/infer 同款二进制定位）+ profile 参数 + Content-Length 分帧。
  * 未列 profile 的 server_id 原样返回（不做二进制接线）；命令显式提供时仍
  * 注入 profile 参数与分帧（内置 server 的 profile 契约固定，见
- * engine adapters/mcp/registry.ts）。
+ * plugins/ports/mcp_client/registry.ts）。
  */
 export function resolveBuiltinOverrides(
   server_id: string,
@@ -91,16 +91,20 @@ export function resolveBuiltinOverrides(
 export async function assembleHostMcp(
   runtime: Runtime,
   config: HostMcpConfig | null,
-): Promise<{ manager: McpClientManager; status: McpConnectStatus[] }> {
-  const manager = new McpClientManager();
+  seam: McpClientPortSeam | null,
+): Promise<{ manager: McpClientManagerLike | null; status: McpConnectStatus[] }> {
+  if (seam === null) {
+    return { manager: null, status: [] };
+  }
+  const manager = new seam.McpClientManager();
   const declarative = runtime.harness_registry?.declarative;
   if (declarative !== null && declarative !== undefined) {
-    register_mcp_executor(declarative as never, manager);
+    seam.register_mcp_executor(declarative as never, manager);
   }
   runtime.mcp_manager = manager;
   const status: McpConnectStatus[] = [];
   for (const entry of config?.connect ?? []) {
-    if (BUILTIN_MCP_SERVERS[entry.server_id] === undefined) {
+    if (seam.BUILTIN_MCP_SERVERS[entry.server_id] === undefined) {
       status.push({
         server_id: entry.server_id,
         connected: false,

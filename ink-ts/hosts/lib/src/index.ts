@@ -15,8 +15,9 @@
 
 import { mkdirSync } from 'node:fs';
 
-import type { Runtime, McpClientManager } from '@ink-ts/engine';
+import type { Runtime } from '@ink-ts/engine';
 import type { HostSurface } from './host_spec.js';
+import type { McpClientManagerLike } from './assembly/ports.js';
 
 import { createRestoreRunner } from './backup/restore_runtime.js';
 import { assembleHostParts } from './boot.js';
@@ -74,7 +75,7 @@ export interface HostHandle {
   /** tool_index 语义检索同步 seam（createHost 已把检索域嵌入器接入工具索引）。 */
   toolEmbedder: SyncEmbedderSeam | null;
   /** MCP 管理器（声明式执行器已注册；工具导入/备份桥经此取用）。 */
-  mcpManager: McpClientManager | null;
+  mcpManager: McpClientManagerLike | null;
   /** MCP 内置 server 连接结果（连接失败只记诊断，fail-closed 不击穿 boot）。 */
   mcpStatus: McpConnectStatus[];
   /** MCP 工具型插件装载服务（B5；null = plugins 源不可用未装配）。 */
@@ -259,7 +260,7 @@ export async function createHost(
     get toolEmbedder(): SyncEmbedderSeam | null {
       return parts.toolEmbedder;
     },
-    get mcpManager(): McpClientManager | null {
+    get mcpManager(): McpClientManagerLike | null {
       return parts.mcpManager;
     },
     get mcpStatus(): McpConnectStatus[] {

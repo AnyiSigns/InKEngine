@@ -1,0 +1,23 @@
+{
+  "id": "llm",
+  "kind": "ports",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": [
+      "llm_port"
+    ]
+  },
+  "data": {
+    "port": {
+      "implemented": "llm_port"
+    }
+  }
+}

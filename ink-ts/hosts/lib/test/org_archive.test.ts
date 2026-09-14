@@ -11,7 +11,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { create_storage, ORG_ARCHIVE_SCHEMA_VERSION } from '@ink-ts/engine';
+import { ORG_ARCHIVE_SCHEMA_VERSION } from '@ink-ts/engine';
+import { loadTestStorage } from './port_seam.js';
 import { HostExecutionService } from '../src/execution/service.js';
 import type { ScopeTurnContext, ScopeTurnResult } from '@ink-ts/engine';
 import type { Storage } from '@ink-ts/engine';
@@ -68,7 +69,7 @@ function makeService(
 
 describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () => {
   it('ingest 使统计增长：执行后 patterns/scopes 条目数增加', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const script = {
       main: [
         { __next: { kind: 'channel', channel: 'delegate', target: 'planner' } },
@@ -85,7 +86,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
   });
 
   it('快照持久化：执行后 storage 出现 org.archive 集合记录', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const script = { main: [{ message: '你好' }] };
     const { service: svc } = makeService(script, [scoped('main')], storage);
     await svc.runExecution({ task: '打招呼' });
@@ -96,7 +97,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
   });
 
   it('重载 round-trip：新 HostExecutionService 从同一 storage 恢复档案状态', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const script = { main: [{ message: '你好' }] };
     const { service: svc1 } = makeService(script, [scoped('main')], storage);
     await svc1.runExecution({ task: '打招呼' });
@@ -111,7 +112,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
   });
 
   it('坏轨迹 fail-closed：非法 snapshot 数据不击穿，执行仍可正常运行', async () => {
-    const storage = await create_storage('memory://');
+    const storage = await (await loadTestStorage())('memory://');
     const script = { main: [{ message: '你好' }] };
     const { service: svc } = makeService(script, [scoped('main')], storage);
     await storage.put_record('org.archive', 'snapshot', {
@@ -128,7 +129,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
 
   describe('作用域装载冲突序', () => {
     it('registry 覆盖 overlay：注册表命中时优先使用注册表版本', async () => {
-      const storage = await create_storage('memory://');
+      const storage = await (await loadTestStorage())('memory://');
       const registryMain = { id: 'main', role: 'main', persona: '注册表版 main', model: null };
       const overlayMain = { id: 'main', role: 'main', persona: '出厂 overlay main', model: null };
       const script = { main: [{ message: '你好' }] };
@@ -145,7 +146,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
     });
 
     it('overlay 补缺：注册表未命中时使用 overlay', async () => {
-      const storage = await create_storage('memory://');
+      const storage = await (await loadTestStorage())('memory://');
       const overlayMain = { id: 'main', role: 'main', persona: '出厂 overlay main', model: null };
       const script = { main: [{ message: '你好' }] };
 
@@ -161,7 +162,7 @@ describe('组织档案接线（ingest + 快照 + round-trip + 冲突序）', () 
     });
 
     it('retired 过滤：retired 行不装载', async () => {
-      const storage = await create_storage('memory://');
+      const storage = await (await loadTestStorage())('memory://');
       const retiredEntity = { id: 'old_scope', role: 'old_scope', persona: '已下架', meta: { retired: true } };
       const script = { main: [{ message: '你好' }] };
 

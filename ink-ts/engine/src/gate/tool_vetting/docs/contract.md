@@ -55,7 +55,7 @@ MCP/外挂工具挂载前的可信度闸门（`tool_vetting.py` 移植）：清�
 注入 `FsSeam` 执行（文件系统 seam，不读写 Storage 记录集合）；观察执行体为
 注入 `ShadowExecutor`（回调执行，非进程 spawn 信封面）。未注入 fs 的实例
 触碰文件面即抛错（`unavailableFs()`，zero-IO core 的 fail-closed）；无
-logger、无时间/随机 seam（确定性）。真实 fs 后端在 `adapters/mcp/
+logger、无时间/随机 seam（确定性）。真实 fs 后端在 `plugins/ports/mcp_client`（S2 端口提供方）
 _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
 
 ## 装配与消费
@@ -63,7 +63,7 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
 - runtime 装配默认构造 `new ToolVetting()`（`_runtime_boot`，缺省无
   宿主钩子——静态审查仍含 `code_files_exist` 基线），`_runtime_base.vetting`
   持有；`runtime_contract` depends 含 tool_vetting。
-- `adapters/mcp` 为主要消费方：`convert.ts` 把 MCP 工具声明转 `ToolManifest`
+- 端口提供方 `plugins/ports/mcp_client` 为主要消费方：`convert.ts` 把 MCP 工具声明转 `ToolManifest`
   （source 经 `ToolSourceValue`）、`manager.ts` 持 vetting 闸门调用面
   （真实 `ToolVetting` 或测试桩）、`_fs_seam.ts` 注入 FsSeam 真实装、
   `registry.ts`/`config.ts` 用 `ToolSource` 分类。

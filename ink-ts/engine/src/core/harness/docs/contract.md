@@ -24,7 +24,7 @@
 
 - `HarnessRegistry`：宿主运行期视图主入口；`HarnessRepository`：持久化
   主入口（save/get/versions/list）。
-- **公共面零导出**（src/index.ts grep 核对：仅 adapters/boot 的
+- **公共面零导出**（src/index.ts grep 核对：仅 plugins/ports/boot（S2 端口提供方）的
   `boot_harness_definition` 名含 harness 字样）——本目录为引擎内部面，
   宿主经 AssemblyRecipe/自指流程间接消费。
 - 错误面：形态校验抛 GraphDefinitionError；未注册查询抛裸 Error（注释
@@ -56,7 +56,7 @@
   SelfToolNodeContext 持 HarnessRegistry）、`kernel/self_proposal`
   （proposal_validator 校验提案定义）、`kernel/introspection`（sources 读
   注册表观察）。
-- `adapters/boot`：boot_harness_definition() 返回本域 HarnessDefinition。
+- `plugins/ports/boot`（S2 端口提供方插件）：boot_harness_definition() 返回本域 HarnessDefinition。
 
 ## 不变式与门禁
 

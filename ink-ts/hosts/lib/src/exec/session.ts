@@ -1,7 +1,7 @@
 /**
  * stdio 进程会话的受监督句柄（崩溃探测 + 重启策略拉起）。
  *
- * 镜像 engine adapters/mcp SupervisedStdioSession 的语义，但承载的是
+ * 镜像 mcp_client 端口提供方（plugins/ports/mcp_client，S2）SupervisedStdioSession 的语义，但承载的是
  * exec/infer 的 JSON-RPC 行帧（非 MCP SDK 会话）。与引擎监督同纪律：
  * 会话 = 进程（stdio 传输 = 进程生命周期绑定，协议断流即进程死了）；
  * 调用失败 = 崩溃 → 按策略拉起 → **本次调用不自动重试**（OS 副作用可能

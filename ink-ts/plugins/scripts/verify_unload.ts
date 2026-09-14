@@ -245,6 +245,9 @@ function loadUniverse(): Map<string, Plugin> {
     for (const id of entries) {
       const read = readSpecFile(kind, join(PLUGINS_ROOT, dir, id));
       if (!read.ok) {
+        // 目录级共享/非插件位（如 ports/_shared 承载端口插件间私有共享件）无
+        // spec.json，跳过不报（生成器同口径跳过；有 spec 但解析失败才违规）。
+        if (read.message.includes('缺 spec.json')) continue;
         violation(id, read.message);
         continue;
       }

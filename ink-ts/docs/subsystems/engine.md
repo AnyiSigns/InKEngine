@@ -7,11 +7,12 @@
 
 L3 TypeScript 纯函数引擎（npm 包 `@ink-ts/engine`）：**大脑 = 数据权威**。
 JSON 进 JSON 出，机制层零框架依赖、零 IO、零自持进程——IO 一律由端口 seam
-声明（`src/dock/ports*`）、`adapters/` 实现、宿主装配注入。engine 不感知任何
+声明（`src/dock/ports*`）、**端口提供方插件实现**（`plugins/ports/*`，S2
+适配器下沉）、宿主装配注入。engine 不感知任何
 宿主/插件/前端存在（词汇门禁禁 tauri/electron/vitest/react/inkling 等宿主词，
 见 CODING §7）。
 
-## 目录语义（现状物理结构：七层现体 + 残部）
+## 目录语义（现状物理结构：六层现体 + 残部；adapters 已随 S2 移出）
 
 ```
 engine/
@@ -54,9 +55,6 @@ engine/
 │   │                   #   registry/（机制注册面：contract_types.ts + contracts.ts
 │   │                   #   汇入 ALL_MECHANISM_CONTRACTS + registry.ts boot 密封，
 │   │                   #   原 kernel/registry）、index/caps/calls/view 公共面
-│   ├─ adapters/        # IO 端口真实装（boot/llm/mcp/storage）：DI 装载，可覆盖；
-│   │                   #   无 exec 子目录——exec seam 在 dock/ports/exec.ts，
-│   │                   #   判定实现在 gate/sandbox，OS 执行真身为 Rust 原生件
 │   ├─ core/            # 残部（P8 逐层消化）：entities/knowledge_set/state/
 │   │                   #   run_result 与 environments/harness 留守纯逻辑
 │   └─（kernel/）       # 旧推演目录（simulation/multipath/spawn）与 core/
@@ -79,11 +77,12 @@ engine/
   `engine/src/{model,graph,gate,loop,evolve,dock}` 六层，禁 `node:*` 与第三方/
   裸包 import（`node:async_hooks` 白名单唯一例外）；禁反向依赖与跨域私有
   import 条款仍按 core/kernel 口径执行（历史残留条款，见 CODING §7 表），
-  新七层层向纪律由 layer-dag 矩阵执法（未定义层间边一律违规）；
+  新六层层向纪律由 layer-dag 矩阵执法（未定义层间边一律违规）；
   禁宿主/框架词（命中即拒，opaque 协议串白名单如 `inkling.skill/v1`）。
-- `adapters/`：禁止反向 import `core/**/_*.ts`、`kernel/**/_*.ts`（公共 seam
-  标注「跨域契约模块」的例外放行）；adapters 只 import `dock/ports*` 与
-  `model`（adapters→loop 为过渡边，S2 消亡位）。
+- （S2 适配器下沉）`adapters/` 层已随目录移出引擎：IO 实现位 = 端口提供方
+  插件（plugins/ports/*，kind='ports'），宿主装配层按 manifest「ports」段装载
+  注入；引擎侧不再有 adapter 区专属纪律（layer-dag 六层矩阵；`adapters→loop`
+  过渡边已随 S2 消亡删除）。
 - 数据面契约（枚举、注册表条目、补丁类型、机制端口词表）只落
   `schemas/` + `fixtures/`，生成 TS 常量/类型入 `src/model/contracts/generated/`，
   全仓经 `@ink-ts/engine` 公共面取用——禁止第二套语义枚举。
@@ -94,8 +93,9 @@ engine/
 ## 边界（engine 不做什么）
 
 - 不写进程、不监听端口、不读配置做决策（配置读取 = 宿主装配面）；
-- 不实现存储驱动 / LLM 厂商适配 / OS 执行——这些是 `adapters/` 端口实现，
-  且具体端点二进制由 plugins/endpoints 声明（见 exec.md）；
+- 不实现存储驱动 / LLM 厂商适配 / OS 执行——这些是 `plugins/ports/*` 端口
+  提供方插件实现（S2），且具体端点二进制由 plugins/endpoints 声明（见
+  exec.md）；
 - 不带任何产品语义（会话 UI / 审批卡 UI / 工具面板归属 web 产品壳或插件）。
 
 ## 消费方与验证

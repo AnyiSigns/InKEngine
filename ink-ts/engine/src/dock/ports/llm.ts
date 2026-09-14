@@ -9,8 +9,8 @@
  * reasoning 透传），上层只消费统一增量模型。
  *
  * core 纯契约：本文件零 IO、零自持依赖，仅承载配置/参数/增量数据形态与累积
- * 函数（消息/工具/异常形态真源在 model/llm）；适配器（engine/src/adapters/llm/*）
- * 实现 AsyncLLM 并注册，装配方按配置注入。
+ * 函数（消息/工具/异常形态真源在 model/llm）；适配器（plugins/ports/llm，
+ * S2 端口提供方插件）实现 AsyncLLM 并注册，装配方按配置注入。
  */
 
 import { LLMConfigError } from '../../model/llm/errors.js';

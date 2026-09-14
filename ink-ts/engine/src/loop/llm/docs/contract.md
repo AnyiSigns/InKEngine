@@ -6,7 +6,7 @@
 
 统一 LLM 接入面的机制契约层（Python kernel/llm 移植）：`AsyncLLM` 协议 +
 数据形态 + 错误分类 + 纯机制包装（模型链/缓存/用量/压缩）。厂商差异收敛到
-`adapters/llm` 适配器内部（SSE 解析/工具增量/reasoning 透传），上层只消费
+`plugins/ports/llm`(S2 端口提供方) 适配器内部（SSE 解析/工具增量/reasoning 透传），上层只消费
 统一增量模型。边界：本层 0-IO 不自持传输、只调声明端口；公共面两组分列——
 「LLM 机制契约（core 纯 seam，`export *` 本 barrel）」与「LLM 协议注册
 （`adapters/llm/registry.js`：`adapter_names`/`create_llm`/`get_adapter_class`/`register_adapter`/`LLMAdapterCtor`）」。
@@ -44,7 +44,7 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
 
 ## Seam 与 IO 边界
 
-机制端口面（`contract.ts` effects 白名单）：`llm_port`——包装器/模型链对注入的 AsyncLLM 直接发调用（真实适配器宿主按配置注入，`create` 工厂惰性建模型）；`storage_seam`——`CachingLLM` 走 Storage records 通道（`get_record`/`put_record`/`list_records`/`delete_collection`）。依赖端口：`builder` 的纯 TS `sha256_hex`（core 禁 node:crypto）。`node:async_hooks`（guard.ts `AsyncLocalStorage`，等价 contextvars per-async 链隔离）= core/kernel 禁 `node:*` 白名单唯一例外。注入面：`create`/`sleep`（fallback）、`storage`/`clock`/`patch_version`（cache）、`inner` + 节点上下文鸭子协议 `account_usage`/`emit`（guard）。零日志零控制台（上报/切换留痕以静默忽略替代，可观测性在宿主侧）；适配器实时传输/SSE 解析在 `adapters/llm`，不在本机制。
+机制端口面（`contract.ts` effects 白名单）：`llm_port`——包装器/模型链对注入的 AsyncLLM 直接发调用（真实适配器由端口提供方插件 plugins/ports/llm（S2）按配置注入，`create` 工厂惰性建模型）；`storage_seam`——`CachingLLM` 走 Storage records 通道（`get_record`/`put_record`/`list_records`/`delete_collection`）。依赖端口：`builder` 的纯 TS `sha256_hex`（core 禁 node:crypto）。`node:async_hooks`（guard.ts `AsyncLocalStorage`，等价 contextvars per-async 链隔离）= core/kernel 禁 `node:*` 白名单唯一例外。注入面：`create`/`sleep`（fallback）、`storage`/`clock`/`patch_version`（cache）、`inner` + 节点上下文鸭子协议 `account_usage`/`emit`（guard）。零日志零控制台（上报/切换留痕以静默忽略替代，可观测性在宿主侧）；适配器实时传输/SSE 解析在 `plugins/ports/llm`（S2），不在本机制。
 
 ## 装配与消费
 
@@ -57,7 +57,7 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
   `run_subgraph` 经 `_guard_types` 视图持 `AsyncLLM`。
 - core 侧：`graph/nodes`（llm_decider/router/agent/seams/tool_pipeline）经 `_guard_types` 视图消费 `AsyncLLM`、直用 `messages`/`tools`/`base.LLMParams`；`core/context`（window/compression）复用 `message_role`；`core/storage/storage_records` 复用 `Message`/`ToolCall`；tool_index/tool_orchestrator/harness/declarative_tools/self_tools/introspection 消费 `ToolSpec`。
 - hosts/lib：`host.ts` 单配置 `create_llm` 直建、多配置 `new ModelChain(...)`（fallback 链由 llm 层承载）；`bridge/rounds.ts` 用 `project_history_baseline` 重建分支/试跑基线。
-- `adapters/llm` 全部适配器（openai_compat/openai_response/anthropic）实现 base `AsyncLLM` 并注册于 adapters registry；重试唯一权威：适配器默认单次（内部重试关闭），`RetryPolicy` 是瞬时故障重试单一配置点，不叠加放大。
+- `plugins/ports/llm`（S2）全部适配器（openai_compat/openai_response/anthropic）实现 base `AsyncLLM` 并注册于插件 registry；重试唯一权威：适配器默认单次（内部重试关闭），`RetryPolicy` 是瞬时故障重试单一配置点，不叠加放大。
 - `llm_contract` 无本目录镜像测试，经 `dock/registry/contracts.ts` 汇总、由 `test/dock/registry/contracts_registry.test.ts` 侧覆盖。
 
 ## 不变式与门禁
@@ -74,7 +74,7 @@ barrel `index.ts` 37 名（逐组核对）：base——`AsyncLLM` `LLMChunk` `LL
 
 ## 疑点与不一致
 
-1. 同目录双 `AsyncLLM` 定义并存：`base.ts` 抽象类（`LLMChunk` readonly 字段类）与 `_guard_types.ts` 结构接口（字段可选）——后者头注释称「落地后本文件导出随之收敛为 base.ts 的 re-export」，而 base.ts/`collect_result` 已落地（adapters 侧全部经 base.js 消费），收敛条件已成立但未收敛；graph/nodes 与 kernel/executor/runtime 仍按 `_guard_types` 视图消费。
-2. `guard.ts` 头注释「AsyncLLM 实时厂商传输（适配器注册/SSE 流解析/collect_result）属 llm base 批次，尚未随本模块移植」与现状不符——base.ts（`collect_result`/`AsyncLLM` 契约）与 `adapters/llm`（适配器注册/SSE 解析）均已落地，陈旧注释。
+1. 同目录双 `AsyncLLM` 定义并存：`base.ts` 抽象类（`LLMChunk` readonly 字段类）与 `_guard_types.ts` 结构接口（字段可选）——后者头注释称「落地后本文件导出随之收敛为 base.ts 的 re-export」，而 base.ts/`collect_result` 已落地（端口提供方侧全部经 base.js 消费，S2），收敛条件已成立但未收敛；graph/nodes 与 kernel/executor/runtime 仍按 `_guard_types` 视图消费。
+2. `guard.ts` 头注释「AsyncLLM 实时厂商传输（适配器注册/SSE 流解析/collect_result）属 llm base 批次，尚未随本模块移植」与现状不符——base.ts（`collect_result`/`AsyncLLM` 契约）与 `plugins/ports/llm`（适配器注册/SSE 解析，S2）均已落地，陈旧注释。
 3. `errors.ts` 尾部 re-export（`ROLES`/`ATTACHMENT_KINDS`/`ATTACHMENT_SEGMENT_TYPES`/`ROLE_ALIASES`，注释称「仅供 messages.ts 复用」）：messages.ts 实际从 `./_types.js` 直取，全仓无经 errors.js 取这些名的 import（grep 核验）——死转出 + 注释失准。
-4. barrel 未含 `message_role`（core/context 两文件跨目录消费）、`redact`（仅 errors 内部）、`REASONING_EFFORTS`（adapters 三文件消费）、guard 三件与 `llm_contract`；是否收编口径未见显式说明（`index.test.ts` 守护现清单并断言适配器名不入 barrel）。
+4. barrel 未含 `message_role`（core/context 两文件跨目录消费）、`redact`（仅 errors 内部）、`REASONING_EFFORTS`(plugins/ports/llm 三文件消费、S2)、guard 三件与 `llm_contract`；是否收编口径未见显式说明（`index.test.ts` 守护现清单并断言适配器名不入 barrel（插件位））。

@@ -9,7 +9,9 @@
  * 2. 核心机制公开面（宿主组装命令面：图/补丁/执行器/事件/状态/审批/
  *    自指应用/存储 seam/LLM 契约/声明式工具/编排/索引/环境/schema/ui/
  *    权限沙箱/链接校验/事件类型/恢复/中断/预算/结点契约等）；
- * 3. adapters 工厂面（存储后端工厂、LLM 协议注册、MCP client）；
+ * 2bis. 端口提供方契约面（S2 适配器下沉：引擎停供适配器实现符号后，端口
+ *   提供方插件经此取型实现契约——Json 底座/工具与敏感剥离/文件与端口
+ *   seam/harness/知识条目/vetting 型）；
  * 4. 引擎错误类型族。
  *
  * 汇总声明面（同一模块整段 star 聚合，符号与本面下方各语句全等，仅立语义
@@ -19,11 +21,14 @@
  * （保持现有符号集，计划 §2/§5.1.1）。
  *
  * 取舍：目录自带 index 收敛者整组具名透传；同名类型跨层冲突（如
- * dock/ports/exec 的 SpawnSeam 进程沙箱 seam 与 adapters/mcp 的 SpawnSeam
- * stdio 生成 seam）按语义保留 core 名、adapters 名显式别名导出
- * （McpSpawnSeam），不做 export * 撞名。不导出 `_` 前缀私有文件；值面
- * 枚举与 data plane 常量收编自引擎内置数据面生成物（engine/schemas +
- * fixtures → model/contracts/generated，见下方「数据面契约」组），单一真源。
+ * dock/ports/exec 的 SpawnSeam 进程沙箱 seam 与适配器 stdio 生成 seam，
+ * 后者已完成 S2 下沉不再经本面导出）按语义保留 core 名、插件名显式别名
+ * 导出，不做 export * 撞名。S2 后适配器实现符号（create_storage/create_llm/
+ * McpClientManager/BOOT_* 等 53 项）移出公共面，落 plugins/ports/* 端口
+ * 提供方插件，本面经「2bis 端口提供方契约面」只留可经 @ink-ts/engine 取型
+ * 的实现契约。不导出 `_` 前缀私有文件；值面枚举与 data plane 常量收编自
+ * 引擎内置数据面生成物（engine/schemas + fixtures → model/contracts/generated，
+ * 见下方「数据面契约」组），单一真源。
  */
 
 export * from './caps.js';
@@ -707,77 +712,11 @@ export { DEFAULT_MAX_RESULT_CHARS } from '../model/llm/tools.js';
 export type { FsSeam } from './ports/exec.js';
 export { HarnessDefinition } from '../model/harness/definition.js';
 export { REASONING_EFFORTS } from './ports/llm.js';
+export type { LLMAdapterCtor } from './ports/llm.js';
 export { strip_sensitive } from '../model/storage/sensitive.js';
 export { KnowledgeEntry, SOURCE_MODEL } from '../core/knowledge_set/index.js';
 export { ShadowRunResult, ToolManifest, ToolSource, VettingVerdict } from '../model/tool_vetting/index.js';
 export type { ShadowExecutor, ToolSourceValue } from '../model/tool_vetting/index.js';
-
-// ── 3. adapters 工厂面 ──
-
-// boot 引导种子（装配期数据资产：宿主配方经 AssemblyRecipe 直注消费）
-export {
-  BOOT_EVENT_TYPES,
-  BOOT_METATOOLS,
-  BOOT_PROMPT_SEED_ID,
-  BOOT_SYSTEM_PROMPT,
-  BOOT_UI_SPEC,
-  boot_harness_definition,
-  build_boot_seed_entries,
-} from '../adapters/boot/index.js';
-
-// 存储后端工厂（memory:// / sqlite:// 路由）
-export * from '../adapters/storage/index.js';
-
-// LLM 协议注册（协议注册与协议适配器创建）
-export {
-  adapter_names,
-  create_llm,
-  get_adapter_class,
-  register_adapter,
-} from '../adapters/llm/registry.js';
-export type { LLMAdapterCtor } from './ports/llm.js';
-
-// MCP client（配置/注册表/会话/管理/传输；SpawnSeam 与 core 同名冲突 →
-// 本层按语义别名 McpSpawnSeam）
-export {
-  BUILTIN_MCP_SERVERS,
-  HttpMcpTransport,
-  McpClientManager,
-  McpConnectionLost,
-  McpSessionHandle,
-  McpToolImportError,
-  McpTransport,
-  McpServerConfig,
-  MemoryMcpTransport,
-  RpcChannel,
-  RpcError,
-  RpcTimeout,
-  SdkSession,
-  StdioMcpTransport,
-  StdioRestartPolicy,
-  SupervisedStdioSession,
-  TaskCancelled,
-  builtin_mcp_server_config,
-  create_node_fs_seam,
-  create_node_spawn_seam,
-  extract_text,
-  is_business_error,
-  is_connection_lost,
-  register_mcp_executor,
-  result_is_error,
-} from '../adapters/mcp/index.js';
-export type {
-  FetchLike,
-  FetchResponseLike,
-  McpCallResult,
-  McpJsonRpcMessage,
-  McpMessagePort,
-  McpToolRecord,
-  McpVettingLike,
-  RawMcpSession,
-  ServerFactory,
-  SessionOpener,
-  SessionOpenOptions,
-  SpawnedMcpProcess,
-} from '../adapters/mcp/index.js';
-export type { SpawnSeam as McpSpawnSeam } from '../adapters/mcp/index.js';
+// 观察侧契约工具索引（evolve/observe introspection；与 self_tool_specs 对称——
+// boot 资产插件测试断言 BOOT_METATOOLS 覆盖引擎侧观察工具，需经公共面取型）
+export { introspection_tool_specs } from '../evolve/observe/inspection/index.js';

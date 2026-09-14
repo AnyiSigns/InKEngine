@@ -86,14 +86,22 @@ describe('engine 公共面分组导出', () => {
     expect(engine.BudgetExceededError).toBeTypeOf('function');
   });
 
-  it('3. adapters 工厂面（存储/LLM 注册/MCP）', () => {
-    expect(engine.create_storage).toBeTypeOf('function');
-    expect(engine.MemoryStorage).toBeTypeOf('function');
-    expect(engine.register_adapter).toBeTypeOf('function');
-    expect(engine.create_llm).toBeTypeOf('function');
-    expect(engine.McpClientManager).toBeTypeOf('function');
-    expect(engine.StdioMcpTransport).toBeTypeOf('function');
-    const seam: engine.McpSpawnSeam | null = null;
-    expect(seam).toBeNull();
+  it('3. S2 适配器下沉：端口实现符号已移出引擎公共面（落 plugins/ports/*）', () => {
+    // 引擎公共面不再提供适配器实现（真源 = plugins/ports/{storage,llm,mcp_client,
+    // boot} 端口提供方插件，宿主经装配层注入）；残留引用须走端口契约面符号。
+    expect('create_storage' in engine).toBe(false);
+    expect('MemoryStorage' in engine).toBe(false);
+    expect('register_adapter' in engine).toBe(false);
+    expect('create_llm' in engine).toBe(false);
+    expect('McpClientManager' in engine).toBe(false);
+    expect('StdioMcpTransport' in engine).toBe(false);
+    expect('BOOT_SYSTEM_PROMPT' in engine).toBe(false);
+    // 端口契约面保留（可经 @ink-ts/engine 取型）：seam/契约/观察索引
+    const storageType: engine.Storage | null = null;
+    expect(storageType).toBeNull();
+    const fsSeam: engine.FsSeam | null = null;
+    expect(fsSeam).toBeNull();
+    expect(engine.HarnessDefinition).toBeTypeOf('function');
+    expect(engine.introspection_tool_specs).toBeTypeOf('function');
   });
 });

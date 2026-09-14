@@ -7,7 +7,7 @@
  * tools / errors / fallback / cache；适配器（OpenAICompatibleLLM/AnthropicLLM/
  * OpenAIResponsesLLM）与注册机制（registry.py：register_adapter/adapter_names/
  * get_adapter_class/create_llm）属 adapters 层，core 不反向依赖 adapters，一律
- * 从 `engine/src/adapters/llm/registry.js` 及其适配器模块导入。
+ * 从插件端口提供方 `plugins/ports/llm`（S2 适配器下沉）的 registry 及其适配器模块导入。
  *
  * python __all__ 中尚未迁移到 TS 的为 embedding 面（create_embedder 等），
  * 待其落地后在本 barrel 对应位置补挂。

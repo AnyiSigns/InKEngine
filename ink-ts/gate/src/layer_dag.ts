@@ -1,6 +1,7 @@
 /**
- * layer-dag 层向门禁（计划 §5.1.1 + §2 依赖目标）：引擎新七层
- * `engine/src/{model,loop,graph,gate,evolve,dock,adapters}` 的 import 方向矩阵。
+ * layer-dag 层向门禁（计划 §5.1.1 + §2 依赖目标）：引擎六层
+ * `engine/src/{model,loop,graph,gate,evolve,dock}` 的 import 方向矩阵
+ * （S2 适配器下沉：`adapters` 层随目录移出引擎，实现落 plugins/ports）。
  * 目录不存在即跳过（与 scan.ts 行为一致；未搬迁波次自然静默）。
  *
  * 矩阵（白名单前缀写死于本实现，不做模糊匹配）：
@@ -8,12 +9,11 @@
  * - loop|graph|gate|evolve → model：放行；
  * - 四件 → dock：仅放行前缀 `dock/ports(.ts|/*)` 与 `dock/registry(.ts|/*)`；
  *   其余 `dock/**` 禁入；
- * - dock → 四件/adapters：放行口径 = R-a + R-b + 既有 re-export contract 规则：
+ * - dock → 四件：放行口径 = R-a + R-b + 既有 re-export contract 规则：
  *   R-a = 死集 `{index,caps,calls,view}` 仅 export 形态且目标形状达标（去层后
  *   ≤3 段、段名非 `_` 前缀，见 targetShapeOk）；R-b = `dock/registry/**` 值
  *   import 各机制 contract.ts 放行；其余 dock 文件仍仅允许 re-export contract.ts；
  * - dock → model：放行（§2 model 被所有层引，矩阵允许边）；
- * - adapters：只 import `dock/ports` 前缀与 model；
  * - 四件间允许边：loop→graph、loop→gate（骨架边：回合执行过闸）、
  *   evolve→gate、loop/runtime/**→evolve（装配位：boot 注入）；其余互引先查
  *   过渡边常量 TRANSITION_EDGES（P7-3 预登记，命中放行），仍不中才违规；
@@ -21,7 +21,7 @@
  *   保持空），键为 layer-pair（如 `loop→evolve`），值 = 消解波注记（S6/P8/S2），
  *   S6/P8/S2 消除对应边后须删除条目（gate.test.ts 断言只减不增）；
  * - 未定义的层间边一律违规（矩阵闭合，防漂移）。
- * 目标层判定只认上述七层目录；engine/src 下其余旧区（core/kernel 等）过渡期
+ * 目标层判定只认上述六层目录；engine/src 下其余旧区（core/kernel 等）过渡期
  * 不参与层向判定（其纪律由 core-import/core-token/private-seam 现规则执法）。
  *
  * 红线（机制层 loop/graph/gate/evolve 文件，§2.1/§2.2）：禁相对 import 命中
@@ -35,7 +35,8 @@ import { join, resolve } from 'node:path';
 import type { GateConfig } from './config.js';
 import type { Violation } from './rules.js';
 
-const LAYERS = ['model', 'loop', 'graph', 'gate', 'evolve', 'dock', 'adapters'] as const;
+/** 层向清单（S2 后六层；导出供 gate.test 断言 adapters 层消亡）。 */
+export const LAYERS = ['model', 'loop', 'graph', 'gate', 'evolve', 'dock'] as const;
 type Layer = (typeof LAYERS)[number];
 const FOUR: readonly string[] = ['loop', 'graph', 'gate', 'evolve'];
 const SRC_PREFIX = 'engine/src/';
@@ -49,7 +50,8 @@ const REDLINE_TOKENS: readonly string[] = ['组装路径', '出厂图', '默认�
  * 过渡边预登记（P7-3 基线 7 条，shrink-only）：非 layerDagWhitelist——白名单保持
  * 空、单调收缩纪律不变；本常量把「已知将随消解波拆除」的层间边预登记为放行，
  * 键 = `<导入层>→<目标层>`，值 = 消解波注记（仅作文档用途，判定向只查键存在）。
- * S6/P8/S2 消除对应边后必须删除条目，gate.test.ts 断言条目数只减不增（≤7）。
+ * S6/P8 消除对应边后必须删除条目（S2 已消解 adapters→loop，边随 adapters 层
+ * 消亡而移除），gate.test.ts 断言条目数只减不增（≤6）。
  */
 export const TRANSITION_EDGES: Readonly<Record<string, string>> = {
   'loop→evolve': 'S6 事件化（turn_settle/execution_runtime 类型面改事件写入；trial_runner 采纳闸随 S6 评估）',
@@ -58,7 +60,6 @@ export const TRANSITION_EDGES: Readonly<Record<string, string>> = {
   'evolve→graph': 'S6 legacy 反向消解',
   'graph→evolve': 'S6 消解（graph/nodes 节点族移出插件）',
   'gate→loop': 'S6 消解（gate/sandbox/process_sandbox 端口化）',
-  'adapters→loop': 'S2 消亡位（DeclarativeToolSpec/Executors 移出引擎）',
 };
 /** dock 死集（inSrc 相对形式）：R-a 放行仅覆盖这四个随波消亡的文件。 */
 const DOCK_DEAD_SET: readonly string[] = ['dock/index.ts', 'dock/caps.ts', 'dock/calls.ts', 'dock/view.ts'];
@@ -162,24 +163,9 @@ function classifyEdge(importerRel: string, importerLayer: Layer, targetRel: stri
       if (isContract && isReExport) return { message: null };
       return { message: `dock→四件只允许 re-export 各机制 contract.ts（命中 ${inSrc}${isContract ? '，非 re-export' : ''}）` };
     }
-    if (targetLayer === 'adapters') {
-      // R-a（adapters 向）：死集 export 形态 + 目标形状达标放行；其余仍按 dock 禁入 adapters 执法
-      const importerInSrc = importerRel.slice(SRC_PREFIX.length);
-      if (DOCK_DEAD_SET.includes(importerInSrc) && isReExport && targetShapeOk(targetRel)) return { message: null };
-      return { message: `dock 层禁 import ${targetLayer}（dock 允许边：model 直引 + 四件 contract.ts re-export）` };
-    }
     return { message: `dock 层禁 import ${targetLayer}（dock 允许边：model 直引 + 四件 contract.ts re-export）` };
   }
-  // adapters：只 import dock/ports 前缀与 model
-  if (targetLayer === 'model') return { message: null };
-  if (targetLayer === 'dock') {
-    return matchesAllowedPrefix(targetRel, ['dock/ports'])
-      ? { message: null }
-      : { message: `adapters 只允许 import dock/ports(.ts|/*)、model（命中 ${targetRel.slice(SRC_PREFIX.length)}）` };
-  }
-  // 预登记过渡边（adapters→loop：S2 消亡位 DeclarativeToolSpec/Executors 移出引擎）命中即放行
-  if (TRANSITION_EDGES[`${importerLayer}→${targetLayer}`] !== undefined) return { message: null };
-  return { message: `adapters 只允许 import dock/ports(.ts|/*)、model（命中 ${targetLayer}）` };
+  return { message: `层 ${importerLayer} 禁 import ${targetLayer}（矩阵外，S2 后引擎仅六层）` };
 }
 
 /** 全仓层向扫描：返回违规清单（whitelist 条目 `<file>:<spec|token:词>` 精确豁免）。 */

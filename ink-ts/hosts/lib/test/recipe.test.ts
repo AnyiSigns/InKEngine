@@ -9,8 +9,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { BOOT_SYSTEM_PROMPT, ToolGateConfig } from '@ink-ts/engine';
+import { ToolGateConfig } from '@ink-ts/engine';
 
+import { loadTestBootAssets } from './port_seam.js';
 import {
   PRODUCT_SWITCH_DEFAULTS,
   assert_product_switches_all_on,
@@ -38,12 +39,14 @@ describe('产品配方默认表（保留机制开关全开）', () => {
     expect(PRODUCT_SWITCH_DEFAULTS.emit_timeline_events).toBe(true);
   });
 
-  it('build_product_recipe：boot 系统提示词注入装配 seam；不产任何图', () => {
-    const recipe = build_product_recipe();
+  it('build_product_recipe：boot 系统提示词注入装配 seam；不产任何图', async () => {
+    const bootAssets = await loadTestBootAssets();
+    const recipe = build_product_recipe({}, bootAssets);
     expect(recipe.set_id).toBe('default');
     // P4.2b：boot 走 AssemblyRecipe.boot_system_prompt（llm 结点 system 合成
-    // 只读基线）；boot_prompt 知识条目种子不再由产品宿主注入（seeds 空）
-    expect(recipe.boot_system_prompt).toBe(BOOT_SYSTEM_PROMPT);
+    // 只读基线）；boot_prompt 知识条目种子不再由产品宿主注入（seeds 空）。
+    // S2：boot 资产真源 = plugins/ports/boot（经端口装配面注入配方）
+    expect(recipe.boot_system_prompt).toBe(bootAssets.BOOT_SYSTEM_PROMPT);
     expect(recipe.seeds.length).toBe(0);
     expect(recipe.harness_definitions.length).toBeGreaterThan(0);
     expect(recipe.event_type_specs.length).toBeGreaterThan(0);

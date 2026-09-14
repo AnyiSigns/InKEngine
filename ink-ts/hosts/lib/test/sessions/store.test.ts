@@ -4,13 +4,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { create_storage } from '@ink-ts/engine';
+import { loadTestStorage } from '../port_seam.js';
 
 import { HostSessionStore } from '../../src/sessions/store.js';
 import { branch_tree_from_chain, fallback_title, normalize_title, parse_session_record } from '../../src/sessions/model.js';
 
 async function makeStore(): Promise<HostSessionStore> {
-  const storage = await create_storage('memory://');
+  const storage = await (await loadTestStorage())('memory://');
   return new HostSessionStore(() => storage);
 }
 

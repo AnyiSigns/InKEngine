@@ -257,9 +257,10 @@ storage/llm/mcp/boot）或第三方 `plugins/x-<vendor>.<port>/`（同契约、�
   create_llm/McpClientManager 同一语义 slot）；mcp 经既有 mcp 装配面；
 - 卸载：删插件目录 + 重跑生成器 + `verify:unload`（`auditPortProvider` 守
   implemented 词表归属/工厂形态/无孤儿/无环），治理资产随插件行同消；
-- 二义说明：`plugins/mcp/*`（kind='mcp'）与 `plugins/ports/mcp`（kind='ports'）
-  ——前者是 MCP 市场候选 server 声明，后者是 MCP 客户端实现提供方，职责分工
-  不同，勿混读；第三方新端口实现一律走 `x-<vendor>.<port>`，不占 `ports`
+- 二义说明：`plugins/mcp/*`（kind='mcp'）与 `plugins/ports/mcp_client`
+  （kind='ports'）——前者是 MCP 市场候选 server 声明，后者是 MCP 客户端实现
+  提供方，职责分工不同，勿混读（`endpoints/mcp` = 原生 MCP 服务器二进制端点，
+  三者三角色）；第三方新端口实现一律走 `x-<vendor>.<port>`，不占 `ports`
   首方名。
 
 

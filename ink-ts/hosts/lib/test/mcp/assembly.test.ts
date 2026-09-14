@@ -14,15 +14,17 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { McpClientManager, Runtime } from '@ink-ts/engine';
+import { Runtime } from '@ink-ts/engine';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import type { McpClientManagerLike } from '../../src/assembly/ports.js';
 import {
   BUILTIN_MCP_PROFILES,
   assembleHostMcp,
   resolveBuiltinOverrides,
 } from '../../src/mcp/assembly.js';
 import { locateNativeBinary } from '../../src/exec/binary.js';
+import { loadTestMcpSeam } from '../port_seam.js';
 
 function tempDir(label: string): string {
   return mkdtempSync(path.join(tmpdir(), `ink-host-mcp-${label}-`));
@@ -85,6 +87,7 @@ describe('内置 MCP server 装配接线', () => {
   it('assembleHostMcp：连接失败只记诊断不击穿 boot（connected=false）', async () => {
     const dir = tempDir('assembly');
     const runtime = new Runtime();
+    const seam = await loadTestMcpSeam();
     try {
       const fake = path.join(dir, 'fake-mcp.exe');
       writeFileSync(fake, 'not a real binary');
@@ -93,7 +96,7 @@ describe('内置 MCP server 装配接线', () => {
           { server_id: 'inkling_exec', command: fake },
           { server_id: 'ghost-server' },
         ],
-      });
+      }, seam);
       expect(mcp.status).toHaveLength(2);
       expect(mcp.status[0]!.server_id).toBe('inkling_exec');
       expect(mcp.status[0]!.connected).toBe(false);
@@ -101,7 +104,7 @@ describe('内置 MCP server 装配接线', () => {
       expect(mcp.status[1]!.server_id).toBe('ghost-server');
       expect(mcp.status[1]!.error).toContain('未定义');
       // 失败不击穿：管理器仍装配可用
-      expect(mcp.manager.list_servers()).toEqual([]);
+      expect(mcp.manager!.list_servers()).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -111,22 +114,25 @@ describe('内置 MCP server 装配接线', () => {
 mcpDescribe('ink_ts_mcp 真二进制连接（R1 exec profile）', () => {
   const rootDir = tempDir('real');
   const savedRoot = process.env['INK_MCP_ROOT'];
-  const manager = new McpClientManager();
+  let manager: McpClientManagerLike | null = null;
   let server_id: string | null = null;
 
   beforeAll(async () => {
+    const seam = await loadTestMcpSeam();
+    manager = new seam.McpClientManager() as McpClientManagerLike;
     process.env['INK_MCP_ROOT'] = rootDir;
     writeFileSync(path.join(rootDir, 'hello.txt'), '你好 builtin-mcp');
     const resolved = resolveBuiltinOverrides('inkling_exec', null);
     if (resolved.error !== null) {
       throw new Error(resolved.error);
     }
-    await manager.connect_builtin('inkling_exec', resolved.overrides);
+    await (manager as unknown as { connect_builtin(id: string, o: Record<string, unknown>): Promise<unknown> })
+      .connect_builtin('inkling_exec', resolved.overrides);
     server_id = 'inkling_exec';
   });
 
   afterAll(async () => {
-    await manager.close_all();
+    await (manager as unknown as { close_all(): Promise<void> }).close_all();
     if (savedRoot === undefined) {
       delete process.env['INK_MCP_ROOT'];
     } else {
@@ -136,7 +142,8 @@ mcpDescribe('ink_ts_mcp 真二进制连接（R1 exec profile）', () => {
   });
 
   it('initialize 握手后 tools/list 暴露 file/process 工具', async () => {
-    const handle = manager._sessions.get(server_id!)!;
+    const m = manager as unknown as { _sessions: Map<string, { list_tools(): Promise<Array<Record<string, unknown>>> }> };
+    const handle = m._sessions.get(server_id!)!;
     const tools = await handle.list_tools();
     const names = tools.map((tool) => tool['name']);
     expect(names).toContain('file_read');
@@ -146,7 +153,8 @@ mcpDescribe('ink_ts_mcp 真二进制连接（R1 exec profile）', () => {
   });
 
   it('tools/call：file_read 在 INK_MCP_ROOT 内成功', async () => {
-    const handle = manager._sessions.get(server_id!)!;
+    const m = manager as unknown as { _sessions: Map<string, { call_tool(name: string, args: Record<string, unknown>): Promise<string> }> };
+    const handle = m._sessions.get(server_id!)!;
     const text = await handle.call_tool('file_read', {
       path: path.join(rootDir, 'hello.txt'),
     });
@@ -155,7 +163,8 @@ mcpDescribe('ink_ts_mcp 真二进制连接（R1 exec profile）', () => {
   });
 
   it('tools/call：根外路径拒绝（fail-closed 可观测）', async () => {
-    const handle = manager._sessions.get(server_id!)!;
+    const m = manager as unknown as { _sessions: Map<string, { call_tool(name: string, args: Record<string, unknown>): Promise<string> }> };
+    const handle = m._sessions.get(server_id!)!;
     await expect(
       handle.call_tool('file_read', { path: path.join(tmpdir(), 'outside-mcp.txt') }),
     ).rejects.toThrow(/\[root\]/);

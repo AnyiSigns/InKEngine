@@ -21,18 +21,21 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
 - `src/dock/`：对外契约面——端口词表单一真源 `ports.ts`、seam 接口 `ports/*`
   （events/exec/llm/storage）、机制注册面 `registry/`（原 kernel/registry）与
   index/caps/calls/view 公共面。
-- `src/adapters/`：IO 端口真实装——**实有 boot/llm/mcp/storage 四子目录（无
-  exec）**：exec seam 声明在 `dock/ports/exec.ts`，沙箱判定实现在 `gate/sandbox`，
-  OS 执行真身是 Rust 原生机制件子进程；llm 只发协议级 HTTP 不 import 厂商 SDK；
-  storage 驱动 sqlite/memory（postgres 暂不提供）；DI 装载可覆盖。
+- **（S2 适配器下沉）引擎不再携带 `src/adapters/`**：IO 端口实装在端口提供方
+  插件（plugins/ports/{storage,llm,mcp_client,boot}，kind='ports'，spec 声明
+  data.port.implemented、faces.logic = 端口实装位——S0 §2.2 豁免子句）；exec
+  seam 声明在 `dock/ports/exec.ts`，沙箱判定实现在 `gate/sandbox`，OS 执行真身
+  是 Rust 原生机制件子进程；llm 只发协议级 HTTP 不 import 厂商 SDK；storage
+  驱动 sqlite/memory（postgres 暂不提供）；宿主经装配层（hosts/lib
+  assembly/ports.ts）按 manifest「ports」段装载注入。
 - 残部：`src/core/`（entities/knowledge_set/state/run_result 与
   environments/harness 留守纯逻辑，随 P8 逐层消化）；`src/kernel/`
   （simulation/multipath/spawn 旧推演机制件）与 `src/core/fanout/`
   已随 P8+S1 展开段退役删除、目录清零，禁复活。
-- 依赖纪律：`node:*`/第三方 import 仅 adapters 允许（各 0-IO 层白名单唯一例外
-  `node:async_hooks`）；禁反向依赖 `adapters/`；禁宿主词（tauri/electron/
-  vitest/react/inkling 等，opaque 协议串除外）；adapters 禁 import 各机制层
-  私有文件 `**/_*.ts`（公共 seam 例外标注「跨域契约模块」）。
+- 依赖纪律：`node:*`/第三方 import 仅端口提供方插件与宿主装配允许（各 0-IO 层
+  白名单唯一例外 `node:async_hooks`）；禁反向依赖插件层；禁宿主词（tauri/electron/
+  vitest/react/inkling 等，opaque 协议串除外）；`_` 前缀私有文件禁被跨层 import
+  （公共 seam 例外标注「跨域契约模块」，S2 后仅 core 域间适用）。
 - 机制件契约落点：各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制
   目录、测试镜像 `engine/test/`，
   跨 graph/gate/loop/evolve 四机制层，现 28 契约，kernel 层契约已随 P8+S1 清零），经 `dock/registry/`
@@ -41,7 +44,7 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
 ## 本层禁止
 
 - 不写 main、不监听端口、不读配置做决策、不实现厂商适配/存储驱动（那是
-  adapters + host 装配的职责）；
+  端口提供方插件 plugins/ports + host 装配的职责）；
 - 不感知宿主/插件/前端：无 tauri/electron/react/inkling 字样（数据层）；
 - 不维护第二套语义枚举：枚举/注册表/补丁类型/机制端口一律经 contracts
   generated（schemas+fixtures 真源生成，禁手改，contracts:verify 守漂移）。

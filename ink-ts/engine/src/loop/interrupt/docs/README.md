@@ -24,6 +24,6 @@
   `kernel/multipath/_runner_base` 消费已随 P8+S1 展开段退役删除）、
   `model/storage`（`interrupt_state.ts`/`storage_records.ts`：InterruptState 进
   CheckpointRecord）、`core/run_result`（type）、
-  `adapters/storage/sqlite_checkpoints`（InterruptState 还原）、
+  `plugins/ports/storage/sqlite_checkpoints（S2 端口提供方）`（InterruptState 还原）、
   `dock/registry/contracts.ts`；公共面经 `dock/index.ts` `export * from
   '../loop/interrupt/interrupt.js'` 收口（`src/index.ts` 只转发 dock）。

@@ -1,6 +1,6 @@
 /**
  * 统一 LLM 接口与数据模型单测（对标 Python llm/base.py 段：配置构建/参数
- * 覆盖/增量累积）。适配器实现面在 engine/adapters/llm 单测覆盖。
+ * 覆盖/增量累积）。适配器实现面在 plugins/ports/llm 单测覆盖（S2 随迁同住）。
  */
 
 import { describe, expect, it } from 'vitest';

@@ -43,7 +43,7 @@
 
 零端口、零机制依赖（effects=[]/depends=[]）：纯内存实例态状态机，无全局
 状态、零 IO；持久化/恢复由 executor（checkpoint 写 InterruptState）与
-adapters/storage（sqlite 行还原 InterruptState.from_dict）接线。
+plugins/ports/storage（S2 端口提供方，sqlite 行还原 InterruptState.from_dict）接线。
 
 ## 装配与消费
 
@@ -52,7 +52,7 @@ adapters/storage（sqlite 行还原 InterruptState.from_dict）接线。
 spawn/simulate/multipath/run_subgraph 多点捕获中，plan/parallel/spawn/
 simulate/multipath 捕获面已随 P8+S1 展开段退役收敛），`model/storage`
 （storage_records/interrupt_state：CheckpointRecord.interrupt 字段）、
-core/run_result（type 形态）、adapters/storage（sqlite_checkpoints 行→
+core/run_result（type 形态）、plugins/ports/storage（S2，sqlite_checkpoints 行→
 InterruptState）；原 multipath runner 消费与 `kernel/multipath/_runner_base`
 已随 P8+S1 展开段退役删除。
 

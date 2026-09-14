@@ -140,25 +140,26 @@ describe('gate 规则', () => {
     expect(on.map((v) => v.message).join('\n')).toContain('node:fs');
   });
 
-  it('core-import 两条款（P1 裁决 1）：dock re-export adapters 放行（反向依赖条款仅 coreDirs）', async () => {
+  it('core-import 两条款（P1 裁决 1）：dock re-export 四件 contract 放行（反向依赖条款仅 coreDirs）', async () => {
     const root = await makeRoot();
-    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
-    await write(root, 'engine/src/dock/api.ts', `export * from '../adapters/zzz.js';\n`);
+    await write(root, 'engine/src/graph/fm/contract.ts', `export const c = 1;\n`);
+    await write(root, 'engine/src/dock/api.ts', `export * from '../graph/fm/contract.js';\n`);
     const violations = await scan({ root, config: { ...cfg, layerDirs: ['engine/src/dock'] } });
     expect(violations.map((v) => v.rule)).not.toContain('core-import');
   });
 
-  it('core-import 两条款（P1 裁决 1）：dock 0-IO 仍拒裸包；coreDirs 反向依赖 adapters 仍拒', async () => {
+  it('core-import 两条款（P1 裁决 1）：dock 0-IO 仍拒裸包；coreDirs 反向依赖下方层（adapters 串）仍拒', async () => {
     const root = await makeRoot();
-    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
     await write(root, 'engine/src/dock/bare.ts', `import { debounce } from 'lodash';\nexport const d = debounce;\n`);
+    // S2 后 adapters 目录已消亡，但 forbidden 串依然在词表——core 文件 import
+    // ../adapters/* = 反向依赖下方 IO 实现形态仍判违规（规则按说明符静默判，不依赖目标存在）
     await write(root, 'engine/src/core/rev.ts', `import { z } from '../adapters/zzz.js';\nexport const r = z;\n`);
     const violations = await scan({ root, config: { ...cfg, layerDirs: ['engine/src/dock'] } });
     const msgs = violations
       .filter((v) => v.rule === 'core-import')
       .map((v) => `${v.path.split(/[\\/]/).join('/')}:${v.message}`);
     expect(msgs.some((s) => s.startsWith('engine/src/dock/bare.ts'))).toBe(true);
-    expect(msgs.some((s) => s.startsWith('engine/src/core/rev.ts') && s.includes('adapters'))).toBe(true);
+    expect(msgs.some((s) => s.startsWith('engine/src/core/rev.ts'))).toBe(true);
   });
 
   it('src 内夹测试文件被拒（测试须置于 test/）', async () => {
@@ -210,20 +211,13 @@ describe('gate 规则', () => {
     expect(violations.map((v) => v.rule)).not.toContain('private-seam');
   });
 
-  it('adapters 反向 import core 私有模块被拒（无公共 seam 标注）', async () => {
+  it('S2 适配器下沉：adapterDirs 已清空，无引擎侧 adapter 区（反向私有检查只对 core）', async () => {
     const root = await makeRoot();
     await write(root, 'engine/src/core/llm/_shapes.ts', `export interface Shape { a: string }\n`);
-    await write(root, 'engine/src/adapters/llm/x.ts', `import type { Shape } from '../../core/llm/_shapes.js';\n`);
+    await write(root, 'engine/src/model/backend/shape_consumer.ts', `import type { Shape } from '../../core/llm/_shapes.js';\nexport type S = Shape;\n`);
     const violations = await scan({ root, config: cfg });
-    expect(violations.map((v) => v.rule)).toContain('private-seam');
-  });
-
-  it('adapters 反向 import 已标注公共 seam 的 core 私有模块放行', async () => {
-    const root = await makeRoot();
-    await write(root, 'engine/src/core/llm/_shapes.ts', `// 跨域契约模块 - 公共 seam：adapters 厂商载荷消费数据形态\n/** 类型 seam。 */\nexport interface Shape { a: string }\n`);
-    await write(root, 'engine/src/adapters/llm/x.ts', `import type { Shape } from '../../core/llm/_shapes.js';\n`);
-    const violations = await scan({ root, config: cfg });
-    expect(violations.map((v) => v.rule)).not.toContain('private-seam');
+    // model 不属 coreDirs/adapterDirs，私有 seam 规则不扫 → 无 private-seam 违规
+    expect(violations.filter((v) => v.rule === 'private-seam')).toEqual([]);
   });
 
   it('JSON 非对象顶层被拒', async () => {
@@ -307,12 +301,12 @@ describe('layer-dag 层向门禁', () => {
     expect(paths).toContain('engine/src/dock/bad.ts');
   });
 
-  it('dock→model 放行（model 被所有层引）；dock→adapters 由 layer-dag 矩阵执法（P1 裁决 1 后不再入 core-import）', async () => {
+  it('dock→model 放行（model 被所有层引）；dock→非 model 违约层由 layer-dag 矩阵执法（S2 后无 adapters 层）', async () => {
     const root = await makeRoot();
     await write(root, 'engine/src/model/yyy.ts', `export const y = 1;\n`);
     await write(root, 'engine/src/dock/xxx.ts', `import { y } from '../model/yyy.js';\nexport const x = y;\n`);
-    await write(root, 'engine/src/adapters/zzz.ts', `export const z = 1;\n`);
-    await write(root, 'engine/src/dock/leak.ts', `import { z } from '../adapters/zzz.js';\nexport const l = z;\n`);
+    await write(root, 'engine/src/evolve/observe/usage_evidence/store.js', `export const e = 1;\n`);
+    await write(root, 'engine/src/dock/leak.ts', `import { e } from '../evolve/observe/usage_evidence/store.js';\nexport const l = e;\n`);
     const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true, layerDirs: ['engine/src/dock'] }) });
     expect(violations.map((v) => v.rule)).not.toContain('core-import');
     const paths = violations.filter((v) => v.rule === 'layer-dag').map((v) => v.path);
@@ -320,14 +314,16 @@ describe('layer-dag 层向门禁', () => {
     expect(paths).toContain('engine/src/dock/leak.ts');
   });
 
-  it('adapters 只 import dock/ports 前缀与 model', async () => {
+  it('S2 adapters 层消亡：目录不存在 = 层扫描跳过（layout 域模型不再登记 adapters）', async () => {
     const root = await makeRoot();
-    await write(root, 'engine/src/adapters/ok.ts', `import { p } from '../dock/ports.js';\nimport { m } from '../model/m.js';\nexport const ok = [p, m];\n`);
-    // 违规样例取 adapters→graph（adapters→loop 已入 TRANSITION_EDGES 预登记，S2 消亡位）
-    await write(root, 'engine/src/adapters/bad.ts', `import { g } from '../graph/g.js';\nexport const bad = g;\n`);
+    await write(root, 'engine/src/model/m.ts', `export const m = 1;\n`);
     const { violations } = await scanAll({ root, config: layerCfg({ layerDagEnforce: true }) });
-    expect(violations.map((v) => v.path)).toContain('engine/src/adapters/bad.ts');
-    expect(violations.map((v) => v.path)).not.toContain('engine/src/adapters/ok.ts');
+    const dag = violations.filter((v) => v.rule === 'layer-dag');
+    expect(dag).toEqual([]);
+    // adapters 目录不存在：layerOf 不认该层
+    const layerDag = await import('../src/layer_dag.js');
+    expect(layerDag.LAYERS).toBeDefined();
+    expect(layerDag.LAYERS.includes('adapters' as never)).toBe(false);
   });
 
   it('四件间允许边 loop→graph、evolve→gate；其余互引违规', async () => {
@@ -396,15 +392,16 @@ describe('layer-dag 层向门禁', () => {
   });
 
   it('TRANSITION_EDGES shrink-only：P7-3 基线 7 条，S6/P8/S2 消解后条目数必须更少（只减不增）', () => {
-    // P7-3 基线 7 条过渡边；对应消解波（S6/P8/S2）拆除边后须删条目，本断言上界随波下调
-    expect(Object.keys(TRANSITION_EDGES).length).toBeLessThanOrEqual(7);
+    // P7-3 基线 7 条过渡边；S2 已拆除 adapters→loop（adapters 层消亡），现存 6 条；
+    // 对应消解波（S6/P8/S2）拆除边后须删条目，本断言上界随波下调
+    expect(Object.keys(TRANSITION_EDGES).length).toBeLessThanOrEqual(6);
     expect(TRANSITION_EDGES).toHaveProperty('loop→evolve');
     expect(TRANSITION_EDGES).toHaveProperty('graph→loop');
     expect(TRANSITION_EDGES).toHaveProperty('evolve→loop');
     expect(TRANSITION_EDGES).toHaveProperty('evolve→graph');
     expect(TRANSITION_EDGES).toHaveProperty('graph→evolve');
     expect(TRANSITION_EDGES).toHaveProperty('gate→loop');
-    expect(TRANSITION_EDGES).toHaveProperty('adapters→loop');
+    expect(TRANSITION_EDGES).not.toHaveProperty('adapters→loop');
   });
 
   it('机制层红线：组装模块 import 与组装 token 命中即违规，whitelist 精确抑制', async () => {

@@ -32,6 +32,6 @@ harness = 用户集内的能力包（图定义数据 + 工具清单 + 能力描�
   `kernel/tool_pipeline`。
 - 下游：`kernel/runtime`（装配链 4 文件）、`kernel/self_tools`（HarnessRegistry
   + build_minimal_harness）、`kernel/self_proposal`、`kernel/introspection`、
-  `adapters/boot`（boot_harness_definition 构造 HarnessDefinition）；公共面
+  `plugins/ports/boot`（S2 端口提供方）（boot_harness_definition 构造 HarnessDefinition）；公共面
   零导出（src/index.ts 仅 `boot_harness_definition` 名含 harness 字样，真源
-  adapters/boot）；`test/core/harness/`（harness/repository 两测试 + helpers）。
+  plugins/ports/boot（S2 端口提供方）；`test/core/harness/`（harness/repository 两测试 + helpers）。

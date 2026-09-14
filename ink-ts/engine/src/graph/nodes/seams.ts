@@ -10,7 +10,7 @@
  * boot_system_prompt = 装配端注入的只读基线系统提示词（缺省 '' = 未注入零
  * 漂移）：llm 类结点（llm_decider/router_judge）执行时与自定义 system_prompt
  * 经 compose_llm_system 拼成一份 system 消息。core 只持有 seam 字符串，
- * 提示词文本由宿主/adapters 装配注入（core 不 import adapters/boot）。
+ * 提示词文本由宿主/adapters 装配注入（core 不 import plugins/ports/boot（S2 端口提供方）。
  *
  * agent 展开 seam（批4 agent 子图型执行体 + 作用域模型接线）：
  * - resolve_entity：按实体 id 查实体目录（数据真源 = 实体注册表；null =

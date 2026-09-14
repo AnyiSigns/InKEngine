@@ -57,7 +57,7 @@ seam 声明与注入点 = `EngineNodeSeams` 七成员：`llm`（`AsyncLLM | null
 工厂闭包持盒、节点执行时现取盒内当前值；引擎重建处 `bind_engine_node_seams`
 刷新——装配期注册一次、seams 随重建刷新（registry 生命周期契约：工厂不捕获
 装配期快照）。IO 边界：执行体对模型/工具的调用一律经 seams（`llm.astream`/
-`pipeline.execute`），core 不持有厂商适配、不 import adapters/boot；boot
+`pipeline.execute`），core 不持有厂商适配、不 import `plugins/ports/boot`（S2 端口提供方）；boot
 提示词文本由装配注入，core 只持 seam 字符串；`empty_engine_node_seams` =
 无模型/无流水线确定性缺省。
 

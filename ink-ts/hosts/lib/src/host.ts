@@ -1,7 +1,7 @@
 /**
  * Host 五件套实现（机制语义在 engine，host 只装配不复制）。
  *
- * - create_storage：engine adapters/storage 工厂（memory/sqlite 路由），
+ * - create_storage：存储端口提供方（plugins/ports/storage，S2）工厂（memory/sqlite 路由），
  *   连接串来自配置；
  * - resolve_llm：引擎 model_roles 按 agent 槽解析主配置 + 备用链
  *   （resolve_role_model，CODING §8 回落语义单点），经 llm/registry
@@ -29,12 +29,11 @@ import {
   ModelChain,
   RetryPolicy,
   ROLE_AGENT,
-  create_llm,
-  create_storage,
   resolve_role_model,
 } from '@ink-ts/engine';
 import type { EngineTransport, InterruptPolicy, Storage } from '@ink-ts/engine';
 
+import type { LlmPortSeam, PortsSeam, StoragePortSeam } from './assembly/ports.js';
 import { normalize_model_config } from './config.js';
 import type { ResolvedHostConfig } from './config.js';
 import type { CapabilityRecord } from './capability/store.js';
@@ -94,19 +93,36 @@ export class InkHost {
   private readonly _transports: FileEventsTransport[] = [];
   private _closed = false;
   private readonly _capability: (() => CapabilityRecord) | null;
+  private readonly _ports: PortsSeam;
   private _policy: InterruptPolicy | null = null;
 
   constructor(
     config: ResolvedHostConfig,
     capability: (() => CapabilityRecord) | null = null,
+    ports: PortsSeam | null = null,
   ) {
     this.config = config;
     this._capability = capability;
+    this._ports = ports ?? { storage: null, llm: null, mcpClient: null, boot: null };
   }
 
-  /** 存储工厂：engine adapters 路由 memory:// / sqlite:///path。 */
+  /** 存储工厂：经端口提供方 seam（S2：plugins/ports/storage）路由 memory/sqlite。
+   *  端口插件未装配 = 显式抛错（宿主装配缺存储面，不静默回落）。 */
   async create_storage(): Promise<Storage> {
-    return create_storage(this.config.storage_uri);
+    const seam = this._ports.storage as StoragePortSeam | null;
+    if (seam === null) {
+      throw new Error('存储端口提供方未装配（spec.data.port.implemented=storage_seam；真源 plugins/ports/storage）');
+    }
+    return seam.create_storage(this.config.storage_uri);
+  }
+
+  /** LLM 端口工厂（S2：plugins/ports/llm；缺失 = create_llm 显式报错）。 */
+  private _createLlmConfig(config: unknown): AsyncLLM {
+    const seam = this._ports.llm as LlmPortSeam | null;
+    if (seam === null) {
+      throw new Error('LLM 端口提供方未装配（spec.data.port.implemented=llm_port；真源 plugins/ports/llm）');
+    }
+    return seam.create_llm(config as Record<string, unknown>) as unknown as AsyncLLM;
   }
 
   /**
@@ -123,10 +139,9 @@ export class InkHost {
     const configs = [resolved.config, ...resolved.fallbacks];
     const llm: AsyncLLM =
       configs.length === 1
-        ? create_llm(configs[0] as unknown as Record<string, unknown>)
+        ? this._createLlmConfig(configs[0])
         : (new ModelChain(configs as never[], {
-            create: (cfg) =>
-              create_llm(cfg as unknown as Record<string, unknown>),
+            create: (cfg) => this._createLlmConfig(cfg),
             retry: new RetryPolicy(),
           }) as unknown as AsyncLLM);
     this._llm = llm;
@@ -182,7 +197,7 @@ export class InkHost {
       if (shared !== null) this._scope_llms.set(cache_key, shared);
       return shared;
     }
-    const created = create_llm(endpoint as unknown as Record<string, unknown>);
+    const created = this._createLlmConfig(endpoint as unknown as Record<string, unknown>);
     this._scope_llms.set(cache_key, created);
     return created;
   }

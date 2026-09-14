@@ -51,9 +51,11 @@ plugins/
 │                       #   引擎 src/adapters 移出后的端口实现位）
 │   ├─ storage/         #   实装 storage_seam（MemoryStorage/SqliteStorage 工厂）
 │   ├─ llm/             #   实装 llm_port（协议适配器注册/创建）
-│   ├─ mcp/             #   实装 exec_envelope（MCP 客户端 stdio/进程 IO；与 plugins/mcp
-│   │                   #   市场候选声明职责分工不同，勿混读）
+│   ├─ mcp_client/      #   实装 exec_envelope（MCP 客户端 stdio/进程 IO；与 plugins/mcp
+│   │                   #   市场候选声明、endpoints/mcp 原生二进制端点职责分工不同，
+│   │                   #   勿混读）
 │   ├─ boot/            #   纯数据资产（data.boot 承载 BOOT_*；省略 implemented）
+│   ├─ _shared/         #   端口插件间共享私有件（非插件：无 spec.json，生成器跳过）
 │   ├─ package.json     #   npm 包名 = @ink-ts/plugin-ports-<kebab>
 │   └─ spec.json        #   声明（id/kind='ports'/capability='host_tool'/
 │                        #   data.port = { implemented（∈ dock/ports 词表，boot 省略）}，

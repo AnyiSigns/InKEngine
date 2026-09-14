@@ -576,6 +576,7 @@ SessionOpenOptions:type
 SessionOpener:type
 SetPatchChain:type
 SetPatchChainInit:type
+ShadowExecutor:type
 ShadowRunResult:type
 ShortcutProposal:type
 SkillCrystallizeHook:type

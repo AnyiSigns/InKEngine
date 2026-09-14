@@ -710,7 +710,7 @@ export { REASONING_EFFORTS } from './ports/llm.js';
 export { strip_sensitive } from '../model/storage/sensitive.js';
 export { KnowledgeEntry, SOURCE_MODEL } from '../core/knowledge_set/index.js';
 export { ShadowRunResult, ToolManifest, ToolSource, VettingVerdict } from '../model/tool_vetting/index.js';
-export type { ToolSourceValue } from '../model/tool_vetting/index.js';
+export type { ShadowExecutor, ToolSourceValue } from '../model/tool_vetting/index.js';
 
 // ── 3. adapters 工厂面 ──
 

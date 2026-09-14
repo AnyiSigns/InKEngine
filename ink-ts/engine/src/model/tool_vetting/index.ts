@@ -4,5 +4,5 @@
  *
  * 单点导出以下符号供 dock/index 具名再导出；断链即 S2 迁移失败。
  */
-export type { ToolSourceValue } from './_types.js';
+export type { ShadowExecutor, ToolSourceValue } from './_types.js';
 export { ShadowRunResult, ToolManifest, ToolSource, VettingVerdict } from './_types.js';

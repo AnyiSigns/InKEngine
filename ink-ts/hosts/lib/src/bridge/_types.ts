@@ -219,10 +219,21 @@ export interface CapabilityStore {
   reload(): void;
 }
 
+/**
+ * 检索密钥域契约（S4 域逻辑下沉：值随 plugins/domains/search，
+ * 装配契约类型留宿本文件——HostBridgeDeps.searchKeys 从这里派生）。
+ * web_search 密钥存取（宿主内存运行时态；不落盘，对外仅掩码）。
+ */
+export interface SearchKeysStore {
+  set(provider: string, apiKey: string): void;
+  raw(provider: string): string | null;
+  masked(): Record<string, string>;
+  has(provider: string): boolean;
+  count(): number;
+}
+
 import type { DocParser } from '../doc/_types.js';
-import type { SearchKeysStore } from '../search/keys.js';
 export type { DocParser };
-export type { SearchKeysStore };
 
 /** 厂商 /models 元数据抓取执行体结构契约（model_archive 消费；实现位随 S3
  *  下沉到 plugins/commands/_shared/model_catalog.ts，宿主只声明结构面）。 */

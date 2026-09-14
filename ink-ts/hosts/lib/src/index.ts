@@ -31,7 +31,6 @@ import { resolve_host_config } from './config.js';
 import type { HostConfigInput, ResolvedHostConfig } from './config.js';
 import { loadHostLogicFaces } from './face/loader.js';
 import type { DocParser } from './doc/_types.js';
-import { buildHostSearch } from './search/wiring.js';
 import type { InkHost } from './host.js';
 import type { WorkspaceStore, CapabilityStore } from './bridge/_types.js';
 import { buildPluginCommandTools } from './plugin_command.js';
@@ -134,20 +133,23 @@ export async function createHost(
       maxChars: resolved.round_doc_text_cap ?? undefined,
     });
   }
-  const search = buildHostSearch();
-  const gate = createHostOpGate();
-  // S4：域逻辑唯一实现位 = 域服务插件（plugins/domains/<id>）。域插件在
+// S4：域逻辑唯一实现位 = 域服务插件（plugins/domains/<id>）。域插件在
   // manifest 声明即被 loadHostLogicFaces 全量装载（target=host 同 doc_parse/
   // 命令逻辑面），createHost 经 buildDomainsSeam 取域位并按域 init 构造实例；
   // 插件缺失 = 域面 null（命令面内存兜底降级，fail 前显式）。
   const domains: DomainsSeam = buildDomainsSeam(logicFaces, { data_dir: resolved.data_dir });
   const workspaceStore: WorkspaceStore | null = domains.workspace;
+  const search = (domains.search?.buildHostSearch({}) ?? null) as import('./assembly/domains.js').SearchEngineWiring | null;
+  if (search === null) {
+    throw new Error('search 域插件缺失（plugins/domains/search）——装配必需检索接线不可用');
+  }
   // capability 是装配必需（InkHost 审批策略活读面 + boot 装配 + mcp 台账），
   // 域插件缺失 = fail-closed（不静默降级——能力档位必须可判定）。
   if (domains.capability === null) {
     throw new Error('capability 域插件缺失（plugins/domains/capability）——装配必需能力台账不可用');
   }
   const capabilityStore: CapabilityStore = domains.capability;
+  const gate = createHostOpGate();
   const bootInput = {
     resolved,
     recipe: recipe ?? null,
@@ -367,24 +369,19 @@ export { listHostLogicFaces, loadHostLogicFaces } from './face/loader.js';
 export type { HostLogicFaceRow } from './face/loader.js';
 export { findPluginsManifest, pluginsRootOf } from './plugins_fs.js';
 
-// ── 既有资料导入域（material.import 消费面）──
-export { MaterialError, scanMaterial } from './material/scan.js';
-export {
-  DEFAULT_MATERIAL_MAX_BYTES,
-  DEFAULT_MATERIAL_MAX_DEPTH,
-  DEFAULT_MATERIAL_MAX_FILES,
-  MATERIAL_DOC_EXTS,
-  MATERIAL_TEXT_EXTS,
-} from './material/scan.js';
-export type {
-  MaterialFile,
-  MaterialScanOptions,
-  MaterialScanOutcome,
-  MaterialSkipped,
-} from './material/scan.js';
+// ── 掩码工具（模型配置 api_key 视图/掩码回写判定；models 命令面消费；
+// 检索域 SearchKeysStore.masked 亦经本公共面复用它）──
+export { maskKey } from './mask.js';
+
+// ── 既有资料导入域契约（值随 plugins/domains/material——S4 域逻辑唯一实现位；
+// 装配契约类型留宿桥契约，material.import 命令面经域插件取用）──
+export type { MaterialScanOutcome } from '../../../plugins/domains/material/faces/logic/index.js';
 
 // ── 检索域（web_search 执行体注入 + 密钥内存存取）──
-export { SearchKeysStore, maskKey } from './search/keys.js';
+// ── 检索域契约（值随 plugins/domains/search——S4 域逻辑唯一实现位）。
+// 装配契约类型（SearchKeysStore 密钥面 + SearchEngineWiring 检索接线结构面）
+// 留宿桥契约与装配 seam；实例 = 域插件 buildHostSearch 产物经 createHost 注入。──
+export type { SearchKeysStore } from './bridge/_types.js';
 
 // ── 工作区授权域契约（值随 plugins/domains/workspace——S4 域逻辑唯一实现位；
 // 装配契约类型留宿：HostBridgeDeps.workspace 从这里派生）──
@@ -397,21 +394,6 @@ export type { CapabilityRecord, CapabilityStore } from './bridge/_types.js';
 // ── 模型提供方映射（model_providers 宿主服务：role pick/掩码合并；models 命令消费）──
 export { asProvider, providerModelIds, samePick } from './model_providers.js';
 export type { ProviderPick } from './model_providers.js';
-export {
-  SEARCH_PROVIDERS,
-  WebSearchError,
-  makeWebSearchExecutor,
-  normalizeResults,
-  renderSearchResults,
-} from './search/executor.js';
-export type {
-  SearchFetch,
-  SearchProviderDef,
-  SearchResultItem,
-  WebSearchExecutorDeps,
-} from './search/executor.js';
-export { buildHostSearch, webSearchSeedDefinition } from './search/wiring.js';
-export type { HostSearch } from './search/wiring.js';
 
 // ── plugin_command 工具族（B6 agent 插件管理面；分发到既有桥命令/受控台账）──
 export {

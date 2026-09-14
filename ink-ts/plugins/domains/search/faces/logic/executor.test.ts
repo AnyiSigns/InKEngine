@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { SearchKeysStore } from '../../src/search/keys.js';
-import { makeWebSearchExecutor } from '../../src/search/executor.js';
-import type { SearchFetch, SearchProviderDef } from '../../src/search/executor.js';
+import { SearchKeysStore } from './index.js';
+import { makeWebSearchExecutor } from './index.js';
+import type { SearchFetch, SearchProviderDef } from './index.js';
 
 function jsonFetch(status: number, body: unknown): SearchFetch {
   return async () =>

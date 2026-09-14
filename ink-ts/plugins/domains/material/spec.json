@@ -1,0 +1,21 @@
+{
+  "id": "material",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "既有资料导入域（material.import）：目录扫描 + 格式归一（doc 执行体文本提取/纯文本直读），三重上限（深度/文件数/单文件体积）fail-closed；注入依赖 doc 解析执行体 + 允许导入根。S4 从 hosts/lib/src/material 迁入。",
+      "inject": [
+        "docParse"
+      ]
+    }
+  }
+}

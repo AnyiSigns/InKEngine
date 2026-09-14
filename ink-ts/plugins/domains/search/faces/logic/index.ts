@@ -1,5 +1,6 @@
 /**
- * web_search host 注入：受控 fetch/http 执行体（引擎 web_search 端点消费）。
+ * 检索域（S4 从 hosts/lib/src/search 迁入，语义零改）：web_search 执行体 +
+ * 密钥内存 store + 装配接线（注册 + seed 定义）。
  *
  * 语义：引擎 web_search 端点把 ['search', query] 提取为操作，host 注册
  * 本执行体完成真实检索（provider 端点 → HTTP → 结果文本）。安全边界：
@@ -8,10 +9,16 @@
  * - 出网经注入 fetch 执行体（默认全局 fetch；测试注入桩），失败分型为
  *   WebSearchError（network/http_status/timeout/unknown_provider/denied）。
  * 结果文本化供 LLM 消费（结构化到文本，不把原始 JSON 泄给模型上下文）。
+ * 域名裁决面门 hostAllowed 从 @ink-ts/host 取（exec_envelope 端口实现位，S4
+ * 域组3 随 exec → plugins/ports/exec_client；本域插件经装配契约窄面互通）。
  */
 
-import { hostAllowed } from '../exec/envelope.js';
-import type { SearchKeysStore } from './keys.js';
+import { hostAllowed, maskKey } from '@ink-ts/host';
+import {
+  DeclarativeToolSpec,
+  EndpointType,
+  type DeclarativeToolExecutors,
+} from '@ink-ts/engine';
 
 /** 检索失败分型（code 供引擎 failure_reason 归类）。 */
 export class WebSearchError extends Error {
@@ -20,6 +27,44 @@ export class WebSearchError extends Error {
     super(message);
     this.name = 'WebSearchError';
     this.code = code;
+  }
+}
+
+/** 密钥掩码复用 @ink-ts/host maskKey（host 视图共用纯工具；防泄露完整密钥）。 */
+export { maskKey };
+
+export class SearchKeysStore {
+  private readonly keys = new Map<string, string>();
+
+  /** 写入（provider 非空、密钥非空；覆盖 = 幂等）。 */
+  set(provider: string, apiKey: string): void {
+    const p = provider.trim();
+    const k = apiKey.trim();
+    if (p === '' || k === '') throw new Error('search key: provider 与 api_key 均不能为空');
+    this.keys.set(p, k);
+  }
+
+  /** 取明文（内部执行体用；不对外暴露）。 */
+  raw(provider: string): string | null {
+    return this.keys.get(provider.trim()) ?? null;
+  }
+
+  /** 掩码清单（web 回显面；无明文泄露）。 */
+  masked(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [provider, key] of this.keys) {
+      out[provider] = maskKey(key);
+    }
+    return out;
+  }
+
+  /** 是否已配置某 provider。 */
+  has(provider: string): boolean {
+    return this.keys.has(provider.trim());
+  }
+
+  count(): number {
+    return this.keys.size;
   }
 }
 
@@ -216,4 +261,55 @@ export function makeWebSearchExecutor(
       clearTimeout(timer);
     }
   };
+}
+
+/** web_search seed 定义（与 plugins 源 web_search 声明对齐）。 */
+export function webSearchSeedDefinition(): DeclarativeToolSpec {
+  return new DeclarativeToolSpec({
+    name: 'web_search',
+    description: '联网检索：按查询词经已配置 provider 抓取网页结果文本。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索查询词' },
+        provider: {
+          type: 'string',
+          description: '检索服务商（bing/bocha/exa；缺省 bing）',
+        },
+      },
+      required: ['query'],
+    },
+    permissions: ['network:search:*'],
+    endpoint: EndpointType.WEB_SEARCH,
+    endpoint_config: {},
+    meta: { executor: 'host:web_search' },
+  });
+}
+
+/** host 检索接线产物（密钥域 + 执行体注册）。 */
+export interface HostSearch {
+  keys: SearchKeysStore;
+  /** 注册执行体与 seed 定义（装配后调用一次）。 */
+  register(declarative: DeclarativeToolExecutors): void;
+}
+
+/** 构建 host 检索接线（密钥域与执行体共享同一内存 store）。 */
+export function buildHostSearch(
+  deps: Omit<WebSearchExecutorDeps, 'keys'> = {},
+): HostSearch {
+  const keys = new SearchKeysStore();
+  const executorDeps: WebSearchExecutorDeps = { ...deps, keys };
+  return {
+    keys,
+    register(declarative: DeclarativeToolExecutors): void {
+      declarative.register('web_search', makeWebSearchExecutor(executorDeps));
+      declarative.register_definition(webSearchSeedDefinition());
+    },
+  };
+}
+
+/** S4 域服务工厂（S0 装载契约）：检索域 = 纯函数执行体 + 内存密钥 store，
+ *  返回域服务面（buildHostSearch = 装配接线位，createHost 经 seam 取用）。 */
+export default function createSearchDomain(): { buildHostSearch: typeof buildHostSearch } {
+  return { buildHostSearch };
 }

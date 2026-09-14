@@ -1,0 +1,21 @@
+{
+  "id": "search",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "检索域（web_search 执行体 + 密钥内存 store + seed 定义）：provider 端点白名单过滤 fail-closed + 密钥只内存不落盘（对外仅掩码）；allow_domains 经 exec_envelope.hostAllowed 裁决。S4 从 hosts/lib/src/search 迁入。",
+      "inject": [
+        "exec_envelope"
+      ]
+    }
+  }
+}

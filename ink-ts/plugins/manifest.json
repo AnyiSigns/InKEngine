@@ -1920,6 +1920,32 @@
       }
     },
     {
+      "id": "material",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-material",
+      "dir": "domains/material",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
+      "id": "search",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-search",
+      "dir": "domains/search",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "sessions",
       "kind": "domain",
       "capability": "host_tool",
@@ -4852,6 +4878,14 @@
   "domains": [
     {
       "id": "capability",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "material",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "search",
       "entry": "./faces/logic/index.ts"
     },
     {

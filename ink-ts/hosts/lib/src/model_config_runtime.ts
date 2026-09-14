@@ -23,7 +23,7 @@ import path from 'node:path';
 import { resolve_role_model } from '@ink-ts/engine';
 
 import { isFallbackListKey, ROLE_SLOT_KEYS } from './config.js';
-import { maskKey } from './search/keys.js';
+import { maskKey } from './mask.js';
 
 /** 运行配置文件（data_dir 下；存 model_config 角色槽/备用链端点形状）。 */
 export const RUNTIME_CONFIG_FILE = 'config.json';

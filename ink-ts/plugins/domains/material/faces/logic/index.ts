@@ -1,6 +1,7 @@
 /**
  * 既有资料批量导入（参照旧壳 import_material.rs 语义，TS 自实现）。
  *
+ * S4 从 hosts/lib/src/material/scan.ts 迁入（域逻辑唯一实现位 = 域服务插件）。
  * 目录扫描（可递归）+ 格式归一：doc/pdf/xlsx/pptx 走 doc 执行体文本提取，
  * 纯文本直读 UTF-8。安全收口（fail-closed）：扫描根须在允许导入根内
  * （缺省用户主目录域，可配置）；递归深度/文件数/单文件体积三道上限，
@@ -12,7 +13,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { DocParser } from '../doc/_types.js';
+import type { DocParser } from '@ink-ts/host';
 
 /** 默认：允许导入的根（用户主目录域；env INK_MATERIAL_ROOTS 可覆写）。 */
 export function defaultMaterialRoots(): string[] {
@@ -247,4 +248,17 @@ async function safeSize(full: string): Promise<number | null> {
 function truncate(text: string, cap: number): string {
   if (text.length <= cap) return text;
   return `${text.slice(0, cap)}…（已截断）`;
+}
+
+/** S4 域服务工厂（S0 装载契约）：材料扫描 = 纯函数执行体，返回域服务面。 */
+export default function createMaterialDomain(): {
+  scanMaterial: typeof scanMaterial;
+  MaterialError: typeof MaterialError;
+  defaultMaterialRoots: typeof defaultMaterialRoots;
+} {
+  return {
+    scanMaterial,
+    MaterialError,
+    defaultMaterialRoots,
+  };
 }

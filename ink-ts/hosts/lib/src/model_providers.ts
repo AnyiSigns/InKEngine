@@ -18,7 +18,7 @@
  * （openai_compatible/anthropic_messages/…，厂商只是端点配置）。
  */
 
-import { maskKey } from './search/keys.js';
+import { maskKey } from './mask.js';
 
 export type RoleName = 'agent' | 'router';
 

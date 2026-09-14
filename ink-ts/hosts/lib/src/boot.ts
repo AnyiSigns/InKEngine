@@ -28,7 +28,7 @@ import { HostExecutionService } from './execution/service.js';
 import { InkHost } from './host.js';
 import { asProvider, isRecord } from './model_providers.js';
 import type { ProviderRecord } from './model_providers.js';
-import type { HostSearch } from './search/wiring.js';
+import type { SearchEngineWiring } from './assembly/domains.js';
 import { assembleHostMcp } from './mcp/assembly.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
 import { McpPluginService } from './mcp/plugin.js';
@@ -47,7 +47,7 @@ export interface HostBootInput {
   /** 台账（createHost 持有跨装配复用；InkHost 审批策略经此活读）。 */
   capability: CapabilityStore;
   /** 检索接线（createHost 持有；register 按每装配运行时执行体注册）。 */
-  search: HostSearch;
+  search: SearchEngineWiring;
 }
 
 /** 单次装配产物（restore 后整体替换的可变装配态）。 */

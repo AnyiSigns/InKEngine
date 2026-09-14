@@ -8,8 +8,8 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { MaterialError, scanMaterial } from '../../src/material/scan.js';
-import type { DocParser } from '../../src/doc/_types.js';
+import { MaterialError, scanMaterial } from './index.js';
+import type { DocParser } from '@ink-ts/host';
 
 const dirs: string[] = [];
 

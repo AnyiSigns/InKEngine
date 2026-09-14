@@ -3,8 +3,10 @@
  * 语义零改）。解析备份 zip → 覆盖清单（条目数/总大小/含库/导出时刻）。
  */
 
-import { BridgeError, readBackupFile } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
+// backup 域值随域插件（S4 域组2）
+import { readBackupFile } from '../../../../domains/backup/faces/logic/index.js';
 import { requirePath } from '../../../_shared/backup.js';
 
 export default function createBackupPreview(deps: HostBridgeDeps): BridgeHandler {

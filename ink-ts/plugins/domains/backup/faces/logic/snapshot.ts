@@ -16,6 +16,9 @@
  * 退出）→ 逐条 rename 交换。rename 阶段单条失败 = 用恢复前预存快照回滚
  * 已替换条目（fail-closed，不留下半态目录）；包内路径先做双分隔符拒绝 +
  * resolve 越界断言，中间目录遇符号链接/junction 即拒该条目。
+ *
+ * S4 域组2 从 hosts/lib/src/backup/snapshot.ts 迁入（域逻辑唯一实现位 =
+ * backup 域插件），语义零改。
  */
 
 import { mkdirSync } from 'node:fs';

@@ -12,11 +12,12 @@
 
 import { join } from 'node:path';
 
+// 装配契约类型留宿 @ink-ts/host（backup.* 桥消费面）
 import type {
   BackupRestoreOutcome,
   BackupRestoreRequest,
   HostRestoreFn,
-} from '../bridge/_types.js';
+} from '@ink-ts/host';
 import {
   BackupError,
   applyRestore,

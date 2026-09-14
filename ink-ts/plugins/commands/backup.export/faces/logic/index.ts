@@ -6,8 +6,10 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BridgeError, exportDataDir } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
+// backup 域值随域插件（S4 域组2）
+import { exportDataDir } from '../../../../domains/backup/faces/logic/index.js';
 import { dataDirOrThrow } from '../../../_shared/backup.js';
 
 export default function createBackupExport(deps: HostBridgeDeps): BridgeHandler {

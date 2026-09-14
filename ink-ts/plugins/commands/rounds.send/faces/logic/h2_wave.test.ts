@@ -19,7 +19,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { BRIDGE_METHODS } from '@ink-ts/host';
 import { BridgeError } from '@ink-ts/host';
-import { packStoreZip } from '@ink-ts/host';
+// backup 域值随域插件（S4 域组2；测试夹具 zip 打包）
+import { packStoreZip } from '../../../../domains/backup/faces/logic/index.js';
 import { createHost } from '@ink-ts/host';
 import type { HostHandle } from '@ink-ts/host';
 import { FakeOpenAIServer } from '../../../../../hosts/lib/test/_fake_openai.js';

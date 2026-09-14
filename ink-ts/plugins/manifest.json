@@ -1907,6 +1907,19 @@
       }
     },
     {
+      "id": "backup",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-backup",
+      "dir": "domains/backup",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "capability",
       "kind": "domain",
       "capability": "host_tool",
@@ -4889,6 +4902,10 @@
     }
   ],
   "domains": [
+    {
+      "id": "backup",
+      "entry": "./faces/logic/index.ts"
+    },
     {
       "id": "capability",
       "entry": "./faces/logic/index.ts"

@@ -19,7 +19,7 @@ import type { Runtime } from '@ink-ts/engine';
 import type { HostSurface } from './host_spec.js';
 import type { McpClientManagerLike } from './assembly/ports.js';
 
-import { createRestoreRunner } from './backup/restore_runtime.js';
+import { createRestoreRunner } from '../../../plugins/domains/backup/faces/logic/index.js';
 import { buildDomainsSeam } from './assembly/domains.js';
 import type { DomainsSeam } from './assembly/domains.js';
 import { assembleHostParts } from './boot.js';
@@ -465,16 +465,3 @@ export type {
   ExecOutcome,
   RestartPolicy,
 } from './exec/_types.js';
-
-// ── data_dir 快照域（backup.export/preview/restore 消费的宿主领域层）──
-export {
-  BackupError,
-  applyRestore,
-  collectDirFiles,
-  exportDataDir,
-  readBackupFile,
-  snapshotDataDir,
-} from './backup/snapshot.js';
-export type { BackupManifest, DirFile } from './backup/snapshot.js';
-export { crc32, packStoreZip, unpackStoreZip } from './backup/zip_codec.js';
-export type { ZipEntryInput, ZipEntryOutput } from './backup/zip_codec.js';

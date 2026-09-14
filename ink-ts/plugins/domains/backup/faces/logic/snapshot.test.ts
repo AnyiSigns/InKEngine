@@ -14,8 +14,8 @@ import {
   READ_TOTAL_BYTES_CAP,
   applyRestore,
   readBackupFile,
-} from '../../src/backup/snapshot.js';
-import { BackupError } from '../../src/backup/snapshot.js';
+} from './snapshot.js';
+import { BackupError } from './snapshot.js';
 
 const dirs: string[] = [];
 

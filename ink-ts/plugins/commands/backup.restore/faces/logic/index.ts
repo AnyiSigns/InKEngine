@@ -4,9 +4,11 @@
  * deps.restore 完成——停 runtime → 原目录快照 → 目录替换 → 重新装配）。
  */
 
-import { BridgeError, readBackupFile } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
 import type { BackupRestoreRequest } from '@ink-ts/host';
+// backup 域值随域插件（S4 域组2）
+import { readBackupFile } from '../../../../domains/backup/faces/logic/index.js';
 import { BACKUP_RESTORE_MARKER, dataDirOrThrow, requirePath } from '../../../_shared/backup.js';
 
 export default function createBackupRestore(deps: HostBridgeDeps): BridgeHandler {

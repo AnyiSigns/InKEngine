@@ -1,0 +1,21 @@
+{
+  "id": "backup",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "backup 域（data_dir 快照域）：导出/预览/恢复两阶段安全路径（预检 fail-closed + 回滚）+ store-only zip 编解码 + restore 运行时编排（停→换→装配→报告）。S4 域组2 自 hosts/lib/src/backup 迁入。",
+      "inject": [
+        "storage_seam"
+      ]
+    }
+  }
+}

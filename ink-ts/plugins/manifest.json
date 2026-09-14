@@ -1946,6 +1946,19 @@
       }
     },
     {
+      "id": "mcp_service",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-mcp-service",
+      "dir": "domains/mcp_service",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "retrieval",
       "kind": "domain",
       "capability": "host_tool",
@@ -4912,6 +4925,10 @@
     },
     {
       "id": "material",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "mcp_service",
       "entry": "./faces/logic/index.ts"
     },
     {

@@ -183,8 +183,9 @@ export interface HostBridgeDeps {
   seed_dir?: string;
   /** MCP 管理器（H1 装配段产物；mcp.status/enable/disable 消费）。 */
   mcpManager?: McpClientManagerLike | null;
-  /** MCP 工具型插件装载服务（B5；mcp.* 启停语义真源；缺省 = 未装配）。 */
-  mcpPlugins?: import('../mcp/plugin.js').McpPluginService | null;
+  /** MCP 工具型插件装载服务（B5；mcp.* 启停语义真源；缺省 = 未装配）。
+   *  类型随域插件（S4 域组2：值随 plugins/domains/mcp；装配契约 type import）。 */
+  mcpPlugins?: import('../../../../plugins/domains/mcp_service/faces/logic/index.js').McpPluginService | null;
   /** 宿主命令闸（buildBridge 包装各方法；backup.restore 期间拒绝并发）。 */
   gate?: HostOpGate;
   /** backup.restore 恢复编排（createHost 注入：停 → 换 → 装配 → 报告）。 */

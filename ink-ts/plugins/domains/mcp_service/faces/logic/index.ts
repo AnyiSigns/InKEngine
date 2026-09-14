@@ -15,6 +15,10 @@
  * 只做装载接线，不复制机制语义：vetting/审批/审计/回退归既有引擎管线
  * （本服务启用的是 plugins 真源已就位的候选 server，装入即声明式工具，
  * 调用走统一流水线门禁）。
+ *
+ * S4 域组2 从 hosts/lib/src/mcp/plugin.ts 迁入（域逻辑唯一实现位 = mcp 域插件；
+ * mcp/assembly.ts 装配面留宿 hosts/lib），语义零改。端口 seam 类型经跨树
+ * type import 取用（@ink-ts/host 公共面不留；域组3 随 exec 下沉可再收敛）。
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -26,8 +30,8 @@ import type {
   McpClientManagerLike,
   McpClientPortSeam,
   McpServerConfigLike,
-} from '../assembly/ports.js';
-import type { CapabilityStore } from '../bridge/_types.js';
+} from '../../../../../hosts/lib/src/assembly/ports.js';
+import type { CapabilityStore } from '@ink-ts/host';
 
 /** 启用集台账键（capability.json；数组 = 已启用 plugin/server id）。 */
 export const MCP_PLUGINS_ENABLED_KEY = 'mcp_plugins_enabled';
@@ -618,4 +622,22 @@ export class McpPluginService {
     }
     return failures;
   }
+}
+
+/** S4 域服务工厂（S0 装载契约）：返回 mcp 域服务面（boot 装配经插件模块
+ *  直接取 McpPluginService 构造；命令面经 HostBridgeDeps.mcpPlugins 活引用）。 */
+export default function createMcpDomain(): {
+  McpPluginService: typeof McpPluginService;
+  configFromCandidate: typeof configFromCandidate;
+  scanMcpPluginSpecs: typeof scanMcpPluginSpecs;
+  MCP_PLUGINS_ENABLED_KEY: string;
+  MCP_PLUGINS_EXTRA_KEY: string;
+} {
+  return {
+    McpPluginService,
+    configFromCandidate,
+    scanMcpPluginSpecs,
+    MCP_PLUGINS_ENABLED_KEY,
+    MCP_PLUGINS_EXTRA_KEY,
+  };
 }

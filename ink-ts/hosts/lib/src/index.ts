@@ -41,7 +41,8 @@ import type { ProductRecipeInit } from './recipe.js';
 // HostHandle/装配面经跨树 type import 取用，type 擦除不构成运行期依赖）
 import type { HostRetrievalDomain, SyncEmbedderSeam } from '../../../plugins/domains/retrieval/faces/logic/index.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
-import type { McpPluginService } from './mcp/plugin.js';
+// MCP 域服务类型（S4 域组2：值随 plugins/domains/mcp_service；装配契约 type import）
+import type { McpPluginService } from '../../../plugins/domains/mcp_service/faces/logic/index.js';
 
 export type {
   HostFaces,
@@ -302,7 +303,6 @@ export async function createHost(
 
 export type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
 export { assembleHostMcp } from './mcp/assembly.js';
-export type { McpPluginService } from './mcp/plugin.js';
 
 export type { BridgeContext, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
 export type { BackupRestoreOutcome, BackupRestoreRequest, HostRestoreFn } from './bridge/_types.js';

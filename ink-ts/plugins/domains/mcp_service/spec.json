@@ -1,0 +1,22 @@
+{
+  "id": "mcp_service",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "mcp_service 域（工具型插件装载服务）：候选解析/归属守卫/启停/台账/拉起，boot 端启动与启停语义；启用集持久化走 capability.json（mcp_plugins_enabled/mcp_plugins_extra），重启自动拉起 fail-closed。mcp/assembly.ts 端口装配面留宿 hosts/lib。S4 域组2 自 hosts/lib/src/mcp/plugin.ts 迁入（id 因与 endpoints/mcp 冲突取 mcp_service）。",
+      "inject": [
+        "storage_seam",
+        "exec_envelope"
+      ]
+    }
+  }
+}

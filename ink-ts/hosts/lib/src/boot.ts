@@ -31,7 +31,8 @@ import type { ProviderRecord } from './model_providers.js';
 import type { SearchEngineWiring } from './assembly/domains.js';
 import { assembleHostMcp } from './mcp/assembly.js';
 import type { McpConnectStatus } from './mcp/assembly.js';
-import { McpPluginService } from './mcp/plugin.js';
+// MCP 域服务（S4 域组2：值随 plugins/domains/mcp_service；boot 装配期构造装载服务）
+import { McpPluginService } from '../../../plugins/domains/mcp_service/faces/logic/index.js';
 import { findPluginsManifest, pluginsRootOf } from './plugins_fs.js';
 import { build_product_recipe, merge_capability_tier_gate } from './recipe.js';
 import type { ProductRecipeInit } from './recipe.js';

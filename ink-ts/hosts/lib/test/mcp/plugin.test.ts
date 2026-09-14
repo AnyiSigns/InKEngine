@@ -25,7 +25,7 @@ import {
   McpPluginService,
   type McpPluginDeclarativeSeam,
   type McpPluginHostSeam,
-} from '../../src/mcp/plugin.js';
+} from '../../../../plugins/domains/mcp_service/faces/logic/index.js';
 
 function makeSessionHandle(toolNames: readonly string[] = ['echo_text']): {
   list_tools(): Promise<Array<Record<string, unknown>>>;

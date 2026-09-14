@@ -32,7 +32,10 @@ export function t(v: unknown): TypeName {
 
 /**
  * 结构相等（验收的唯一值判定）。Int 精确、Str 精确、List 逐元素递归；
- * Json 按键集合递归。不做隐式转换，类型不同直接 false。
+ * Json 按键集合递归，且与 canonicalJson 同口径剔除值为 `undefined` 的键
+ * （序列化会滤掉 undefined 键，若此处保留就会「哈希相等而 deepEq 不等」漂移）。
+ * 不做隐式转换，类型不同直接 false；显式 `null` 键不剔除，与 undefined 区分于
+ * None 之外仍由剔除规则统一。
  */
 export function deepEq(a: unknown, b: unknown): boolean {
   const ta = t(a);
@@ -53,8 +56,10 @@ export function deepEq(a: unknown, b: unknown): boolean {
     case 'Json': {
       const x = a as Record<string, unknown>;
       const y = b as Record<string, unknown>;
-      const kx = Object.keys(x).sort();
-      const ky = Object.keys(y).sort();
+      const defined = (o: Record<string, unknown>): string[] =>
+        Object.keys(o).filter((k) => o[k] !== undefined).sort();
+      const kx = defined(x);
+      const ky = defined(y);
       if (kx.length !== ky.length) return false;
       return kx.every((k, i) => k === ky[i] && deepEq(x[k], y[k]));
     }

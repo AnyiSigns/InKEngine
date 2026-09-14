@@ -50,6 +50,10 @@ describe('gen/splits/切分映射与 C.1 判定口径', () => {
     expect(VAL_SKELETONS).toEqual(o.val);
   });
 
+  it('val 注册表规模钉死 160（README 生成器池口径，防切分规模漂移）', () => {
+    expect(VAL_SKELETONS.size).toBe(160);
+  });
+
   it('每个骨架恰落 train/val/heldout 之一，且注册表内部零重叠', () => {
     for (const sk of SKELETONS) {
       const s = splitOf(sk);
@@ -167,5 +171,13 @@ describe('gen/splits/保底分支（注入假层，构造哈希判定全落空�
     const out = _splitMaps(new Map([['1|plain', [a!, b!]]]));
     expect(out.heldout).toEqual(new Set([_skelId(a!)]));
     expect(out.val).toEqual(new Set([_skelId(b!)]));
+  });
+
+  it('整层全命中 heldout → rest 为空即抛明确错误（P2：不再让 rest[0]! 以 undefined 隐式崩溃）', () => {
+    const hitPair = SKELETONS.filter(heldoutHit).slice(0, 2);
+    expect(hitPair.length).toBe(2);
+    expect(() => _splitMaps(new Map([['1|plain', hitPair]]))).toThrow(
+      /全部 heldout，无法切 val/,
+    );
   });
 });

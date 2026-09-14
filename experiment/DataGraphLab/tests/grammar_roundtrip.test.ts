@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { contractOf, histCount, MAX_REPEAT, OPS } from '../world/operators.js';
-import { parseRecipe, renderGoal, renderRecipe, tokens } from '../world/grammar.js';
+import { parse_recipe, parseRecipe, renderGoal, renderRecipe, tokens } from '../world/grammar.js';
 import { findSequence, senseTokens } from '../world/tokenize.js';
 import { GOAL_LEX, GOAL_TEMPLATES, LEXICON } from '../world/lexicon.js';
 import { allLexemes } from '../world/lexicon_audit.js';
@@ -98,6 +98,29 @@ describe('配方族往返（硬要求）', () => {
   it('共享义项按当前类型消歧', () => {
     expect(parseRecipe('取反，提交', 'Int')).toEqual(['neg', 'submit']);
     expect(parseRecipe('取反，提交', 'Str')).toEqual(['reverse', 'submit']);
+  });
+
+  it('terminal 中置计划不污染 x 类型（P2：仅 provides==="x" 推进 currentType）', () => {
+    // check_parity 写 verdict 而非 x：其后共享义项 `取反` 仍须归 neg（Int）。
+    // 旧实现把 check_* 的 out_type(Str) 当成 x 新类型，`取反` 会被误判成 reverse。
+    const plan = ['check_parity', 'neg', 'submit'];
+    let negHits = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const instr = renderRecipe(makeRng(seed), plan, 3);
+      if (instr.includes('取反')) negHits++;
+      expect(parseRecipe(instr, 'Int'), `seed=${seed} instr=${instr}`).toEqual(plan);
+    }
+    // 必须确有共享义项「取反」出现，用例才真正踩到该歧义分支。
+    expect(negHits).toBeGreaterThan(0);
+  });
+
+  it('snake_case 别名 parse_recipe 即 parseRecipe 同一实现（D 表命名口径补全）', () => {
+    expect(parse_recipe).toBe(parseRecipe);
+    // 经由别名走通一次最小往返，防“导出存在但指向不同实现”的漂移。
+    expect(parse_recipe(renderRecipe(makeRng(2), ['add3', 'submit'], 1), 'Int')).toEqual([
+      'add3',
+      'submit',
+    ]);
   });
 
   it('同 seed 渲染逐字相同', () => {

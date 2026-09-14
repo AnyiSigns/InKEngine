@@ -2,8 +2,10 @@
  * 生成器核心（C.1 全文）：分层实例化 → public spec + hidden gold。
  *
  * 骨架枚举/签名去冗余/恒等丢弃在 gen/skeletons.ts（SKELETONS/isIdentity），分层与
- * 切分在 gen/splits.ts（STRATA/_splitMaps/splitOf），判定层在 gen/producibility.ts
- * （goalEligible/hasShortcut/hasOneStepSolution/UNPRODUCIBLE_HELDOUT），本文件负责
+ * 切分在 gen/splits.ts（STRATA/_splitMaps/splitOf/poolFor），判定层在
+ * gen/producibility.ts（goalEligible/hasShortcut/hasOneStepSolution/
+ * UNPRODUCIBLE_HELDOUT），覆盖构造在 gen/coverage.ts（makeCoverageSplitInfo/
+ * makeCoverageSplit，本文件再导出保持 D 表端口），本文件负责
  * 采样与收尾：按 (深度 × 是否含 cond) 分层等概率采样（层间/层内各一次 choice），
  * 按族给骨架补 submit(+check_*)，follow 族指令 = 计划线性渲染（含终算子义项）+
  * 极小性守卫换 witness，goal 族指令只描述目标谓词（gold = 传入骨架本身，多解可
@@ -21,18 +23,18 @@ import {
   _stratum,
   codepointCompare,
   compareStratum,
+  poolFor,
   splitOf,
   type StratumKey,
 } from './splits.js';
 import {
   _commit,
-  coverageKey,
+  followUnproducible,
   goalEligible,
   goalProbeHit,
   hasOneStepSolution,
   hasShortcut,
   isGoalDomain,
-  UNPRODUCIBLE_HELDOUT,
 } from './producibility.js';
 import { initState, runPlan, sampleValue } from '../world/operators.js';
 import { goalOk, type Goal } from '../world/goal.js';
@@ -107,9 +109,12 @@ export function sampleGoal(rng: Rng, root: Root): Goal {
 // 注：goalProbeHit / _commit / goalEligible / hasOneStepSolution / hasShortcut 均在
 // gen/producibility.ts 实现，本文件按 import/re-export 取用（唯一口径，别处不复制）。
 
-/** 配方族实例化（C.1）：指令 = 计划线性渲染；follow 族极小性守卫（has_shortcut，R2-P0-3）
- *  命中即换 witness；回放穿 accept 才返回。 */
+/** 配方族实例化（C.1）：指令 = 计划线性渲染；follow 族极小性守卫（has_shortcut，
+ *  R2-P0-3 删任意步版）命中即换 witness；结构性非最小骨架（followUnproducible，
+ *  采样域无 ≥2 条无捷径 witness）直接短路 null，防空烧采样预算；回放穿 accept
+ *  才返回。 */
 export function instanceFollow(rng: Rng, root: Root, skeleton: readonly string[], family: Family): Task | null {
+  if (followUnproducible({ root, plan: skeleton })) return null;
   for (let i = 0; i < 200; i++) {
     const x = sampleValue(rng, root);
     const st = runPlan(skeleton, initState(x));
@@ -191,11 +196,6 @@ export function instanceTask(
     : instanceFollow(rng, root, skeleton, family);
 }
 
-/** 该切分下的骨架池。 */
-function _pool(split: Split): Skel[] {
-  return SKELETONS.filter((sk) => splitOf(sk) === split);
-}
-
 /** 层间等概率 + 层内等概率：修掉“骨架均匀抽样 = 几乎全是深度 5”。 */
 function _stratifiedChoice(rng: Rng, pool: readonly Skel[]): Skel {
   const by = new Map<StratumKey, Skel[]>();
@@ -218,7 +218,7 @@ export function makeTask(
   skeleton?: Skel,
 ): Task | null {
   const rng = makeRng(seed);
-  const pool = skeleton !== undefined ? [skeleton] : split !== undefined ? _pool(split) : SKELETONS;
+  const pool = skeleton !== undefined ? [skeleton] : split !== undefined ? poolFor(split) : SKELETONS;
   for (let i = 0; i < 200; i++) {
     const sk = skeleton ?? _stratifiedChoice(rng, pool);
     const fam = family ?? rng.choice(STYLES[style]);
@@ -234,11 +234,12 @@ export function makeTask(
  * 固定；骨架不够则同骨架多实例化（上限 maxPerSkeleton），仍不够报错不静默降级。
  * 只用于统计集/val，「每骨架都被考核」由 makeCoverageSplit 保证，二者不可混用。
  * goal 域族（goal/goal_verify）只走适格池（R2-P0-2）：长度不变类等不适格骨架
- * 产不出 goal 任务，留在池里只会空烧采样预算。
+ * 产不出 goal 任务；follow 域族结构性非最小骨架（R2-P0-3 删任意步版：采样域无
+ * ≥2 条无捷径 witness）由 instanceFollow 短路 null，不空烧采样预算。
  */
 export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkeleton = 4): Task[] {
   const rng = makeRng(seed);
-  const pool = [..._pool(split)].sort((a, b) => codepointCompare(_skelId(a), _skelId(b)));
+  const pool = [...poolFor(split)].sort((a, b) => codepointCompare(_skelId(a), _skelId(b)));
   const out: Task[] = [];
   for (const style of ['follow', 'goal'] as const) {
     for (const fam of STYLES[style]) {
@@ -268,80 +269,6 @@ export function makeSplit(split: Split, perFamily: number, seed = 0, maxPerSkele
   return out;
 }
 
-/**
- * 覆盖构造结果：tasks = 恰 1 条/（适格池骨架 × style × family）；unproducible =
- * goal 域族适格性筛除的键（与注册表同口径）；ineligible = 被筛除的骨架 id 清单
- * （R2-P0-2 显式上报，不静默）。
- */
-export interface CoverageSplitInfo {
-  readonly tasks: Task[];
-  readonly unproducible: readonly string[];
-  readonly unproducibleCount: number;
-  readonly ineligible: readonly string[];
-  readonly ineligibleCount: number;
-}
-
-/**
- * C.1 `make_coverage_split` 的可判定版：每个 (该切分**适格池**骨架 × style × family)
- * 恰 1 条；只允许同骨架重试（50 次），禁止跨骨架顶替。goal 域族覆盖声明缩到
- * 适格池（R2-P0-2）：goalEligible 不适格的骨架记为 known-unproducible 带出计数与
- * 清单（显式化，不静默），可产域任一骨架产不出仍抛错（覆盖声明在适格域上成立）。
- * follow 族按构造全域适格且可产，注册表一旦出现 follow 键即判定被破坏，当场抛错。
- * 骨架池默认取 `_pool(split)`，可注入（小子集冒烟/构造抛错分支）。
- */
-export function makeCoverageSplitInfo(
-  split: Split,
-  seed = 0,
-  skeletons?: readonly Skel[],
-): CoverageSplitInfo {
-  for (const key of UNPRODUCIBLE_HELDOUT) {
-    if (key.startsWith('follow:')) {
-      throw new Error(`coverage registry broken: follow 域应全域可产却判出不可产 (${key})`);
-    }
-  }
-  const rng = makeRng(seed);
-  const pool = [...(skeletons ?? _pool(split))].sort((a, b) =>
-    codepointCompare(_skelId(a), _skelId(b)),
-  );
-  const out: Task[] = [];
-  const unproducible: string[] = [];
-  const ineligible = new Set<string>();
-  for (const style of ['follow', 'goal'] as const) {
-    for (const fam of STYLES[style]) {
-      for (const sk of pool) {
-        const cid = _skelId(sk);
-        const key = coverageKey(style, fam, cid);
-        if (isGoalDomain(fam) && !goalEligible(sk.root, sk.plan)) {
-          unproducible.push(key);
-          ineligible.add(cid);
-          continue;
-        }
-        let task: Task | null = null;
-        for (let attempt = 0; attempt < 50; attempt++) {
-          const candidate = instanceTask(rng, sk.root, sk.plan, fam, style);
-          if (candidate !== null && candidate.split === split) {
-            task = candidate;
-            break;
-          }
-        }
-        if (task === null) {
-          throw new Error(`coverage ${split}/${style}/${fam}/${cid}: skeleton yields no task`);
-        }
-        out.push(task);
-      }
-    }
-  }
-  const ineligibleIds = [...ineligible].sort(codepointCompare);
-  return {
-    tasks: out,
-    unproducible,
-    unproducibleCount: unproducible.length,
-    ineligible: ineligibleIds,
-    ineligibleCount: ineligibleIds.length,
-  };
-}
-
-/** C.1 `make_coverage_split` 签名保持：覆盖集任务列表（计数走 makeCoverageSplitInfo）。 */
-export function makeCoverageSplit(split: Split, seed = 0): Task[] {
-  return makeCoverageSplitInfo(split, seed).tasks;
-}
+/** 覆盖构造端口（实现见 gen/coverage.ts，为满足单文件 ≤350 行纪律拆出；D 表仍挂 generator）。 */
+export { makeCoverageSplit, makeCoverageSplitInfo } from './coverage.js';
+export type { CoverageSplitInfo } from './coverage.js';

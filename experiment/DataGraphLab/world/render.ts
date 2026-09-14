@@ -92,7 +92,10 @@ export function parseRecipe(instr: string, rootType: TypeName): string[] {
     if (!chosen) continue;
     out.push(chosen);
     const c = contractOf(chosen);
-    if (c && c.out_type !== 'any') currentType = c.out_type as TypeName;
+    // 仅写 x 的算子推进 currentType：terminal（submit→answer、check_*→verdict）的
+    // out_type 指向各自 provides 字段而非 x，若在计划中段出现会错改 x 类型
+    // （如 check_* 后把 neg/reverse 共享义项 `取反` 误判成 Str→reverse）。
+    if (c && c.provides === 'x' && c.out_type !== 'any') currentType = c.out_type as TypeName;
   }
   return out;
 }

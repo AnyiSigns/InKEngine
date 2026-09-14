@@ -7,7 +7,8 @@
  * 深度×cond 层分布来自同一 STRATA，按构造对齐（G0.5）。
  *
  * 引用方向刻意单向：本文件只依赖 gen/skeletons.ts（SKELETONS/_skelId），
- * gen/generator.ts 再 import 本文件取 STRATA/splitOf。切分映射由 SKELETONS
+ * gen/generator.ts 与 gen/coverage.ts 再 import 本文件取 STRATA/splitOf/poolFor。
+ * 切分映射由 SKELETONS
  * 派生、generator 的 instance/make 又要消费 splitOf，若双向 import 会在 ESM
  * 求值期触发 TDZ（generator 先加载时读到未初始化的 SKELETONS），故算法一律
  * 收在数据持有方。
@@ -57,8 +58,10 @@ export const STRATA: ReadonlyMap<StratumKey, readonly Skel[]> = (() => {
 })();
 
 /**
- * C.1 `_split_maps`：每层 heldout≈20%、val≈5%，每层保底 ≥1；层内 <2 报错。
- * 入参可注入（默认用模块 STRATA），便于测试构造单骨架假层验证报错分支。
+ * C.1 `_split_maps`：每层 heldout≈20%、val≈5%，每层保底 ≥1；层内 <2 报错；
+ * 整层全命中 heldout（保底后 rest 为空）同样显式报错，不让 `rest[0]!` 以
+ * undefined 隐式崩溃（P2）。入参可注入（默认用模块 STRATA），便于测试构造
+ * 单骨架假层验证报错分支。
  */
 export function _splitMaps(strata: ReadonlyMap<StratumKey, readonly Skel[]> = STRATA): {
   heldout: ReadonlySet<string>;
@@ -77,6 +80,10 @@ export function _splitMaps(strata: ReadonlyMap<StratumKey, readonly Skel[]> = ST
     const hFinal = h.length > 0 ? h : [ordered[0]!];
     for (const sk of hFinal) heldout.add(_skelId(sk));
     const rest = ordered.filter((sk) => !hFinal.includes(sk));
+    if (rest.length === 0) {
+      // heldout 全命中本层（含保底取走唯一余量）：val 无从保底，禁 rest[0]! 隐式崩溃。
+      throw new Error(`stratum ${key} 全部 heldout，无法切 val：请扩该层骨架`);
+    }
     const v = rest.filter((sk) => emod(crc32(_skelId(sk) + 'val'), 20) === 0);
     const vFinal = v.length > 0 ? v : [rest[0]!];
     for (const sk of vFinal) val.add(_skelId(sk));
@@ -95,4 +102,9 @@ export function splitOf(sk: Skel): Split {
   if (HELDOUT_SKELETONS.has(id)) return 'heldout';
   if (VAL_SKELETONS.has(id)) return 'val';
   return 'train';
+}
+
+/** 该切分下的骨架池（唯一真源：generator 与 coverage 共用，杜绝第二份口径）。 */
+export function poolFor(split: Split): Skel[] {
+  return SKELETONS.filter((sk) => splitOf(sk) === split);
 }

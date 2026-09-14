@@ -7,6 +7,9 @@
  * 跨语言只经 `records.jsonl`/`weights.json`，canonical 序列化由 TS 独占。
  */
 
+// Node 专属内置运行时依赖（登记为既定，P3）：本模块只在 Node 侧（tsx/vitest/
+// gates）运行，浏览器与 Python 不复刻本实现；「零运行时依赖」纪律指 npm 三方包，
+// node:crypto 是 Node 内置模块、不在其列。
 import { createHash } from 'node:crypto';
 
 /** IEEE 802.3（zlib.crc32）多项式 0xEDB88320，与 Python `zlib.crc32` 逐位一致。 */

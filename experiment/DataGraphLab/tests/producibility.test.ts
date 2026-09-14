@@ -1,12 +1,14 @@
 /**
- * gen/producibility 测试（适格性注册表薄层 + 单步捷径判定）。
+ * gen/producibility 测试（适格性注册表薄层 + 单步/删任意步捷径判定）。
  *
- * 断言：GOAL_PROBE_GOALS 与 sampleGoal 采样空间防漂移；注册表键仅 goal 两族
- * （由 goalEligible 派生的 heldout 视图，follow 零键）、规模与实测 210/829 一致、
- * 与 live goalEligible 完全等价；注册表成员经独立判定池 × 全域 witness 穷举零
- * 「初始不达标∧终值达标」候选（独立 oracle，不 import 被测判定实现），且 goal
- * 两族实例化恒零产出；適格（非注册表）heldout 骨架 goal 两族必在重试预算内产出；
- * hasOneStepSolution 对 value/goal/verify 族的正/负判据。
+ * 断言：GOAL_PROBE_GOALS 与 sampleGoal 采样空间防漂移；注册表两 style 对称
+ * （goal 两族由 goalEligible 派生的 heldout 视图 + follow 两族结构性非最小，
+ * 规模与实测 580 键 = 210×2 + 80×2 一致）、与 live goalEligible 完全等价；
+ * 注册表成员经独立判定池 × 全域 witness 穷举零「初始不达标∧终值达标」候选
+ * （独立 oracle，不 import 被测判定实现），follow 成员经测试内独立子序列枚举
+ * 逐 witness 复算「存在更短合法计划」，且 goal 两族实例化恒零产出；適格
+ * （非注册表）heldout 骨架 goal 两族必在重试预算内产出；hasOneStepSolution
+ * 对 value/goal/verify 族的正/负判据。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -19,13 +21,14 @@ import {
   UNPRODUCIBLE_HELDOUT,
 } from '../gen/producibility.js';
 import { SKELETONS, _skelId, type Skel } from '../gen/skeletons.js';
-import { HELDOUT_SKELETONS, splitOf } from '../gen/splits.js';
+import { HELDOUT_SKELETONS, codepointCompare, splitOf } from '../gen/splits.js';
 import { instanceGoal, instanceTask, sampleGoal } from '../gen/generator.js';
 import { GRAPH } from '../runner/graph.js';
 import { initState, runPlan } from '../world/operators.js';
+import { crc32 } from '../world/hash.js';
 import { makeRng } from '../world/rng.js';
 import { goalOk, type Goal } from '../world/goal.js';
-import type { Task } from '../schema.js';
+import type { Root, Task } from '../schema.js';
 
 /** 独立判定池（字面誊写 C.1 采样词表，不 import 被测实现）：Int 5 单体 + 25 合取。 */
 function oraclePoolInt(): Goal[] {
@@ -83,13 +86,14 @@ describe('gen/producibility/GOAL_PROBE_GOALS（适格判定池防漂移）', () 
   });
 });
 
-describe('gen/producibility/UNPRODUCIBLE_HELDOUT（goalEligible 派生的薄层注册表）', () => {
-  it('键合法：仅 goal 两族（follow 零键）、两族对称、composition_id 全落 heldout 骨架', () => {
+describe('gen/producibility/UNPRODUCIBLE_HELDOUT（goalEligible 派生；R5 后 follow 键清空）', () => {
+  it('键合法：注册表仅 goal 两族，composition_id 全落 heldout 骨架；follow 键已清空（R5）', () => {
     const keys = [...UNPRODUCIBLE_HELDOUT];
-    expect(keys.some((k) => k.startsWith('follow:'))).toBe(false);
     const ids = new Set<string>();
     for (const k of keys) {
       const [style, fam, id] = k.split(':');
+      // R5 轨迹约束：follow 验收要求 hist == spec.trace，更短合法替代按定义不存在，
+      // 结构性非最小不再是缺陷 → follow 注册表键清空（原 80×2 键全部重新可产）。
       expect(style).toBe('goal');
       expect(['goal', 'goal_verify']).toContain(fam!);
       expect(HELDOUT_SKELETONS.has(id!)).toBe(true);
@@ -97,9 +101,10 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（goalEligible 派生的薄层�
     }
     expect(keys.length).toBe(ids.size * 2);
     expect(ids.size).toBeGreaterThan(0);
+    expect([...UNPRODUCIBLE_HELDOUT].some((k) => k.startsWith('follow:'))).toBe(false);
   });
 
-  it('规模与实测一致：210 不适格骨架 × 2 族 = 420 键（heldout 210/829）', () => {
+  it('规模与实测一致：210 不适格 × 2 goal 族 = 420 键（heldout 210/829；R5 后无 follow 键）', () => {
     const heldoutN = SKELETONS.filter((sk) => splitOf(sk) === 'heldout').length;
     expect(heldoutN).toBe(829);
     expect(UNPRODUCIBLE_HELDOUT.size).toBe(420);
@@ -114,6 +119,31 @@ describe('gen/producibility/UNPRODUCIBLE_HELDOUT（goalEligible 派生的薄层�
       expect(inRegistry, `${sk.root}:${sk.plan.join(',')}`).toBe(!goalEligible(sk.root, sk.plan));
     }
   });
+
+  it('R5 后 heldout follow 骨架全部可产（原 80 结构性非最小恢复进池）：抽样逐骨架 instanceFollow 产出', () => {
+    const cleanIds = SKELETONS.filter((sk) => splitOf(sk) === 'heldout').sort((a, b) =>
+      codepointCompare(_skelId(a), _skelId(b)),
+    );
+    const sampled: Skel[] = [];
+    for (const root of ['Int', 'Str'] as const) {
+      for (const sk of cleanIds) {
+        if (sk.root === root) {
+          sampled.push(sk);
+          if (sampled.filter((m) => m.root === root).length >= 4) break;
+        }
+      }
+    }
+    expect(sampled.length).toBe(8);
+    for (const sk of sampled) {
+      const t = instanceTask(makeRng(crc32(_skelId(sk))), sk.root, sk.plan, 'value', 'follow');
+      expect(t, `${sk.plan.join(',')} 可产域恢复后仍产不出`).not.toBeNull();
+      if (t !== null) {
+        // 回放穿验收（hist == spec.trace），金计划仍是合法解
+        const st = runPlan(t.plan_hidden, initState(t.x, t.spec));
+        expect(st).not.toBeNull();
+      }
+    }
+  }, 180_000);
 });
 
 describe('gen/producibility/goalEligible（独立全域穷举复核）', () => {

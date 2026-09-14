@@ -25,6 +25,13 @@ export function allLexemes(): Lexeme[] {
   return out;
 }
 
+/**
+ * requires 类型集（`requiresTypes` 已剔除 "any" 通配）。登记盲区（P3，不改既有
+ * 审计结论）：requires 全为 "any" 的算子（如 submit）typeSet 退化为空集，
+ * `disjoint` 对任何算子恒真——「与 any 通配算子共享义项」的歧义对本审计不可见。
+ * 当前词表不踩此例（submit 的义项无跨算子共享）；若未来引入此类共享义项，
+ * 本节需先单列豁免（把 any 通配视为与一切类型相交）再作判定。
+ */
 function typeSet(opId: string): Set<string> {
   const c = contractOf(opId);
   return new Set(c ? requiresTypes(c) : []);

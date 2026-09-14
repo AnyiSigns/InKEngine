@@ -102,7 +102,6 @@ const EXCLUDED_TOP_DIRS = new Set(['node_modules', 'scripts']);
  *  阶段 7b 起 ui_feature 组件叶子/面板经规则放行（见 realFaceAllowed），
  *  内置其余仍 data-only 拒真面——防平行真相；外部插件按 capability 放行）。 */
 const REAL_FACE_BUILTINS = new Set(['doc_parse']);
-
 const FACE_TARGETS = new Set(['engine', 'host', 'web']);
 const FACE_KEYS = new Set(['ui', 'logic', 'data']);
 const PORT_IDS = new Set<string>(MECHANISM_PORT_IDS);
@@ -431,16 +430,19 @@ function auditFacesAndContract(universe: Map<string, Plugin>): void {
 
 /** 真面许可：声明了全脸字段的插件须为 capability=external_tool、白名单内置
  *  （阶段 7a doc_parse 样板）、ui_feature 组件节点（阶段 7b：布局叶子/设置
- *  面板的独占 UI 实现随插件 faces/ui 同住）或 graph_node kind（S1-b：图节点
- *  注册清单 = 真声明——faces.logic 节点工厂入口 + data.node 契约数据，kind 级
- *  放行不论 capability）；data-only（无声明）不在此判定。 */
+ *  面板的独占 UI 实现随插件 faces/ui 同住）、graph_node kind（S1-b：图节点
+ *  注册清单 = 真声明——faces.logic 节点工厂入口 + data.node 契约数据）、ports kind
+ *  （S2：端口提供方 = 端口实装位）或 command kind（S3：命令逻辑面 = 命令实现位，
+ *  faces.logic target=host 命令工厂，声明 faces.logic 的命令插件即真面、真面许可
+ *  随声明走）；kind 级放行不论 capability。data-only（无声明）不在此判定。 */
 function realFaceAllowed(plugin: Plugin): boolean {
   return (
     plugin.capability === 'external_tool' ||
     REAL_FACE_BUILTINS.has(plugin.id) ||
     plugin.isUiComponent === true ||
     plugin.kind === 'graph_node' ||
-    plugin.kind === 'ports'
+    plugin.kind === 'ports' ||
+    plugin.kind === 'command'
   );
 }
 

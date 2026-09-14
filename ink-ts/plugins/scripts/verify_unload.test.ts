@@ -82,6 +82,23 @@ function specOf(id: string, extra: Record<string, unknown> = {}): Record<string,
 const GOOD_LOGIC_FILE = `export default function createService(): { hello(): string } {\n  return { hello: () => 'hi' };\n}\n`;
 const NO_EXPORT_FILE = `export function hello(): string {\n  return 'hi';\n}\n`;
 
+/** 命令插件夹具（S3 命令逻辑面：spec.id = 方法名，faces.logic target=host）。 */
+function commandSpec(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    kind: 'command',
+    capability: 'host_tool',
+    depends: [],
+    actions: [],
+    faces: { logic: { target: 'host', entry: './faces/logic/index.ts' } },
+    data: { group: 'tools', order: 1 },
+    ...extra,
+  };
+}
+
+/** 命令 logic face 样板（默认导出 = 统一工厂 (deps) => BridgeHandler）。 */
+const GOOD_COMMAND_FILE = `import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';\nexport default function createCmd(deps: HostBridgeDeps): BridgeHandler {\n  return () => ({ ok: true });\n}\n`;
+
 const tmpRoots: string[] = [];
 
 afterAll(() => {
@@ -153,6 +170,45 @@ describe('verify:unload S0 faces.logic 契约失败用例（--root 夹具）', (
     expect(status).toBe(1);
     expect(out).toContain('faces.logic entry 缺默认导出');
     expect(out).toContain('contract.effects 未登记端口: bogus_port');
+    expect(out).toContain('faces.logic entry 越界');
+  });
+});
+
+describe('verify:unload S3 命令逻辑面（command kind 真面放行 + 装载契约）', () => {
+  it('声明 faces.logic 的命令插件（默认导出 = 命令工厂）全量审计 PASS', () => {
+    const root = makeFixtureRoot([
+      { id: 'cmd.good', dir: 'commands/cmd.good', spec: commandSpec('cmd.good'), logicFile: GOOD_COMMAND_FILE },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(0);
+    expect(out).toContain('verify:unload PASS');
+  });
+
+  it('命令插件 logic face 缺默认导出被拒（S3 命令逻辑面守 S0 装载契约）', () => {
+    const root = makeFixtureRoot([
+      { id: 'cmd.good', dir: 'commands/cmd.good', spec: commandSpec('cmd.good'), logicFile: GOOD_COMMAND_FILE },
+      { id: 'cmd.no_export', dir: 'commands/cmd.no_export', spec: commandSpec('cmd.no_export'), logicFile: NO_EXPORT_FILE },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(1);
+    expect(out).toContain('faces.logic entry 缺默认导出');
+    expect(out).toContain('cmd.no_export');
+  });
+
+  it('命令插件 logic face entry 越界被拒（entry 须为插件目录内相对路径）', () => {
+    const root = makeFixtureRoot([
+      { id: 'cmd.good', dir: 'commands/cmd.good', spec: commandSpec('cmd.good'), logicFile: GOOD_COMMAND_FILE },
+      {
+        id: 'cmd.escape',
+        dir: 'commands/cmd.escape',
+        spec: commandSpec('cmd.escape', { faces: { logic: { target: 'host', entry: '../escape.ts' } } }),
+      },
+    ]);
+    tmpRoots.push(root);
+    const { status, out } = runVerify(root);
+    expect(status).toBe(1);
     expect(out).toContain('faces.logic entry 越界');
   });
 });

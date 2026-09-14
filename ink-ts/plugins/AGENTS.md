@@ -18,11 +18,18 @@ plugins/
 │   └─ <server-id>/     #   目录名 = server id（market.<kebab>）
 │       ├─ package.json #   npm 包名 = @ink-ts/plugin-market-<kebab>
 │       └─ spec.json    #   声明（id/kind='mcp'/capability='external_tool'/data.server）
-├─ commands/            # kind='command' 插件域：一个命令方法一个目录
-│   └─ <method>/        #   目录名 = 方法名（rounds.send；含点号）
-│       ├─ package.json #   npm 包名 = @ink-ts/plugin-<kebab>（点号/下划线转连字符）
-│       └─ spec.json    #   声明（id=方法名/kind='command'/capability='host_tool'/
-│                        #   data.group=实现域（DOMAIN_TABLE 之一）/data.order=域内序号）
+├─ commands/            # kind='command' 插件域：一个命令方法一个目录（S3 起命令
+│   │                   #   实现位随插件真面化：faces/logic 默认导出命令工厂）
+│   ├─ <method>/        #   目录名 = 方法名（rounds.send；含点号）
+│   │   ├─ faces/logic/ #   命令逻辑面（S3 实现位）：index.ts 默认导出 =
+│   │   │               #   统一工厂 (deps: HostBridgeDeps) => BridgeHandler +
+│   │   │               #   同住 *.test.ts（行为测试随迁，S3-测试）
+│   │   ├─ package.json #   npm 包名 = @ink-ts/plugin-<kebab>（点号/下划线转连字符）
+│   │   └─ spec.json    #   声明（id=方法名/kind='command'/capability='host_tool'/
+│   │                    #   data.group=实现域（DOMAIN_TABLE 之一）/data.order=域内序号/
+│   │                    #   faces.logic={target:'host', entry:'./faces/logic/index.ts'}）
+│   ├─ _shared/         #   命令插件间共享私有件（非插件：无 spec.json，生成器跳过；
+│   │                    #   含每宿主共享状态经 WeakMap<deps, T> 缓存保证跨命令共享）
 ├─ ui_features/         # kind='ui_feature' 插件域：一布局树节点一插件（阶段 3b2）
 │   ├─ inkling.ui/      #   装配入口（唯一）：data = name/version/theme + root.$ref
 │   ├─ inkling.ui.root/ #   容器节点：data.node（container）+ data.children（$ref 序）
@@ -87,6 +94,8 @@ dock/ports 词表、faces.logic = 端口实装位（S0 §2.2 豁免子句）、b
 （不进 plugins/）；`recipe`/`executor` 旧死 kind 值已随 P9 移除（第三方新形态走
 x-* 开放命名空间，不占首方 kind 名）。阶段 3a 已落地 `tools/` 与
 `mcp/` 两域；阶段 3b1 落地 `commands/`（66 命令，方法名真源迁移 plugins）；
+S3（2026-09-14）命令逻辑下沉：64 命令实现位 = plugins/commands/<id>/faces/logic
+（真面化，域内共享辅助落 _shared/），hosts/lib/src/bridge 只留装配面；
 阶段 3b2 落地 `ui_features/`（25 节点插件 + 装配入口，产品主壳布局真源迁移
 plugins，生成物 ui.generated.json 取代旧 ui_spec 布局树）；阶段 6 落地
 `endpoints/`（exec/infer/mcp 三件，原生执行件定位声明真源）；阶段 7b 落地
@@ -162,20 +171,24 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
   NativeBinaryKind 类型）由此生成，hosts/lib/src/exec/binary.ts 按声明定位
   （binary.ts 不再手写 env/文件名表）；改端点声明只改 spec.json + 重跑
   生成器；
-- faces/impl/locale 物理目录：data-only 声明插件（tools/mcp/commands 与无真面
+- faces/impl/locale 物理目录：data-only 声明插件（tools/mcp 与无真面
   ui 容器）无独立执行体（共享 inkling_exec/inkling_shell 等端点）；真 ui 面
   物理目录 = ui_feature 插件 faces/ui/（index.tsx 默认导出 + 同住测试），
-  host logic face 物理目录 = faces/logic/（doc_parse）；spec 顶层 **faces 声明
+  host logic face 物理目录 = faces/logic/（doc_parse；S3 起命令逻辑面同住
+  plugins/commands/<id>/faces/logic/index.ts，域内共享辅助落
+  plugins/commands/_shared/）；spec 顶层 **faces 声明
   字段能力**在阶段 4 立好（形状经生成器、引用语义经 verify:unload 强制）；
 - 阶段 4 data-only 定案（2026-09-07）后经两轮真面许可收窄：现有内置插件
-  （tools/mcp/commands/无真面 ui 容器）仍 **data-only**——共享 exec 端点/共享
+  （tools/mcp/无真面 ui 容器）仍 **data-only**——共享 exec 端点/共享
   域实现/共享渲染原语，无插件独占实现面，**不填占位 faces/depends/contract**
   （避免第二份平行真相；若加真值，verify_unload 的 data-only 状态引脚会红并
   提示同步文档）。**真面许可**：capability=external_tool 的外部插件；
   verify_unload `REAL_FACE_BUILTINS` 白名单内置（仅 doc_parse——host logic
   face 样板，白名单增删须同步 verify_unload.ts 与本文档）；或 ui_feature
   组件节点（isUiComponent，阶段 7b 起 canonical 叶子/设置面板/浮层的独占 UI
-  实现随 faces/ui 同住，属渲染器真 ui 面而非数据层第二真相）；
+  实现随 faces/ui 同住，属渲染器真 ui 面而非数据层第二真相）；或 command kind
+  （S3 命令逻辑下沉：命令实现位 = faces/logic，声明 faces.logic 的命令插件
+  即真面，真面许可随声明走，data-only 命令仍走引脚）；
 - 阶段 7a 首真面（2026-09-07）：`tools/doc_parse/` 声明 faces.logic
   （target=host，entry=./faces/logic/index.ts）+ depends=['exec']（原生执行件
   端点插件）；实现（DocService/DocParser 执行体）随插件同住于
@@ -183,8 +196,18 @@ endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
   plugins` 执行；host 装配期由 `hosts/lib/src/face/loader.ts` 按声明装载（缺插件
   源 = docParse 缺省降级；face 装载/契约不符 = 装配期 fail-closed）；faces
   entry 物理同住（相对路径禁逃逸 + 文件真实存在）由 verify:unload 强制；
+- S3 命令逻辑下沉（2026-09-14）：64 命令实现位随命令插件真面化——命令
+  = spec.json（faces.logic target=host）+ plugins/commands/<id>/faces/logic/
+  index.ts（默认导出 = 统一工厂 (deps: HostBridgeDeps) => BridgeHandler，
+  S0 装载契约）；域内共享辅助（含每宿主共享状态，如 rounds 串行队列/在途
+  登记、capability/workspace 兜底 store）落 plugins/commands/_shared/（非插件，
+  WeakMap 按 deps 缓存保证跨命令共享）；hosts/lib/src/bridge/ 只留装配面
+  （index.ts buildBridge 按 BRIDGE_METHODS 动态装载命令插件逻辑面 + _types
+  契约 + op_gate 维护闸 + 生成物）；verify:bridge-mount 守 BRIDGE_METHODS ↔
+  manifest 命令 faces.logic 双向一致；改命令只改 plugins/commands/<id>/
+  （实现/声明）+ 重跑生成器；
 - per-plugin AGENTS 政策（细则见 docs/subsystems/plugins.md）：**data-only 声明
-  插件（tools/mcp/commands 与无真面 ui 容器）不设 AGENTS.md**——以 spec.json
+  插件（tools/mcp 与无真面 ui 容器）不设 AGENTS.md**——以 spec.json
   为行为唯一事实源，防行为文案第二份漂移；**真面/样板插件必配**——host logic
   face（doc_parse）与真 ui 面插件 25（canonical 布局叶子 12 + 设置面板 13，
   含设置浮层）2026-09-08 全量补建，只写意图/边界/数据从哪进，不重复 spec

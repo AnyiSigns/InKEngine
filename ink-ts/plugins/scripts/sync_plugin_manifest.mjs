@@ -399,6 +399,9 @@ async function derive() {
   const commands = []; // { id, group, order }
   for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('command')))) {
     const dir = join(PLUGINS_ROOT, kindDir('command'), id);
+    // 共享/非插件目录（如 `_shared` 承载命令插件间私有共享件）无 spec.json，
+    // 跳过不扫（同 ports/_shared 处置口径）。
+    if (!(await fileExists(join(dir, 'spec.json')))) continue;
     const spec = await readSpec(dir, 'command');
     if (typeof spec.data?.group !== 'string' || typeof spec.data?.order !== 'number') {
       await fail(`command 插件 ${id} 缺 data.group/data.order`);

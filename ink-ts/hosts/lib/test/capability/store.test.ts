@@ -11,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 
 import { createCapabilityStore } from '../../src/capability/store.js';
 import { parseRecord } from '../../src/capability/store.js';
-import { buildCapabilityCommands } from '../../src/bridge/capability.js';
 import { InkHost, resolve_host_config } from '../../src/index.js';
 
 function tempDir(prefix: string): string {
@@ -78,25 +77,6 @@ describe('能力记录域（capability.json 持久化 + 档位语义移除）', 
     const reread = createCapabilityStore(dir);
     expect(reread.get().auto_approve_tools).toEqual([]);
     expect('mcp_plugins_extra' in reread.get()).toBe(false);
-  });
-});
-
-describe('capability 命令面（bridge 接线）', () => {
-  it('get 缺省注入不含 simulation_tier；put 后并入字段回显', async () => {
-    const handlers = buildCapabilityCommands({
-      capability: createCapabilityStore(tempDir('ink-capbridge-')),
-    } as never);
-    const get = handlers['capability.get']!;
-    const put = handlers['capability.put']!;
-    const initial = (await get(null, { autoApprove: false })) as Record<string, unknown>;
-    expect(initial['simulation_tier']).toBeUndefined();
-    expect(initial['auto_approve_tools']).toEqual([]);
-
-    await put({ auto_approve_all_review: false, auto_approve_tools: ['inspect_ui'] }, {
-      autoApprove: false,
-    });
-    const after = (await get(null, { autoApprove: false })) as Record<string, unknown>;
-    expect(after['auto_approve_tools']).toEqual(['inspect_ui']);
   });
 });
 

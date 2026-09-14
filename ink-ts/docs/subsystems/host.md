@@ -46,10 +46,15 @@ hosts/
 
 ## 命令面与生成物
 
-- 命令声明真源 = plugins/commands → 生成 `commands.generated.ts`；host 域
-  实现文件只允许 `import type`/re-export 取用，方法名不手写数组
+- 命令声明真源 = plugins/commands → 生成 `commands.generated.ts`；**S3 起命令
+  实现位 = plugins/commands/<id>/faces/logic**（默认导出统一工厂
+  `(deps: HostBridgeDeps) => BridgeHandler`，域内共享辅助落
+  `plugins/commands/_shared/`），`hosts/lib/src/bridge/` 只留装配面
+  （index.ts buildBridge 按 BRIDGE_METHODS 动态装载命令插件逻辑面 + _types
+  契约 + op_gate 维护闸 + 生成物），方法名不手写数组
   （verify:bridge-mount 强制：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS`
-  spread）。现量 = **26 域 / 64 方法**（对码 `commands.generated.ts`，含执行
+  spread + BRIDGE_METHODS ↔ manifest 命令 faces.logic 双向一致）。现量 =
+  **26 域 / 64 方法**（对码 `commands.generated.ts`，含执行
   模型域的 `execution.{run,resume,inject,branch}` 与演化域
   `evolution.{crystallize,evaluate}`）。
 - 原生执行件定位 = plugins/endpoints → `native.generated.ts`（binary.ts 按

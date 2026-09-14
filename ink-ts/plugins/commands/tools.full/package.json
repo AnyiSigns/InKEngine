@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "files": [
-    "spec.json"
+    "spec.json",
+    "faces/"
   ],
-  "description": "ink-ts 命令插件声明（真源；host 命令面由此派生）"
+  "exports": {
+    ".": {
+      "node": {
+        "default": "./faces/logic/index.ts"
+      }
+    },
+    "./spec.json": "./spec.json"
+  },
+  "description": "ink-ts 命令插件声明 + logic face（S3 命令逻辑下沉：tools.full 实现位 = faces/logic）"
 }

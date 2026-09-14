@@ -4,6 +4,12 @@
   "capability": "host_tool",
   "actions": [],
   "depends": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
   "data": {
     "group": "tools",
     "order": 1

@@ -7,5 +7,11 @@
   "data": {
     "group": "audit",
     "order": 1
+  },
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
   }
 }

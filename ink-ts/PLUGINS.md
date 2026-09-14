@@ -181,7 +181,10 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 
 - **声明**：`faces.logic = { target: 'engine' | 'host' | 'web', entry: string }`；
   entry 为相对插件目录路径，实现与其 `*.test.ts` 同目录并列（物理单目录不变式）。
-  当前先例：`tools/doc_parse`（target='host'，首真面样板）。
+  当前先例：`tools/doc_parse`（target='host'，首真面样板）；S3 起 **命令逻辑面**
+  全量同构（`plugins/commands/<id>/faces/logic`，默认导出 = 命令工厂
+  `(deps: HostBridgeDeps) => BridgeHandler`，命令 = spec.json + faces/logic 单点；
+  域内共享辅助落 `plugins/commands/_shared/`）。
 - **默认导出 = 统一工厂**：logic face 的 entry 默认导出须为
   `(init?: unknown) => 实例`——**装载器只装载不解析**（实例形状 = 插件自有契约，
   由插件 spec/AGENTS 定义）；缺默认导出 = 装配前拒绝（`verify:unload` 静态守
@@ -190,6 +193,9 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
   - `host`：宿主装配期**动态 import**（`hosts/lib/src/face/loader.ts` 按声明
     entry 装载；动态 import 防全部插件静态进 bundle）；契约不符 = 装配期
     fail-closed，插件源缺失 = 消费方缺省降级路径（doc_parse 样板语义）；
+    **命令逻辑面**经 buildBridge（`hosts/lib/src/bridge/index.ts`）按
+    BRIDGE_METHODS 动态装载（声明即挂载：BRIDGE_METHODS 方法名 ↔ manifest
+    命令 faces.logic 双向一致，`verify:bridge-mount` 守）；
   - `engine`：引擎侧逻辑面——0-IO 纪律不变，副作用只经 `contract.effects`
     声明端口；
   - `web`：前端逻辑面（先冻结语义；当前真 ui 面走 faces.ui + 后端 logic

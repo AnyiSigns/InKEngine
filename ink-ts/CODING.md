@@ -187,7 +187,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
 | 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 graph/gate/loop/evolve 四机制层——kernel 层三契约 simulation/multipath/spawn 已随 P8+S1 退役清零，现 28 契约）+ runtime 装配闭包 + 同机制层与 core 残部源码（扫描集仍含 kernel 历史目录名，目录已清零） | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
-| 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；域文件禁本地声明 `*_COMMANDS` 数组——方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；键与实现表一致由各域工厂 `Readonly<Record<DomainCommand, BridgeHandler>>` 返回类型编译期保证 |
+| 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；**挂载双向一致**——每个 BRIDGE_METHODS 方法名须有 plugins/commands/<id> 插件声明 faces.logic（target=host），每个声明 faces.logic 的命令插件须在 BRIDGE_METHODS 内，方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；命令实现位 = plugins/commands/<id>/faces/logic（默认导出统一工厂，S0 装载契约），键与实现表一致由 buildBridge 装配期 fail-closed + 工厂返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |
 | 产品主壳布局生成物（ui.generated.json 禁手改） | `plugins/ui.generated.json`（产品 UI 布局树，真源 = plugins/ui_features/*/spec.json 装配入口 $ref 展开） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：DFS 展开 $ref 重建完整布局树，引用缺失/成环/孤儿 fail-closed；--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web 产品壳与 dev 夹具一律经 ui.generated.json 取用，不再有旧 ui_spec 布局树 |
@@ -202,7 +202,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 公共 API 全量快照（public-api） | `engine/src/index.ts` 导出面（typescript checker 递归展开 `export * from`，符号 `name:kind` 排序去重）：`engine/scripts/dump_api_surface.mjs --print` 与提交基线 `engine/api.surface.snapshot` 逐字比对（机械波来源路径可变、符号集合必须逐字不变） | 拒绝（gate check.ts 子进程执行；导出符号增/删/改名即红，宿主零迁移机器判定） |
 | 禁待定字面（no-pending） | `engine/src`、`hosts/*/src`、`renderer/src`、`plugins` 的 .ts(x) 禁 token：`待接线`/`未来接线`/`待引擎补全`/`机制先行`（CODING §11.1.4；「占位」在产品占位语义下放行，机制层红线另行守） | 强制（P0 即转强制：保留 4 token 扫描零命中；实施层：gate config `noPendingTokens/noPendingEnforce`） |
 | 孤儿候选扫描（no-orphan） | `engine/src` 全部 .ts 的 import 边：逐模块数「目录外消费者」，零外部消费者 = 孤儿候选（`src/index.ts` 入口豁免） | 扫描器 = `engine/scripts/no_orphan.mjs`：默认 report exit 0；`--strict` 有孤儿 exit 1（S6 执法用；扫描器形态不入 root `npm test` 阻断链） |
-| 端到端语义标签断言（semantic-e2e） | `plugins/commands/<id>/spec.json` kind=command 声明的命令 id 须在 `hosts/lib/src/bridge/` 内命中带点引号字面量（commands.generated.ts 各域 `*_COMMANDS` 元组 = BRIDGE_METHODS 派生源，或域工厂方法表键）；`plugins/ui_features/<id>/spec.json` 的 faces.ui / faces.logic 声明 entry 所指文件须真实存在（相对插件目录解析禁逃逸）——承诺机制的标签沿真实调用链找不到执行点 = 孤儿语义标签（§13.6 第 2 条） | 拒绝（硬门禁，落地即强制：实施层 `gate/src/semantic_e2e.ts`，`tsx gate/src/check.ts` 随 scanAll 执行，gate config `semanticE2eEnforce=true`；正反用例见 `gate/test/gate.test.ts`） |
+| 端到端语义标签断言（semantic-e2e） | `plugins/commands/<id>/spec.json` kind=command 声明的命令 id 须在 `hosts/lib/src/bridge/` 内命中带点引号字面量（commands.generated.ts 各域 `*_COMMANDS` 元组 = BRIDGE_METHODS 派生源）；命令插件须带 faces.logic 声明（S3 起实现位 = plugins/commands/<id>/faces/logic，spec 声明即挂载）；`plugins/ui_features/<id>/spec.json` 的 faces.ui / faces.logic 声明 entry 所指文件须真实存在（相对插件目录解析禁逃逸）——承诺机制的标签沿真实调用链找不到执行点 = 孤儿语义标签（§13.6 第 2 条） | 拒绝（硬门禁，落地即强制：实施层 `gate/src/semantic_e2e.ts`，`tsx gate/src/check.ts` 随 scanAll 执行，gate config `semanticE2eEnforce=true`；正反用例见 `gate/test/gate.test.ts`） |
 
 gate 实现与正反样例位于 `gate/src/` 与 `gate/test/`；**真实扫描链** =
 root `npm test` 首段 `npm run typecheck --workspace engine`（engine tsc
@@ -219,7 +219,7 @@ engine/api.surface.snapshot 逐字比对）→
 同住测试，阶段 7a）
 → `tsx engine/scripts/verify_mechanisms.ts`（机制件契约三键）
 → `tsx hosts/lib/scripts/verify_bridge_mount.ts`（命令声明即挂载：BRIDGE_METHODS
-无手写方法名、域文件无本地 *_COMMANDS 数组）
+无手写方法名 + BRIDGE_METHODS ↔ manifest 命令 faces.logic 双向一致）
 → `tsx plugins/scripts/sync_plugin_manifest.mjs --check`（插件源派生视图：
 plugins/manifest.json + commands.generated.ts + ui.generated.json +
 ui_canonical.generated.ts + native.generated.ts +
@@ -258,7 +258,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
 
-## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制；**现量 64 方法 / 26 域**（2026-09-12 对码 commands.generated.ts，本表方法集 = BRIDGE_METHODS 集））
+## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制；**S3 起命令实现位 = plugins/commands/<id>/faces/logic**（默认导出统一工厂 `(deps: HostBridgeDeps) => BridgeHandler`，域内共享辅助落 plugins/commands/_shared/），`hosts/lib/src/bridge/` 只留装配面（index.ts buildBridge 按 BRIDGE_METHODS 动态装载命令插件逻辑面 + _types 契约 + op_gate 维护闸 + 生成物）；**现量 64 方法 / 26 域**（2026-09-14 对码 commands.generated.ts，本表方法集 = BRIDGE_METHODS 集））
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|

@@ -244,7 +244,9 @@ export async function createHost(
   });
   deps.restore = restore;
 
-  const bridge = buildBridge(deps);
+  // S3：命令实现位 = 插件 logic face（buildBridge 按 BRIDGE_METHODS 装载命令
+  // 插件 faces.logic；命令逻辑面缺位 = 装配期 fail-closed）。
+  const bridge = await buildBridge(deps);
   bridgeRef = bridge;
   registerSessionCommandTools();
   const handle: HostHandle = {
@@ -287,7 +289,9 @@ export type { HostMcpConfig, McpConnectStatus } from './mcp/assembly.js';
 export { assembleHostMcp } from './mcp/assembly.js';
 export type { McpPluginService } from './mcp/plugin.js';
 
-export type { BridgeContext, BridgeError, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
+export type { BridgeContext, BridgeHandler, HostBridgeDeps, ModelConfigHandles } from './bridge/_types.js';
+export type { BackupRestoreOutcome, BackupRestoreRequest, HostRestoreFn } from './bridge/_types.js';
+export { BridgeError } from './bridge/_types.js';
 export { BRIDGE_METHODS, buildBridge } from './bridge/index.js';
 export type { BridgeMethod } from './bridge/index.js';
 export { FileEventsTransport } from './transport.js';
@@ -380,7 +384,7 @@ export type {
 export { SearchKeysStore, maskKey } from './search/keys.js';
 
 // ── 工作区授权域（data_dir/workspace.json 持久化）──
-export { WorkspaceStoreError, createWorkspaceStore } from './workspace/store.js';
+export { WorkspaceStoreError, createWorkspaceStore, createEphemeralWorkspaceStore } from './workspace/store.js';
 export type { WorkspaceState, WorkspaceStore } from './workspace/store.js';
 
 // ── 能力记录域（data_dir/capability.json 持久化）──
@@ -388,8 +392,13 @@ export {
   CapabilityError,
   createCapabilityStore,
   defaultCapabilityRecord,
+  parseRecord,
 } from './capability/store.js';
 export type { CapabilityRecord, CapabilityStore } from './capability/store.js';
+
+// ── 模型提供方映射（model_providers 宿主服务：role pick/掩码合并；models 命令消费）──
+export { asProvider, providerModelIds, samePick } from './model_providers.js';
+export type { ProviderPick } from './model_providers.js';
 export {
   SEARCH_PROVIDERS,
   WebSearchError,
@@ -446,6 +455,7 @@ export {
   resolve_convene_target,
 } from './execution/convene.js';
 export type { ConveneChildOutcome, ConveneResult } from './execution/convene.js';
+export { TEMP_SIGHTINGS_COLLECTION } from './execution/convene_board.js';
 
 // ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
 export { locateNativeBinary } from './exec/binary.js';

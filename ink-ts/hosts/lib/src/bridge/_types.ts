@@ -98,8 +98,9 @@ export interface HostBridgeDeps {
   docTextCap?: number | null;
   /** 文档解析执行体（rounds 文本注入；缺省 = 跳过解析仅文件名引用）。 */
   docParse?: DocParser;
-  /** 厂商模型元数据抓取执行体（model_archive 能力增强；缺省 = 全局 fetch）。 */
-  catalogFetch?: import('./model_catalog.js').CatalogFetch;
+  /** 厂商模型元数据抓取执行体（model_archive 能力增强；缺省 = 全局 fetch）。
+   *  结构类型随 S3 下沉（实现位 = plugins/commands/_shared/model_catalog）。 */
+  catalogFetch?: CatalogFetch;
   /** 检索密钥域（search.keys.set/get + web_search 执行体共用；内存不落盘）。 */
   searchKeys?: SearchKeysStore;
   /** 工作区授权域（workspace.state/set/revoke + mount.*；data_dir 持久化）。 */
@@ -130,4 +131,14 @@ import type { SearchKeysStore } from '../search/keys.js';
 import type { WorkspaceStore } from '../workspace/store.js';
 export type { DocParser };
 export type { SearchKeysStore };
+
+/** 厂商 /models 元数据抓取执行体结构契约（model_archive 消费；实现位随 S3
+ *  下沉到 plugins/commands/_shared/model_catalog.ts，宿主只声明结构面）。 */
+export interface CatalogFetch {
+  (url: string, init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  }): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+}
 export type { WorkspaceStore };

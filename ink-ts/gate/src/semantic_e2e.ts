@@ -92,6 +92,9 @@ function checkCommands(root: string, relOf: (abs: string) => string): Violation[
     const specRel = relOf(specAbs);
     const spec = readSpecJson(specAbs);
     if (spec === 'missing') {
+      // 共享/测试等非插件目录（`_shared` 承载命令插件间私有共享件、`_test`
+      // 承载插件测试助手）无 spec.json，跳过不扫（同 ports/_shared 处置口径）。
+      if (dirName.startsWith('_')) continue;
       out.push({ path: relOf(join(commandsAbs, dirName)), rule: 'semantic-e2e', message: `命令插件缺 spec.json（${dirName}）` });
       continue;
     }

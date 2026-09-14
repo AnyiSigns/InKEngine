@@ -345,448 +345,832 @@
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-audit-export",
-      "dir": "commands/audit.export"
+      "dir": "commands/audit.export",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "audit.list",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-audit-list",
-      "dir": "commands/audit.list"
+      "dir": "commands/audit.list",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "backup.export",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-backup-export",
-      "dir": "commands/backup.export"
+      "dir": "commands/backup.export",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "backup.preview",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-backup-preview",
-      "dir": "commands/backup.preview"
+      "dir": "commands/backup.preview",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "backup.restore",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-backup-restore",
-      "dir": "commands/backup.restore"
+      "dir": "commands/backup.restore",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "capability.baseline.get",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-capability-baseline-get",
-      "dir": "commands/capability.baseline.get"
+      "dir": "commands/capability.baseline.get",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "capability.baseline.set",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-capability-baseline-set",
-      "dir": "commands/capability.baseline.set"
+      "dir": "commands/capability.baseline.set",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "capability.get",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-capability-get",
-      "dir": "commands/capability.get"
+      "dir": "commands/capability.get",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "capability.put",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-capability-put",
-      "dir": "commands/capability.put"
+      "dir": "commands/capability.put",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "capability.tier.set",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-capability-tier-set",
-      "dir": "commands/capability.tier.set"
+      "dir": "commands/capability.tier.set",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "dialog.open_directory",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-dialog-open-directory",
-      "dir": "commands/dialog.open_directory"
+      "dir": "commands/dialog.open_directory",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "edge_evidence.list",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-edge-evidence-list",
-      "dir": "commands/edge_evidence.list"
+      "dir": "commands/edge_evidence.list",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "entities.snapshot",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-entities-snapshot",
-      "dir": "commands/entities.snapshot"
+      "dir": "commands/entities.snapshot",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "evolution.crystallize",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-evolution-crystallize",
-      "dir": "commands/evolution.crystallize"
+      "dir": "commands/evolution.crystallize",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "evolution.evaluate",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-evolution-evaluate",
-      "dir": "commands/evolution.evaluate"
+      "dir": "commands/evolution.evaluate",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "execution.branch",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-execution-branch",
-      "dir": "commands/execution.branch"
+      "dir": "commands/execution.branch",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "execution.inject",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-execution-inject",
-      "dir": "commands/execution.inject"
+      "dir": "commands/execution.inject",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "execution.resume",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-execution-resume",
-      "dir": "commands/execution.resume"
+      "dir": "commands/execution.resume",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "execution.run",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-execution-run",
-      "dir": "commands/execution.run"
+      "dir": "commands/execution.run",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "growth.report",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-growth-report",
-      "dir": "commands/growth.report"
+      "dir": "commands/growth.report",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "knowledge.export",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-knowledge-export",
-      "dir": "commands/knowledge.export"
+      "dir": "commands/knowledge.export",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "knowledge.graph",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-knowledge-graph",
-      "dir": "commands/knowledge.graph"
+      "dir": "commands/knowledge.graph",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "knowledge.list",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-knowledge-list",
-      "dir": "commands/knowledge.list"
+      "dir": "commands/knowledge.list",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "material.import",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-material-import",
-      "dir": "commands/material.import"
+      "dir": "commands/material.import",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "mcp.disable",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-disable",
-      "dir": "commands/mcp.disable"
+      "dir": "commands/mcp.disable",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "mcp.enable",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-enable",
-      "dir": "commands/mcp.enable"
+      "dir": "commands/mcp.enable",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "mcp.install",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-install",
-      "dir": "commands/mcp.install"
+      "dir": "commands/mcp.install",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "mcp.remove",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-remove",
-      "dir": "commands/mcp.remove"
+      "dir": "commands/mcp.remove",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "mcp.status",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-mcp-status",
-      "dir": "commands/mcp.status"
+      "dir": "commands/mcp.status",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "memory.invalidate",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-memory-invalidate",
-      "dir": "commands/memory.invalidate"
+      "dir": "commands/memory.invalidate",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "memory.list",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-memory-list",
-      "dir": "commands/memory.list"
+      "dir": "commands/memory.list",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "metrics.snapshot",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-metrics-snapshot",
-      "dir": "commands/metrics.snapshot"
+      "dir": "commands/metrics.snapshot",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "model_archive.snapshot",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-model-archive-snapshot",
-      "dir": "commands/model_archive.snapshot"
+      "dir": "commands/model_archive.snapshot",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "models.config.get",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-models-config-get",
-      "dir": "commands/models.config.get"
+      "dir": "commands/models.config.get",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "models.config.put",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-models-config-put",
-      "dir": "commands/models.config.put"
+      "dir": "commands/models.config.put",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "models.config.reload",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-models-config-reload",
-      "dir": "commands/models.config.reload"
+      "dir": "commands/models.config.reload",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "models.config.role_pick",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-models-config-role-pick",
-      "dir": "commands/models.config.role_pick"
+      "dir": "commands/models.config.role_pick",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "os.run",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-os-run",
-      "dir": "commands/os.run"
+      "dir": "commands/os.run",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "policy.route",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-policy-route",
-      "dir": "commands/policy.route"
+      "dir": "commands/policy.route",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "records.chain",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-records-chain",
-      "dir": "commands/records.chain"
+      "dir": "commands/records.chain",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "records.sessions",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-records-sessions",
-      "dir": "commands/records.sessions"
+      "dir": "commands/records.sessions",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "recovery.checkpoints",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-recovery-checkpoints",
-      "dir": "commands/recovery.checkpoints"
+      "dir": "commands/recovery.checkpoints",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "recovery.reset",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-recovery-reset",
-      "dir": "commands/recovery.reset"
+      "dir": "commands/recovery.reset",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "recovery.rollback",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-recovery-rollback",
-      "dir": "commands/recovery.rollback"
+      "dir": "commands/recovery.rollback",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "recovery.settings_reset",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-recovery-settings-reset",
-      "dir": "commands/recovery.settings_reset"
+      "dir": "commands/recovery.settings_reset",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "rounds.abort",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-rounds-abort",
-      "dir": "commands/rounds.abort"
+      "dir": "commands/rounds.abort",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "rounds.resume",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-rounds-resume",
-      "dir": "commands/rounds.resume"
+      "dir": "commands/rounds.resume",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "rounds.send",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-rounds-send",
-      "dir": "commands/rounds.send"
+      "dir": "commands/rounds.send",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "search.keys.get",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-search-keys-get",
-      "dir": "commands/search.keys.get"
+      "dir": "commands/search.keys.get",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "search.keys.set",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-search-keys-set",
-      "dir": "commands/search.keys.set"
+      "dir": "commands/search.keys.set",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.create",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-create",
-      "dir": "commands/sessions.create"
+      "dir": "commands/sessions.create",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.delete",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-delete",
-      "dir": "commands/sessions.delete"
+      "dir": "commands/sessions.delete",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.messages",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-messages",
-      "dir": "commands/sessions.messages"
+      "dir": "commands/sessions.messages",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.refresh",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-refresh",
-      "dir": "commands/sessions.refresh"
+      "dir": "commands/sessions.refresh",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.rename",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-rename",
-      "dir": "commands/sessions.rename"
+      "dir": "commands/sessions.rename",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "sessions.tree",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-sessions-tree",
-      "dir": "commands/sessions.tree"
+      "dir": "commands/sessions.tree",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "tools.full",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-tools-full",
-      "dir": "commands/tools.full"
+      "dir": "commands/tools.full",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "ui_components.get",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-ui-components-get",
-      "dir": "commands/ui_components.get"
+      "dir": "commands/ui_components.get",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "ui_components.set_disabled",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-ui-components-set-disabled",
-      "dir": "commands/ui_components.set_disabled"
+      "dir": "commands/ui_components.set_disabled",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "workspace.mount.add",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-mount-add",
-      "dir": "commands/workspace.mount.add"
+      "dir": "commands/workspace.mount.add",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "workspace.mount.remove",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-mount-remove",
-      "dir": "commands/workspace.mount.remove"
+      "dir": "commands/workspace.mount.remove",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "workspace.revoke",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-revoke",
-      "dir": "commands/workspace.revoke"
+      "dir": "commands/workspace.revoke",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "workspace.set",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-set",
-      "dir": "commands/workspace.set"
+      "dir": "commands/workspace.set",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "workspace.state",
       "kind": "command",
       "capability": "host_tool",
       "package": "@ink-ts/plugin-workspace-state",
-      "dir": "commands/workspace.state"
+      "dir": "commands/workspace.state",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
     },
     {
       "id": "agent_input",

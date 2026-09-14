@@ -7,5 +7,11 @@
   "data": {
     "group": "mcp",
     "order": 4
+  },
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
   }
 }

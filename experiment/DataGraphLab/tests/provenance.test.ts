@@ -272,9 +272,12 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
   }, 120_000);
 
   it('多解状态（金标之外仍有合法且通向验收的动作）计入冲突：验收态末步 exit 标签必伴随 noop 类冲突', () => {
+    // R5 后 follow 族验收要求 hist == trace，验收态下 noop 会毁掉前缀 → 无多解
+    // （冲突率归零）。goal 族无轨迹约束、多解合法——多解冲突是 goal 的主战场
+    // （C.8 实测 ≈0.999），本用例用 goal 任务验证"多解计入冲突"的判定机制。
     let task: Task | null = null;
     for (let attempt = 0; attempt < 10 && task === null; attempt++) {
-      task = makeTask(attempt + 1, 'follow', 'value', 'train');
+      task = makeTask(attempt + 1, 'goal', 'goal', 'train');
     }
     const t = task ?? makeTask(2, 'goal', 'goal', 'train');
     expect(t).not.toBeNull();
@@ -286,10 +289,10 @@ describe('data/provenance/safeActionConflictRate（目标族诊断，C.8）', ()
     expect(one.sampled).toBe(1);
     // 验收态下 noop/echo 类动作仍通向验收 ⇒ 多解噪音必被计为冲突
     expect(one.rate).toBe(1);
-    // 缺省目标族口径：同一条 follow 记录整条被族过滤，sampled 归 0。
+    // 缺省目标族口径：goal 记录本来就在目标族池内，不被族过滤。
     const excluded = safeActionConflictRate([exitRec], { tasks: [t!], seed: 1, nodeBudget: 400 });
-    expect(excluded.notes.excludedFollow).toBe(isGoalFam(exitRec) ? 0 : 1);
-    expect(excluded.sampled).toBe(isGoalFam(exitRec) ? 1 : 0);
+    expect(excluded.notes.excludedFollow).toBe(0);
+    expect(excluded.sampled).toBe(1);
   }, 120_000);
 
   it('未 join 到 task 的记录计入跳过注记（全池口径、恰 1），不炸', () => {

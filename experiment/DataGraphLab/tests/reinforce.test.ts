@@ -4,7 +4,7 @@
  * （`.venv` 缺席即红，不静默跳过——假通过比红着更有毒）。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -21,8 +21,10 @@ import {
 import { readReinforceBin } from '../data/reinforce_bin.js';
 import { Policy } from '../controller/policy.js';
 import { currentArch, readWeightsJson } from '../controller/checkpoint.js';
-import { GRAPH } from '../runner/graph.js';
+import { rollout } from '../runner/rollout.js';
+import { GRAPH, MAX_STEPS } from '../runner/graph.js';
 import { makeSplit } from '../gen/generator.js';
+import { makeRng } from '../world/rng.js';
 import { PKG_ROOT, defaultTrainerPath } from '../eval/scale.js';
 
 const tmpRoots: string[] = [];
@@ -71,7 +73,7 @@ describe('eval/reinforce：采样数据与 bin 往返', () => {
     const path = join(tmpRoot(), 'reinforce.bin');
     writeReinforceFile(path, collected.rows, 'lang');
     const back = readReinforceBin(path);
-    expect(back.obsDim).toBe(732);
+    expect(back.obsDim).toBe(867);
     expect(back.actDim).toBe(83);
     expect(back.actFeats.length).toBe(22);
     expect(back.rows.length).toBe(collected.rows.length);
@@ -97,8 +99,64 @@ describe('eval/reinforce：采样数据与 bin 往返', () => {
   });
 });
 
+describe('eval/reinforce：budgetSteps 预算封顶（C.8 同预算口径，rollout 原子性）', () => {
+  const tasks = makeSplit('train', 3, 5).slice(0, 6);
+  const policy = Policy.random(11, 'lang', 'none');
+
+  // 同 seed（3）+ 同 policy 独立重放逐题 trace，推定预算切断点：collectReinforceRows
+  // 的 rng 消费顺序与此逐字一致（rollout 只在多候选步经 policy.act 消耗 rng）。
+  const traces = (() => {
+    const rng = makeRng(3);
+    return tasks.map((t) => rollout(policy, GRAPH, t, false, MAX_STEPS, rng).trace);
+  })();
+  const totalEnv = traces.reduce((n, tr) => n + tr.length, 0);
+  // 「累计环境步达预算即停」：rollout 为原子单位，不半途截断；steps 计数口径是
+  // 单候选确定性步不进数据集（零学习信号），故封顶结果步数 ≤ 已花环境步。
+  const cutoff = (budget: number) => {
+    let env = 0;
+    let nondet = 0;
+    let rollouts = 0;
+    for (const tr of traces) {
+      for (const s of tr) if (s.candidates.length > 1) nondet++;
+      env += tr.length;
+      rollouts++;
+      if (env >= budget) break;
+    }
+    return { rollouts, env, nondet };
+  };
+
+  it('小预算即停：rollouts/steps 精确匹配「首个累计环境步 ≥ 预算」切断点，且为不封顶结果的前缀', () => {
+    expect(totalEnv).toBeGreaterThan(20); // 钉住任务集规模，确保下面三个小预算都半途截断
+    const full = collectReinforceRows(policy, tasks, { seed: 3 });
+    expect(full.rollouts).toBe(tasks.length);
+    for (const k of [5, 12, 20]) {
+      const ref = cutoff(k);
+      const capped = collectReinforceRows(policy, tasks, { seed: 3, budgetSteps: k });
+      expect(capped.rollouts).toBe(ref.rollouts);
+      expect(capped.rollouts).toBeLessThan(full.rollouts);
+      expect(capped.steps).toBe(ref.nondet);
+      expect(capped.steps).toBeLessThanOrEqual(ref.env);
+      expect(capped.steps).toBeLessThan(full.steps); // 未传 budgetSteps 时步数更多
+      expect(capped.rows).toEqual(full.rows.slice(0, capped.rows.length));
+    }
+  });
+
+  it('缺省（不传）= 旧语义不封顶：全量消费、steps 即行数；预算大于总步数时与缺省逐字相同', () => {
+    const full = collectReinforceRows(policy, tasks, { seed: 3 });
+    expect(full.rollouts).toBe(tasks.length);
+    expect(full.steps).toBe(full.rows.length);
+    expect(collectReinforceRows(policy, tasks, { seed: 3, budgetSteps: totalEnv + 1 })).toEqual(full);
+  });
+
+  it('budgetSteps 校验：非正整数 fail-fast（不启动任何 rollout）', () => {
+    for (const bad of [0, -1, 2.5]) {
+      expect(() => collectReinforceRows(policy, tasks, { seed: 3, budgetSteps: bad })).toThrow(/须为正整数/);
+    }
+  });
+});
+
 describe('REINFORCE 跨语言闭环：TS 采集 → Python 批量梯度 → weights.json', () => {
-  it('bin → train_reinforce.py → arch v1:lang:732:83:128:none 且可被 Policy.load', () => {
+  it('bin → train_reinforce.py → arch v4:lang:867:83:128:none 且可被 Policy.load', () => {
     const dir = tmpRoot();
     const tasks = makeSplit('train', 3, 5);
     const collected = collectReinforceRows(Policy.random(7, 'lang', 'none'), tasks, { seed: 1 });
@@ -132,4 +190,13 @@ describe('controller/reinforce_nn.py：策略梯度数值自检', () => {  it('�
     expect(res.status, `reinforce_nn 退出码非 0：${res.stderr}`).toBe(0);
     expect(res.stdout).toMatch(/1\.\d+e-\d{2}/);
   }, 300000);
+});
+
+describe('A.2 β_ent 钉死口径（Python 侧文档化测试：只读源码字面，不改值）', () => {
+  it('train_reinforce.py 与 reinforce_nn.py 源码含 BETA_ENT = 0.01 字面', () => {
+    for (const rel of [join('controller', 'train_reinforce.py'), join('controller', 'reinforce_nn.py')]) {
+      const src = readFileSync(join(PKG_ROOT, rel), 'utf8');
+      expect(src, `${rel} 应含 A.2 钉死的 BETA_ENT = 0.01`).toContain('BETA_ENT = 0.01');
+    }
+  });
 });

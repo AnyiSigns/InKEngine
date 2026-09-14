@@ -45,7 +45,10 @@ function makeTask(overrides: Partial<Task>): Task {
   };
 }
 
-const VALUE_INT: Task = makeTask({ composition_id: 'adv-value-int' });
+const VALUE_INT: Task = makeTask({
+  composition_id: 'adv-value-int',
+  spec: { trace: ['mul2', 'submit'] },
+});
 const VALUE_STR: Task = makeTask({
   x: 'abc',
   expected: 'ABC',
@@ -53,11 +56,12 @@ const VALUE_STR: Task = makeTask({
   plan_hidden: ['upper', 'submit'],
   plan_hash: hashObj(['upper', 'submit']),
   composition_id: 'adv-value-str',
+  spec: { trace: ['upper', 'submit'] },
 });
 const VERIFY_INT: Task = makeTask({
   family: 'verify',
   instruction: '起点值4。按顺序做：翻倍，再校验偶数',
-  spec: { parity: 0 },
+  spec: { parity: 0, trace: ['mul2', 'submit', 'check_parity'] },
   plan_hidden: ['mul2', 'submit', 'check_parity'],
   plan_hash: hashObj(['mul2', 'submit', 'check_parity']),
   composition_id: 'adv-verify-int',
@@ -67,7 +71,7 @@ const VERIFY_STR: Task = makeTask({
   x: 'abc',
   expected: 'ABC',
   instruction: '起点值abc。按顺序做：大写，再校验长度',
-  spec: { length: 3 },
+  spec: { length: 3, trace: ['upper', 'submit', 'check_len'] },
   plan_hidden: ['upper', 'submit', 'check_len'],
   plan_hash: hashObj(['upper', 'submit', 'check_len']),
   composition_id: 'adv-verify-str',
@@ -116,6 +120,19 @@ const GOAL_VERIFY_STR: Task = makeTask({
   plan_hash: hashObj(['upper', 'submit', 'check_len']),
   composition_id: 'adv-goal-verify-str',
 });
+// parity 目标谓词专用任务：fuzzWrongState 的 goal 兜底分支（failingValue parity 取反相）
+// 只有配 parity 任务才会点亮——wrongPool 此前全是 gt/len，parity 分支从未被执行过。
+const GOAL_PARITY: Task = makeTask({
+  style: 'goal',
+  family: 'goal',
+  x: 3,
+  expected: 6,
+  instruction: '结果为偶数',
+  spec: { goal: { kind: 'parity', target: 0 } },
+  plan_hidden: ['add3', 'submit'],
+  plan_hash: hashObj(['add3', 'submit']),
+  composition_id: 'adv-goal-parity',
+});
 
 /** 金计划回放得到达标态：构造正确通道产物的基准，也是复活态套件的起点。 */
 function replay(task: Task): State {
@@ -147,6 +164,10 @@ export const WRONG_ARTIFACTS: readonly AdversarialCase[] = [
   { label: 'verify/硬编码常量猜中但 verdict 伪造缺位', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8 } },
   { label: 'verify/verdict 大小写绕过', task: VERIFY_INT, state: { ...initState(VERIFY_INT.x), answer: 8, verdict: 'PASS' } },
   { label: 'verify/Str 旧 verdict 复用（answer 改为原值 abc，verdict 是 ABC 的指纹）', task: VERIFY_STR, state: staleVerdict(VERIFY_STR, 'abc') },
+  // R5 轨迹约束：终值对（含指纹对）但 hist ≠ 公开 spec.trace —— 模交换重排/替换恒合法必须拒
+  { label: 'value/终值对但轨迹不符（恒等双负绕路）', task: VALUE_INT, state: runPlan(['neg', 'neg', 'mul2', 'submit'], initState(VALUE_INT.x, VALUE_INT.spec))! },
+  { label: 'value/终值对但轨迹不符（等价重排到同终值）', task: VALUE_INT, state: runPlan(['add3', 'add3', 'sub1', 'sub1', 'submit'], initState(VALUE_INT.x, VALUE_INT.spec))! },
+  { label: 'verify/终值对+指纹对但轨迹不符（恒等双负绕路）', task: VERIFY_INT, state: runPlan(['neg', 'neg', 'mul2', 'submit', 'check_parity'], initState(VERIFY_INT.x, VERIFY_INT.spec))! },
   // goal：目标谓词多解可接受，但不符合或跨类型即拒
   { label: 'goal/空 answer', task: GOAL_INT, state: initState(GOAL_INT.x) },
   { label: 'goal/不满足目标谓词（临界值）', task: GOAL_INT, state: { ...initState(GOAL_INT.x), answer: 20 } },
@@ -203,8 +224,8 @@ function failingValue(goal: Goal): number {
   }
 }
 
-/** fuzz 造必拒产物：按族构造语义上保证不达标的 answer/verdict 组合。 */
-function fuzzWrongState(rng: Rng, task: Task): State {
+/** fuzz 造必拒产物：按族构造语义上保证不达标的 answer/verdict 组合（导出供分支点亮测试）。 */
+export function fuzzWrongState(rng: Rng, task: Task): State {
   const st = initState(task.x, task.spec);
   switch (task.family) {
     case 'value': {
@@ -240,6 +261,9 @@ function fuzzWrongState(rng: Rng, task: Task): State {
 /** runAll 固定 seed 补刀的错误产物条数（测试断言与其对齐，防 fuzz 空转）。 */
 export const FUZZ_COUNT = 24;
 
+/** fuzz 轮转池：GOAL_PARITY 点亮 failingValue/fuzzWrongState 的 parity 分支（删之即测试红）。 */
+export const FUZZ_POOL: readonly Task[] = [VALUE_INT, VERIFY_INT, GOAL_INT, GOAL_VERIFY_INT, GOAL_STR, GOAL_PARITY];
+
 export interface RunAllResult {
   readonly rejectRatio: number;
   readonly acceptCorrectRatio: number;
@@ -252,7 +276,7 @@ export function runAll(): RunAllResult {
   const correct = CORRECT_ARTIFACTS.filter((c) => accept(c.task, c.state)).length;
 
   const rng = makeRng(0x5eed00);
-  const wrongPool = [VALUE_INT, VERIFY_INT, GOAL_INT, GOAL_VERIFY_INT, GOAL_STR];
+  const wrongPool = FUZZ_POOL;
   const fuzzTotal = FUZZ_COUNT;
   let fuzzRejected = 0;
   for (let i = 0; i < fuzzTotal; i++) {

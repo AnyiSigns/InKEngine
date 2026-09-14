@@ -57,6 +57,11 @@ import {
 } from './scale_report.js';
 import { runCoverageAxis } from './coverage_axis.js';
 
+/**
+ * 冒烟/默认网格（六级 100→30000 等比 ×3，对数轴间隔均匀，供缺省调用与 CI 冒烟）：
+ * C.8 预注册的第二跑三档网格 {1000,10000,30000} 不经此默认——由调用方（demos/CLI）
+ * 显式传 `grid` 覆盖；报告 meta.grid 原样落盘，跨 run 对比必须同网格才有效。
+ */
 export const DEFAULT_GRID: readonly number[] = [100, 300, 1000, 3000, 10000, 30000];
 export const DEFAULT_SEEDS: readonly number[] = [0, 1, 2, 3, 4];
 export const DEFAULT_COVERAGE_KS: readonly number[] = [10, 25, 50, 75, 100];

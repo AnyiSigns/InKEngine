@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCoverageAxis, runScale, selectCheckpoint, writeScaleResults } from '../eval/scale.js';
+import { BETA_ENT } from '../eval/reinforce.js';
 import { hashObj } from '../world/hash.js';
 import { rollout } from '../runner/rollout.js';
 import { GRAPH } from '../runner/graph.js';
@@ -186,5 +187,12 @@ describe('runScale（fake 训练器 e2e，C.8 契约）', () => {
     expect(res.skippedByK[100]).toBe(0);
     expect(res.rows.map((r) => `${r.k}/${r.style}/${r.n}`)).toEqual(['100/follow/0', '100/goal/0']);
     expect(res.rows.every((r) => r.pass1 === 0)).toBe(true);
+  });
+});
+
+// A.2 钉死对照臂超参：与 controller 两处 .py 字面同源，防 eval 侧静默漂移。
+describe('A.2 REINFORCE 熵正则系数钉死（eval 侧）', () => {
+  it('BETA_ENT === 0.01（A.2 终稿值）', () => {
+    expect(BETA_ENT).toBe(0.01);
   });
 });

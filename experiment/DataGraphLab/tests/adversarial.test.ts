@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { FUZZ_COUNT, WRONG_ARTIFACTS, runAll } from '../verify/adversarial.js';
+import { FUZZ_COUNT, FUZZ_POOL, WRONG_ARTIFACTS, fuzzWrongState, runAll } from '../verify/adversarial.js';
 import { accept } from '../verify/acceptor.js';
 import { initState, runPlan, verdictPass } from '../world/operators.js';
 import { goalOk } from '../world/goal.js';
+import { makeRng } from '../world/rng.js';
 import { hashObj } from '../world/hash.js';
 import type { Goal, } from '../world/goal.js';
 import type { Task } from '../schema.js';
@@ -30,6 +31,17 @@ describe('verify/adversarial 必拒错误产物套件（§4 对抗清单）', ()
 
   it('runAll 确定性：固定 seed 两次运行结果一致', () => {
     expect(runAll()).toEqual(runAll());
+  });
+});
+
+// P3 覆盖点亮：wrongPool 此前只含 gt/len 目标，failingValue 的 parity 取反相分支从未被 fuzz 执行。
+describe('verify/adversarial parity-goal fuzz 分支', () => {
+  it('FUZZ_POOL 含 parity 目标任务，其 fuzz 产物语义必不达标且 accept 必拒', () => {
+    const parityTask = FUZZ_POOL.find((t) => (t.spec as { goal?: Goal }).goal?.kind === 'parity');
+    expect(parityTask).toBeDefined();
+    const st = fuzzWrongState(makeRng(9), parityTask!);
+    expect(goalOk(st.answer, { goal: (parityTask!.spec as { goal: Goal }).goal })).toBe(false);
+    expect(accept(parityTask!, st)).toBe(false);
   });
 });
 

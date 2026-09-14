@@ -33,6 +33,7 @@ import {
 } from '../controller/features.js';
 import { GRAPH, MAX_STEPS } from '../runner/graph.js';
 import { defaultOutRoot, load, type StoreRecord } from './store.js';
+import { SPLIT_VALUES } from './store_schema.js';
 // 二进制读写与其承载的 BinRow 类型拆分到 records_bin.ts，公开面仍收敛在本模块。
 import { type BinFile, type BinRow, readRecordsBin, writeRecordsBin } from './records_bin.js';
 
@@ -111,7 +112,14 @@ export function featurizeRecord(
   rec: StoreRecord,
   featureSet: FeatureSet = 'lang',
 ): Omit<BinRow, 'taskHash' | 'stepIndex'> {
-  const { idx, val } = packSparse(featurizeObs(rec.instruction, obsView(rec), featureSet));
+  const dense = featurizeObs(rec.instruction, obsView(rec), featureSet);
+  if (dense.length !== OBS_DIM[featureSet]) {
+    throw new Error(
+      `featurize: 特征集 ${featureSet} 行宽 ${String(dense.length)} ≠ OBS_DIM ${String(OBS_DIM[featureSet])}（宽度不变量，fail-fast；` +
+        `struct 的 8 维 goal 段由诊断侧拼接、基座不进 records.bin）`,
+    );
+  }
+  const { idx, val } = packSparse(dense);
   const targetIdx = rec.candidates.indexOf(rec.target);
   if (targetIdx < 0) {
     throw new Error(`featurize: target ${rec.target} 不在 candidates（步级标签错位，fail-fast）`);
@@ -184,9 +192,8 @@ export interface FeaturizeOptions {
 
 const USAGE =
   '用法：npx tsx data/records.ts --split <train|val|heldout> --out <bin路径> ' +
-  '[--out-root <records根>] [--feature-set lang|struct|hash_only] [--limit N] [--style follow|goal|both]';
-
-const SPLIT_VALUES: readonly string[] = ['train', 'val', 'heldout'];
+  '[--feature-set lang|hash_only（struct 为诊断 arch，不进 records.bin）] ' +
+  '[--out-root <records根>] [--limit N] [--style follow|goal|both]';
 
 /** CLI 参数校验：必填缺失或值域越界即抛 `UsageError`（main 转「打印用法 + 退出码 1」）。 */
 export function parseArgs(argv: readonly string[]): FeaturizeOptions {
@@ -203,6 +210,11 @@ export function parseArgs(argv: readonly string[]): FeaturizeOptions {
   if (!SPLIT_VALUES.includes(split!)) usage(`非法 split=${String(split)}`);
   const featureSet = get('--feature-set') ?? 'lang';
   if (!FEATURE_SETS.includes(featureSet as FeatureSet)) usage(`非法 feature-set=${featureSet}`);
+  if (featureSet === 'struct') {
+    usage(
+      'struct 不进 records.bin：goal 段由诊断侧拼接，行宽(867)≠OBS_DIM.struct(875)，仅供诊断 arch 复核',
+    );
+  }
   const style = get('--style') ?? 'both';
   if (style !== 'both' && style !== 'follow' && style !== 'goal') usage(`非法 style=${style}`);
   let limit: number | undefined;

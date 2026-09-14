@@ -49,6 +49,8 @@ export interface CollectOptions {
   readonly window?: number;
   readonly maxSteps?: number;
   readonly graph?: Graph;
+  /** 环境交互步数封顶（C.8 预算同口径）；缺省不封顶=消费完 tasks 全量（现行行为不变）。 */
+  readonly budgetSteps?: number;
 }
 
 export interface CollectResult {
@@ -72,12 +74,22 @@ export function collectReinforceRows(
   const rng = makeRng(opts.seed ?? 0);
   const window = opts.window ?? BASELINE_WINDOW;
   const maxSteps = opts.maxSteps ?? MAX_STEPS;
+  const budgetSteps = opts.budgetSteps;
+  if (budgetSteps !== undefined && (!Number.isInteger(budgetSteps) || budgetSteps < 1)) {
+    throw new Error(`collectReinforceRows: budgetSteps 须为正整数，收到 ${String(budgetSteps)}`);
+  }
   const rewards: number[] = [];
   const rows: ReinforceRow[] = [];
   let steps = 0;
   let solved = 0;
+  let rollouts = 0;
+  let envSteps = 0;
   for (const task of tasks) {
+    // 预算封顶以「rollout 为原子单位」判定：已花完预算即停，不再开启新交互（不半途截断）。
+    if (budgetSteps !== undefined && envSteps >= budgetSteps) break;
     const res = rollout(policy, graph, task, false, maxSteps, rng);
+    rollouts++;
+    envSteps += res.trace.length;
     const reward = res.accepted ? 1 : 0;
     const advantage = reward - slidingBaseline(rewards, window);
     rewards.push(reward);
@@ -109,10 +121,10 @@ export function collectReinforceRows(
   }
   return {
     rows,
-    rollouts: tasks.length,
+    rollouts,
     steps,
     solved,
-    meanReward: tasks.length === 0 ? 0 : solved / tasks.length,
+    meanReward: rollouts === 0 ? 0 : solved / rollouts,
   };
 }
 

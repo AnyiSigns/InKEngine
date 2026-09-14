@@ -1,9 +1,8 @@
 /**
- * data/records 派生缓存测试（F.2 v2 逐字段契约 + 稀疏编码纪律）：featurize 形状与语义、
- * 22 位全局 ROUTING 位掩码、header 动作特征表、bin 二进制往返与 fail-fast（magic/version/
- * 截断/NaN）、写盘确定性、进度 critic 分组口径、CLI 冒烟，以及「只依赖公开字段」的白名单
- * 审计。真实记录经 makeTask+oracleTrace 落临时 store 再 load 回（顺带走一遍 JSONL 往返），
- * 全部产物落系统临时目录，afterEach 清理。
+ * data/records 派生缓存测试：F.2 v2 逐字段契约 + 稀疏编码纪律（featurize 形状、22 位 ROUTING 掩码、
+ * 动作表、bin 往返与 magic/version/截断/NaN/枚举值域 fail-fast）、P1-D struct 拒收与行宽不变量、
+ * reinforce.bin 越界拦截、进度分组口径、CLI 冒烟、公开字段白名单审计。真实记录落临时 store
+ * 再 load 回（顺带 JSONL 往返），产物落系统临时目录、afterEach 清理。
  */
 
 import { spawnSync } from 'node:child_process';
@@ -15,13 +14,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  actionFeatureTable,
-  featurizeRecord,
-  featurizeRecords,
-  readRecordsBin,
-  writeRecordsBin,
-  type BinRow,
+  actionFeatureTable, featurizeRecord, featurizeRecords, parseArgs, readRecordsBin, writeRecordsBin, type BinRow,
 } from '../data/records.js';
+import { readReinforceBin, writeReinforceBin, type ReinforceRow } from '../data/reinforce_bin.js';
 import { append, load, recordFromStep, type StoreRecord } from '../data/store.js';
 import { ACT_DIM, OBS_DIM, featurizeAction, featurizeObs } from '../controller/features.js';
 import { GRAPH, MAX_STEPS } from '../runner/graph.js';
@@ -42,12 +37,7 @@ afterEach(() => {
   while (tmpRoots.length > 0) rmSync(tmpRoots.pop()!, { recursive: true, force: true });
 });
 
-const FAM_CODE: Readonly<Record<string, 0 | 1 | 2 | 3>> = {
-  value: 0,
-  verify: 1,
-  goal: 2,
-  goal_verify: 3,
-};
+const FAM_CODE: Readonly<Record<string, 0 | 1 | 2 | 3>> = { value: 0, verify: 1, goal: 2, goal_verify: 3 };
 
 function pool(style: 'follow' | 'goal', seeds: readonly number[]): Task[] {
   const out: Task[] = [];
@@ -62,9 +52,7 @@ function pool(style: 'follow' | 'goal', seeds: readonly number[]): Task[] {
 function oracleRecords(): StoreRecord[] {
   const tasks = [...pool('follow', [1, 2]), ...pool('goal', [31, 7])];
   const out: StoreRecord[] = [];
-  for (const t of tasks) {
-    for (const step of oracleTrace(t, GRAPH)) out.push(recordFromStep(t, step));
-  }
+  for (const t of tasks) for (const step of oracleTrace(t, GRAPH)) out.push(recordFromStep(t, step));
   return out;
 }
 
@@ -78,10 +66,7 @@ function loadedRecords(): StoreRecord[] {
 function popcount(u32: number): number {
   let x = u32 >>> 0;
   let c = 0;
-  while (x !== 0) {
-    c += x & 1;
-    x >>>= 1;
-  }
+  while (x !== 0) { c += x & 1; x >>>= 1; }
   return c;
 }
 
@@ -102,7 +87,6 @@ describe('data/records/featurizeRecords：稀疏形状与逐字段语义', () =>
   });
 
   it('idx 严格升序且 < 65536，val 与 featurizeObs 非零项逐位一致', () => {
-    expect(back.length).toBeGreaterThan(0);
     for (let i = 0; i < back.length; i++) {
       const rec = back[i]!;
       const row = rows[i]!;
@@ -111,20 +95,11 @@ describe('data/records/featurizeRecords：稀疏形状与逐字段语义', () =>
         if (k > 0) expect(row.idx[k]!).toBeGreaterThan(row.idx[k - 1]!);
         expect(row.idx[k]!).toBeLessThan(65536);
       }
-      const dense = featurizeObs(rec.instruction, {
-        x: rec.x,
-        answer: rec.state.answer,
-        verdict: rec.state.verdict,
-        hist: [...rec.hist],
-      });
-      const nzIdx: number[] = [];
-      const nzVal: number[] = [];
+      const dense = featurizeObs(rec.instruction,
+        { x: rec.x, answer: rec.state.answer, verdict: rec.state.verdict, hist: [...rec.hist] });
+      const nzIdx: number[] = []; const nzVal: number[] = [];
       for (let j = 0; j < dense.length; j++) {
-        const v = dense[j]!;
-        if (v !== 0) {
-          nzIdx.push(j);
-          nzVal.push(v);
-        }
+        if (dense[j] !== 0) { nzIdx.push(j); nzVal.push(dense[j]!); }
       }
       expect(Array.from(row.idx)).toEqual(nzIdx);
       expect(Array.from(row.val)).toEqual(nzVal);
@@ -263,16 +238,9 @@ describe('data/records/fail-fast 边界', () => {
   it('稀疏值注入 NaN → writeRecordsBin 抛（数值入口判 NaN/Inf）', () => {
     const bin = join(tmpRoot(), 'nan.bin');
     const bad: BinRow = {
-      style: 0,
-      family: 0,
-      taskHash: 'h',
-      stepIndex: 0,
-      idx: Uint16Array.from([0, 1]),
-      val: Float32Array.from([1, Number.NaN]),
-      candMask: 3,
-      targetIdx: 0,
-      progressLabel: 0,
-      progressWeight: 0,
+      style: 0, family: 0, taskHash: 'h', stepIndex: 0,
+      idx: Uint16Array.from([0, 1]), val: Float32Array.from([1, Number.NaN]),
+      candMask: 3, targetIdx: 0, progressLabel: 0, progressWeight: 0,
     };
     expect(() => writeRecordsBin(bin, [bad], OBS_DIM.lang, actionFeatureTable())).toThrow(/NaN|非有限/);
     expect(existsSync(bin)).toBe(false);
@@ -287,37 +255,24 @@ describe('data/records/featurize CLI 冒烟（真实 tsx 子进程）', () => {
     const bin = join(root, 'cli.bin');
     const r = spawnSync(
       process.execPath,
-      [
-        join('node_modules', 'tsx', 'dist', 'cli.mjs'),
-        join('data', 'records.ts'),
-        '--split',
-        'train',
-        '--out',
-        bin,
-        '--out-root',
-        root,
-        '--limit',
-        '1',
-      ],
+      [join('node_modules', 'tsx', 'dist', 'cli.mjs'), join('data', 'records.ts'),
+        '--split', 'train', '--out', bin, '--out-root', root, '--limit', '1'],
       { cwd: PKG_ROOT, encoding: 'utf8' },
     );
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/^records: \d+ rows -> .+ \(obsDim=732\)\s*$/m);
+    expect(r.stdout).toMatch(/^records: \d+ rows -> .+ \(obsDim=867\)\s*$/m);
     expect(existsSync(bin)).toBe(true);
     const parsed = readRecordsBin(bin);
-    expect(parsed.obsDim).toBe(732);
+    expect(parsed.obsDim).toBe(867);
     expect(parsed.actFeats.length).toBe(22);
     expect(parsed.rows.length).toBe(1);
     expect(seeded.length).toBeGreaterThan(1); // 数据确曾落盘（--limit 只截不造）
   });
 
   it('非法参数与无参数 → 退出码 1 并打印用法', () => {
-    const cli = (args: readonly string[]) =>
-      spawnSync(
-        process.execPath,
-        [join('node_modules', 'tsx', 'dist', 'cli.mjs'), join('data', 'records.ts'), ...args],
-        { cwd: PKG_ROOT, encoding: 'utf8' },
-      );
+    const cli = (args: readonly string[]) => spawnSync(process.execPath,
+      [join('node_modules', 'tsx', 'dist', 'cli.mjs'), join('data', 'records.ts'), ...args],
+      { cwd: PKG_ROOT, encoding: 'utf8' });
     const bad = cli(['--split', 'nope', '--out', join(tmpRoot(), 'x.bin')]);
     expect(bad.status).toBe(1);
     expect(bad.stderr).toMatch(/用法/);
@@ -352,5 +307,41 @@ describe('data/records/白名单审计：只依赖公开字段', () => {
     expect(b.targetIdx).toBe(a.targetIdx);
     expect(b.style).toBe(a.style);
     expect(b.family).toBe(a.family);
+  });
+});
+
+describe('data/records/P1-D·P3：struct 拒收、行宽不变量与 bin 越界/枚举 fail-fast', () => {
+  const rec0 = loadedRecords()[0]!;
+  it('parseArgs 即拒 --feature-set struct（其余特征集照常放行），库口直传 struct 被行宽不变量拦截', () => {
+    expect(() => parseArgs(['--split', 'train', '--out', 'x.bin', '--feature-set', 'struct'])).toThrow(/不进 records\.bin/);
+    expect(parseArgs(['--split', 'train', '--out', 'x.bin', '--feature-set', 'hash_only']).featureSet).toBe('hash_only');
+    expect(() => featurizeRecord(rec0, 'struct')).toThrow(/行宽 867 ≠ OBS_DIM 875（宽度不变量/);
+  });
+  it('records.bin 读侧：style∉{0,1}、family∉{0..3} 坏字节即抛（不带坏标签进训练）', () => {
+    const bin = join(tmpRoot(), 'enum.bin');
+    writeRecordsBin(bin, featurizeRecords(loadedRecords()), OBS_DIM.lang, actionFeatureTable());
+    let start = 24; // header 6×u32；随后每块 4 + nnz×(2+4) 字节
+    for (const a of actionFeatureTable()) {
+      let nz = 0;
+      for (let i = 0; i < a.length; i++) if (a[i] !== 0) nz += 1;
+      start += 4 + nz * 6;
+    }
+    for (const [at, val, re] of [[start, 5, /style/], [start + 1, 4, /family/]] as const) {
+      const bad = Buffer.from(readFileSync(bin)); bad[at] = val;
+      const p = join(tmpRoot(), `bad-${String(at)}.bin`); appendFileSync(p, bad);
+      expect(() => readRecordsBin(p), `字节 ${String(at)}=${String(val)}`).toThrow(re);
+    }
+  });
+  it('reinforce.bin 读侧：idx 越 obsDim、actionIdx 越候选宽度即抛（写侧不设值域，读侧挡损坏/手工文件）', () => {
+    const mk = (idx: number, actionIdx: number): ReinforceRow => ({
+      style: 0, family: 0, taskHash: 'h', stepIndex: 0,
+      idx: Uint16Array.from([idx]), val: Float32Array.from([1]),
+      candMask: 3, actionIdx, advantage: 0.5, reward: 1,
+    });
+    for (const [idx, actionIdx, re] of [[9, 0, /obsDim/], [3, 2, /actionIdx/]] as const) {
+      const p = join(tmpRoot(), `rf-${String(idx)}-${String(actionIdx)}.bin`);
+      writeReinforceBin(p, [mk(idx, actionIdx)], 8, actionFeatureTable());
+      expect(() => readReinforceBin(p), `idx=${String(idx)} actionIdx=${String(actionIdx)}`).toThrow(re);
+    }
   });
 });

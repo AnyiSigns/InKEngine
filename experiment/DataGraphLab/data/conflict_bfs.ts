@@ -39,8 +39,12 @@ export function reachesAccept(graph: Graph, task: Task, start: State, budget: nu
   const seen = new Set<string>([stateDigest(start)]);
   const queue: Array<{ st: State; d: number }> = [{ st: start, d: 0 }];
   let expanded = 0;
-  while (queue.length > 0) {
-    const { st, d } = queue.shift()!;
+  // 头指针消费代替 shift（与 teacher/search.ts 同源）：shift 每次重排整个数组，
+  // 大预算 BFS 下退化为 O(n²)；只增队列用游标前进即可保持 FIFO 确定序。
+  let head = 0;
+  while (head < queue.length) {
+    const { st, d } = queue[head]!;
+    head++;
     expanded++;
     if (expanded > budget) return { reached: false, truncated: true, expanded };
     if (accept(task, st)) return { reached: true, truncated: false, expanded };

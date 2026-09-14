@@ -160,7 +160,8 @@ export function dagger(policy: Policy, options: DaggerOptions): DaggerResult {
           firstDeviationDepths.push(k);
         }
         deviations.push({ taskHash: th, stepIndex: k, goldAction: fix, chosenAction: a });
-        batch.push(recordFromStep(task, { step: k, obs, candidates: cand, action: fix }));
+        // teacher='dagger'：偏离打标行标注来源，与 oracle 行同构、可审计区分。
+        batch.push(recordFromStep(task, { step: k, obs, candidates: cand, action: fix }, 'dagger'));
         fixes++;
         if (fixes >= maxFixes) break;
         if (fix === EXIT) break;

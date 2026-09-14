@@ -200,7 +200,23 @@ export function readReinforceBin(path: string): ReinforceFile {
     if (!Number.isFinite(advantage) || !Number.isFinite(reward)) {
       throw new Error(`reinforce.bin: 行 ${String(i)} 优势/奖励非有限数`);
     }
+    // 外部边界 fail-fast（与 records.bin 读侧同口径）：枚举字节、稀疏下标与本地动作
+    // 下标都不许越过 header/掩码声明的宽度，越界即按损坏文件拒读，不进策略梯度算垃圾梯度。
+    for (let k = 0; k < nIdx; k++) {
+      if (idx[k]! >= obsDim) throw new Error(`reinforce.bin: 行 ${String(i)} 稀疏下标 ${String(idx[k])} 越 obsDim=${String(obsDim)} 界`);
+    }
+    if (style !== 0 && style !== 1) {
+      throw new Error(`reinforce.bin: 行 ${String(i)} style=${String(style)} 不在 {0=follow,1=goal}`);
+    }
+    if (family > 3) {
+      throw new Error(`reinforce.bin: 行 ${String(i)} family=${String(family)} 不在 {0,1,2,3}（value/verify/goal/goal_verify 序）`);
+    }
     if (candMask >> nAct !== 0) throw new Error(`reinforce.bin: 行 ${String(i)} candMask 越宽`);
+    let nCand = 0;
+    for (let m = candMask; m !== 0; m >>>= 1) nCand += m & 1;
+    if (actionIdx >= nCand) {
+      throw new Error(`reinforce.bin: 行 ${String(i)} actionIdx=${String(actionIdx)} 越当步候选宽度 ${String(nCand)} 界（u32 动作下标须在候选内置位内）`);
+    }
     rows.push({
       style: style as 0 | 1,
       family: family as 0 | 1 | 2 | 3,

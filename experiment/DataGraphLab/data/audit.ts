@@ -2,8 +2,9 @@
  * G0.4 泄漏审计实现（`data/provenance.ts` 的门禁内核）。
  *
  * `audit`：四项检查——① obs 面白名单：`expected/spec/plan_hidden/plan_hash/seed`
- * 既不得作为记录顶层/state 键出现（state 只许 {answer, verdict}），其键名字符串亦
- * 不得夹带在 instruction/值文本里。只做键/文本级检出、不做值级扫描——submit 之后
+ * 既不得作为记录顶层/state 键出现（state 只许 {answer, verdict}），其键名亦不得以
+ * 「键:值」结构化形态夹带在 instruction/值文本里（裸词不算字段形态，避免假阳性；
+ * 见 `FORBIDDEN_KEY_PATTERNS` 注释）。只做键/文本级检出、不做值级扫描——submit 之后
  * answer 合法等于 expected，值比对必然假阳性；红线语义是「隐藏量不得以字段形态
  * 入数据面」。② train/heldout 的 composition_id 零重叠。③ 指令模板重叠：仅
  * follow——配方指令按构造唯一锚定骨架，同模板跨 composition = 一句话挂着两个
@@ -25,6 +26,13 @@ import { stepDedupKey, type StoreRecord } from './store.js';
 
 /** 特征白名单硬红线键（E.5/G0.4）。 */
 const FORBIDDEN_KEYS: readonly string[] = ['expected', 'spec', 'plan_hidden', 'plan_hash', 'seed'];
+/**
+ * 键名字符串检测按「结构化键:值」形态（`key:`、`"key":`、`key =` 等 JSON 内联/手写
+ * 赋值字段形态），不再扫裸词——红线语义是「隐藏量以字段形态入数据面」，中文指令里
+ * 偶现的裸英文词（如 seed）不是字段，按子串扫只会制造假阳性、掩盖真泄漏的信号。
+ * 允许键名后紧跟闭合引号：`"expected":8` 这类整段 JSON 塞进文本仍必检出。
+ */
+const FORBIDDEN_KEY_PATTERNS: readonly RegExp[] = FORBIDDEN_KEYS.map((k) => new RegExp(`${k}["']?\\s*[:=]`));
 /** state 面允许出现的唯一键（F.2 通道字段）。 */
 const STATE_KEYS: readonly string[] = ['answer', 'verdict'];
 
@@ -58,7 +66,7 @@ function obsLeaked(rec: StoreRecord): boolean {
   if (Object.keys(rec).some((k) => FORBIDDEN_KEYS.includes(k))) return true;
   if (Object.keys(rec.state as Record<string, unknown>).some((k) => !STATE_KEYS.includes(k))) return true;
   const surface = [rec.instruction, String(rec.x), String(rec.state.answer), String(rec.state.verdict)];
-  return surface.some((s) => FORBIDDEN_KEYS.some((k) => s.includes(k)));
+  return surface.some((s) => FORBIDDEN_KEY_PATTERNS.some((re) => re.test(s)));
 }
 
 /** 同一 obs（task_hash + step_index + observation 规范序列化）的分桶键。 */

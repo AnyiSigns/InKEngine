@@ -186,6 +186,8 @@ describe('dagger：偏离打标与老师干预续跑（合成任务钉死语义�
       const all = runs.flat();
       expect(all.length).toBeGreaterThan(0);
       for (const row of all) {
+        // 偏离打标行来源钉为 dagger（G2.1 溯源）：与 oracle 行同构但可审计区分。
+        expect(row.meta.teacher).toBe('dagger');
         expect(Object.keys(row).sort().join(',')).toBe(TOP_FIELDS);
         for (const key of Object.keys(row.meta)) expect(META_ALLOWED.has(key)).toBe(true);
         expect(Object.keys(row.state).sort().join(',')).toBe('answer,verdict');

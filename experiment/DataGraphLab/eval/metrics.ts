@@ -111,7 +111,10 @@ export function stepsOverShortest(
     if (bfsPlan === null) {
       throw new Error('stepsOverShortest: solvedPlans 标记已解出但 BFS 判无解（矛盾输入，当场暴露）');
     }
-    sum += ctrlPlan.length - bfsPlan.length;
+    // 冗余钳 ≥0：基准是 R5 后的 trace 前缀剪枝解（可能等于公开 gold 而非全局最短）或
+    // 空 ctrlPlan（起点即验收、首步选 exit）时差值可为负——「比最短解还短」在此口径
+    // 无语义，按 0 冗余计，负值不得回流拉低 meanExcess（C.8 消费方同此口径）。
+    sum += Math.max(0, ctrlPlan.length - bfsPlan.length);
     meanCount++;
   }
   return { meanExcess: meanCount === 0 ? 0 : sum / meanCount, overBudget, total };

@@ -1,16 +1,16 @@
 /**
- * G2.2 超 oracle 率判定与门禁断言。
+ * G2.2 超 oracle 率判定与门禁断言（R5 轨迹约束后定义性归零）。
  *
- * ① 判定式直测——命中必须由可独立回放的证词支撑（BFS 找到的更短计划重放到
- * `accept` 为真），边界钉死「等长不算超、严格更短才算」（把命中任务的 gold 换成
- * 等长的全局最短解必须不命中，补一步冗余才恢复命中）；超预算按保守未命中且单列
- * 计数、gold 无展开余量任务留在分母恒未命中、goal 族混入 fail-fast。
+ * ① 判定式直测——R5 后真实 follow 任务（spec.trace 存在）的验收要求 hist ==
+ * trace 精确匹配：plan_bfs 沿 trace 前缀剪枝，唯一解即金计划（等长），"严格
+ * 更短"按定义不存在 ⇒ 全批零命中（G2.2 归零实证）。BFS 口径本身的边界用例
+ * （等长不算超、补冗余恢复命中、超预算、退化 gold）用手工 **无 trace** 任务
+ * 构造（spec:{} → 走完整 BFS 分支，旧语义仍可用）。
  * ② 门禁面——形状键齐全、`passed` 只由 `evaluateThresholds(metrics, thresholds)`
  * 复算（用例绝不手写布尔期望），阈值字面钉死 ≤0.02，同上下文 memoized 命中。
  *
- * 运行时纪律：plan_bfs 在「无更短解」任务上要耗尽 gold−1 深球，单任务秒级；判定
- * 直测用 held-out 每族 1 条的小批（数秒），门禁用 4 条筛查批（~3 s，见 g22 头注），
- * 都压在 vitest worker→main 心跳之下（完整 120 条统计量在 README，不进门禁）。
+ * 运行时纪律：R5 后 follow 任务的 plan_bfs 为 O(goldLen) 回溯（前缀剪枝），
+ * 小批与门禁批都是瞬时的；完整 120 条统计量在 README，不进门禁。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -24,6 +24,7 @@ import { accept } from '../verify/acceptor.js';
 import { createGateContext } from '../conformance/gates/harness.js';
 import { G22_SAMPLE_BATCH, run as runG22 } from '../conformance/gates/g22_beyond_oracle.js';
 import { evaluateThresholds, gateShapeKeys } from '../conformance/gates/common.js';
+import { hashObj } from '../world/hash.js';
 import type { Task } from '../schema.js';
 
 /** noUncheckedIndexedAccess 下取必存在 metric 的小提取器（缺键即当场炸）。 */
@@ -43,80 +44,89 @@ function replayEnd(task: Task, plan: readonly string[]): State | null {
   return st;
 }
 
+/** 手工构造 follow 任务（spec 无 trace → 走完整 BFS 分支，供口径边界用例）。 */
+function manualTask(plan_hidden: readonly string[], x: number | string, expected: number | string): Task {
+  return {
+    style: 'follow',
+    family: 'value',
+    instruction: '手工',
+    x,
+    spec: {},
+    expected,
+    plan_hidden: [...plan_hidden],
+    root: typeof x === 'string' ? 'Str' : 'Int',
+    plan_hash: hashObj(plan_hidden),
+    composition_id: 'beyond-manual',
+    split: 'heldout',
+  };
+}
+
 interface Judgment {
   readonly sample: Task[];
   readonly witnesses: (string[] | null)[];
-  readonly hitIdx: number;
 }
 let judgment: Judgment | undefined;
-/** 判定直测小批（每族 1 条取 follow 子集）与各任务严格更短证词；须含至少一条命中。 */
+/** 判定直测小批（每族 1 条取 follow 子集）：R5 后全部零命中（定义性归零）。 */
 function prepare(): Judgment {
   if (judgment === undefined) {
     const sample = makeSplit('heldout', 1, 7).filter((t) => t.style === 'follow');
     const witnesses = sample.map((t) =>
       planBfs(t, GRAPH, { maxDepth: t.plan_hidden.length - 1 }),
     );
-    const hitIdx = witnesses.findIndex((p) => p !== null);
-    if (hitIdx < 0) throw new Error('判定小批必须含命中任务，否则边界用例失去数据');
-    judgment = { sample, witnesses, hitIdx };
+    // R5 归零实证：任何任务都不该再被搜出严格更短解。
+    for (let i = 0; i < sample.length; i++) {
+      if (witnesses[i] !== null) {
+        throw new Error(`R5 归零被破坏：任务 ${sample[i]!.composition_id} 存在严格更短解`);
+      }
+    }
+    judgment = { sample, witnesses };
   }
   return judgment;
 }
 
-describe('eval/beyondOracleRate：判定式与边界', () => {
-  it('聚合值 = 逐任务证词之和，分母 = follow 全体，真实批零超预算', () => {
-    const { sample, witnesses } = prepare();
+describe('eval/beyondOracleRate：R5 归零 + BFS 口径边界', () => {
+  it('真实 follow 批全零命中：聚合=0、分母=follow 全体、零超预算', () => {
+    const { sample } = prepare();
     const rep = beyondOracleRate(sample, GRAPH);
     expect(rep.total).toBe(sample.length);
-    expect(rep.hits).toBe(witnesses.filter((p) => p !== null).length);
+    expect(rep.hits).toBe(0);
     expect(rep.overBudget).toBe(0);
-    expect(rep.rate).toBeCloseTo(rep.hits / rep.total, 15);
+    expect(rep.rate).toBe(0);
     expect(beyondOracleRate(sample, GRAPH)).toEqual(rep);
   }, 120_000);
 
-  it('命中任务：更短证词严格短于 gold 且重放穿验收，单任务判定=1', () => {
-    const { sample, witnesses } = prepare();
+  it('R5 归零机制：plan_bfs 默认口径返回解 == gold（等长），重放穿验收', () => {
+    const { sample } = prepare();
     let checked = 0;
-    for (let i = 0; i < sample.length; i++) {
-      const witness = witnesses[i]!;
-      if (witness === null) continue;
-      const task = sample[i]!;
-      expect(witness.length).toBeLessThan(task.plan_hidden.length);
-      const end = replayEnd(task, witness);
-      expect(end, `证词计划回放死于契约闸: ${witness.join(', ')}`).not.toBeNull();
+    for (const task of sample) {
+      const plan = planBfs(task, GRAPH)!;
+      expect(plan).toEqual(task.plan_hidden);
+      const end = replayEnd(task, plan);
+      expect(end).not.toBeNull();
       expect(accept(task, end!)).toBe(true);
-      expect(beyondOracleRate([task], GRAPH)).toEqual({
-        total: 1, hits: 1, overBudget: 0, rate: 1,
-      });
       checked++;
     }
     expect(checked).toBeGreaterThan(0);
   }, 120_000);
 
-  it('等长不算超：gold 换成等长全局最短解后不命中，补一步冗余才恢复命中', () => {
-    const { sample, witnesses, hitIdx } = prepare();
-    const task = sample[hitIdx]!;
-    const witness = witnesses[hitIdx]!;
-    // BFS 出队序保证 witness 就是全局最短；把它当 gold 复制出来即「等长」现场：
-    // 同长验收解存在（gold 层恰有解），但不存在严格更短的——早停深度恰差一步，
-    // 等长绝不记命中（把 gold 本身当捷径是本用例要挡的错误）。
-    const sameLen: Task = { ...task, plan_hidden: [...witness] };
-    expect(accept(sameLen, replayEnd(sameLen, witness)!)).toBe(true);
-    expect(planBfs(sameLen, GRAPH, { maxDepth: witness.length - 1 })).toBeNull();
+  it('BFS 口径边界（手工无 trace 任务）：gold=全局最短不命中，补一步冗余恢复命中', () => {
+    // x=4 mul2→8：最短解 [mul2,submit]。gold 就是它 → 早停深度 goldLen-1=1，
+    // 同长验收解存在但不存在严格更短 → 不命中（把 gold 本身当捷径是本用例要挡的错误）。
+    const sameLen = manualTask(['mul2', 'submit'], 4, 8);
+    expect(accept(sameLen, replayEnd(sameLen, ['mul2', 'submit'])!)).toBe(true);
+    expect(planBfs(sameLen, GRAPH, { maxDepth: 1 })).toBeNull();
     expect(beyondOracleRate([sameLen], GRAPH)).toEqual({
       total: 1, hits: 0, overBudget: 0, rate: 0,
     });
-    // 再挂一步收尾冗余：同一世界态里存在严格更短解 → 命中恢复。
-    const longer: Task = { ...task, plan_hidden: [...witness, 'noop'] };
+    // 挂一步收尾冗余（noop）：goldLen=3 → 早停深度 2，[mul2,submit] 严格更短 → 命中。
+    const longer = manualTask(['mul2', 'noop', 'submit'], 4, 8);
     expect(beyondOracleRate([longer], GRAPH)).toEqual({
       total: 1, hits: 1, overBudget: 0, rate: 1,
     });
   }, 120_000);
 
-  it('超预算：保守未命中、单列计数、分母不变，绝不静默吞掉', () => {
-    const { sample } = prepare();
-    const searchable = sample.filter((t) => t.plan_hidden.length >= 2);
-    expect(searchable.length).toBeGreaterThan(0);
+  it('超预算（手工无 trace 任务）：保守未命中、单列计数、分母不变，绝不静默吞掉', () => {
+    const searchable = [manualTask(['mul2', 'add3', 'submit'], 4, 11)];
     const rep = beyondOracleRate(searchable, GRAPH, { nodeBudget: 0 });
     expect(rep.total).toBe(searchable.length);
     expect(rep.hits).toBe(0);
@@ -125,9 +135,8 @@ describe('eval/beyondOracleRate：判定式与边界', () => {
   }, 60_000);
 
   it('gold 无展开余量的任务：不进 BFS、恒未命中但留在分母', () => {
-    const { sample } = prepare();
-    const oneStep: Task = { ...sample[0]!, plan_hidden: ['submit'] };
-    const empty: Task = { ...sample[1]!, plan_hidden: [] };
+    const oneStep = manualTask(['submit'], 4, 4);
+    const empty = manualTask([], 4, 4);
     // 对照组是 nodeBudget=0：真进 BFS 的任务会立刻抛错并被记成 overBudget，
     // 这里 overBudget=0 恰好证明两条退化 gold 跳过搜索、只剩分母。
     const rep = beyondOracleRate([oneStep, empty, oneStep], GRAPH, { nodeBudget: 0 });

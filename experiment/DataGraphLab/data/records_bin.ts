@@ -4,7 +4,7 @@
  * 这里是「TS 写、Python 训练器读」两份实现里的唯一一份：Python 侧照下面的字段布局
  * 解析，禁止再维护第二套格式。派生缓存不进版本、可随时从 `records.jsonl` 重建，
  * 所以格式变更加版本号即可、不必迁移旧 bin。稀疏编码只落在这层——原始 obs 存紧凑
- * JSONL，稠密 ~732 维特征一旦进 JSONL，30k 轨迹会涨到 GB 级，故 `obs` 以 {idx,val}
+ * JSONL，稠密 ~867 维特征一旦进 JSONL，30k 轨迹会涨到 GB 级，故 `obs` 以 {idx,val}
  * 存、每行非零项远小于总维度。
  *
  * v2 契约缺口修复（对齐 F.2「候选特征由 node id 确定、不重复存」）：动作特征是节点
@@ -28,7 +28,8 @@
  * 读侧外部边界 fail-fast：magic/version 不符即抛（bin 可随时重生成，跨版本加载只会
  * 产出静默错位权重，比拒读坏得多，故 version≠2 直接提示重跑 featurize）；任何一处越过
  * 文件尾都判截断抛错，不按 nrows 之外的「半行」凑数；读回再扫一遍 NaN/Inf——写侧闸门
- * 挡正常管线，读侧扫描挡手工/损坏文件（G.7 数值入口判 NaN/Inf）。
+ * 挡正常管线，读侧扫描挡手工/损坏文件（G.7 数值入口判 NaN/Inf）；style/family 两个
+ * u8 裸字节读侧校验枚举值域，越域即抛，不带着坏标签进训练。
  * 写侧先全量扫 NaN/Inf 再落盘：二进制里存进非法浮点会被 Python 无声读成垃圾，故在
  * 唯一写入口挡死。
  */
@@ -290,6 +291,14 @@ export function readRecordsBin(path: string): BinFile {
     assertFinite(`读回行 ${String(i)} 稀疏值`, val);
     if (candMask >> nAct !== 0) {
       throw new Error(`records.bin: 行 ${String(i)} candMask 置位越过动作表宽 ${String(nAct)}`);
+    }
+    // style/family 是 u8 裸字节：读侧同样按枚举值域 fail-fast（契约上只有
+    // 0/1 与 0..3 合法），坏字节转成下游静默错组/错家族标签比拒读坏得多。
+    if (style !== 0 && style !== 1) {
+      throw new Error(`records.bin: 行 ${String(i)} style=${String(style)} 不在 {0=follow,1=goal}`);
+    }
+    if (family > 3) {
+      throw new Error(`records.bin: 行 ${String(i)} family=${String(family)} 不在 {0,1,2,3}（value/verify/goal/goal_verify 序）`);
     }
     rows.push({
       style: style as 0 | 1,

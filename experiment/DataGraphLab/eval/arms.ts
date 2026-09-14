@@ -27,7 +27,7 @@
  * 主指标单一实现：策略系臂（random/trained）的 pass@1 直接包 metrics.js 的 `passAt1`，
  * `ci95` 一律 import metrics.js、禁本地重写（replay 臂的 passRate/ci95 也走同一函数）。
  * greedy pass@1 每题只跑一次（A.1 主指标、§11.3 不许多次重试偷分）；rollout、
- * planBfs、accept、分词口径（tokens/findSequence/senseTokens/LEXICON/LEX_OPS_BASE）
+ * planBfs、accept、分词口径（tokens/occurrencePlan/senseTokens/LEXICON/LEX_OPS_BASE）
  * 全部 import 唯一口径、不改写复刻——弱扫描只在「同位选算子」环节弱化。
  */
 
@@ -43,8 +43,7 @@ import {
 } from '../world/operators.js';
 import { rollout, type RolloutResult, type RolloutStep } from '../runner/rollout.js';
 import { accept } from '../verify/acceptor.js';
-import { LEXICON } from '../world/lexicon.js';
-import { findSequence, senseTokens, tokens } from '../world/tokenize.js';
+import { occurrencePlan, tokens } from '../world/tokenize.js';
 import { planBfs } from '../teacher/search.js';
 import { Policy, type HeadTag } from '../controller/policy.js';
 import type { FeatureSet } from '../controller/features.js';
@@ -100,38 +99,20 @@ function runPublicPlan(
 }
 
 /**
- * 弱词法扫描（C.7 启发式臂的计划还原口径）：`tokens` 切分后，收集 LEXICON 各义项在
- * token 流中的首次命中位置，按位置升序逐位定一个算子；同一位置命中多个算子（共享义项
- * `取反` 同时命中 neg/reverse）时**不做类型消歧**、也不读 `task.root`，一律取
- * `LEX_OPS_BASE` 固定算子序的最小者（neg）——与 `parseRecipe` 的类型感知口径刻意分道：
- * 渲染成 `取反` 的 reverse 步会被选成 neg、在 Str 状态上不进 candidates 而整步跳过，
- * 由此产生非零失败率（弱臂之「弱」即在此，分词与义项匹配仍走 world 层唯一口径）。
+ * 弱词法扫描（C.7 启发式臂的计划还原口径）：`tokens` 切分后，按义项命中位置
+ * 升序逐位定一个算子（逐位置命中组见 `occurrencePlan`，唯一实现——R7 进度对齐槽
+ * 同源；枚举义项**全部**命中位置，同一义项重复渲染 → 重复占位、计划含重复步）；
+ * 同一位置命中多个算子（共享义项 `取反` 同时命中 neg/reverse）时**不做类型消歧**、
+ * 也不读 `task.root`，一律取 `LEX_OPS_BASE` 固定算子序的最小者（neg）——与
+ * `parseRecipe` 的类型感知口径刻意分道：渲染成 `取反` 的 reverse 步会被选成 neg、
+ * 在 Str 状态上不进 candidates 而整步跳过，由此产生非零失败率（弱臂之「弱」即在
+ * 此，分词与义项匹配仍走 world 层唯一口径）。
  */
 function weakLexicalPlan(instr: string): string[] {
-  const toks = tokens(instr);
-  const byFirst = new Map<number, string[]>();
-  for (const opId of LEX_OPS_BASE) {
-    for (const sense of LEXICON[opId]!) {
-      const first = findSequence(toks, senseTokens(sense));
-      if (first < 0) continue;
-      const group = byFirst.get(first) ?? [];
-      if (!group.includes(opId)) group.push(opId);
-      byFirst.set(first, group);
-    }
-  }
-  const plan: string[] = [];
-  for (const first of [...byFirst.keys()].sort((a, b) => a - b)) {
-    // tie-break 只看 LEX_OPS_BASE 序，与状态类型无关；map 收集已保证组内首现序稳定。
-    let chosen = byFirst.get(first)![0]!;
-    for (const id of byFirst.get(first)!) {
-      if (LEX_OPS_BASE.indexOf(id) < LEX_OPS_BASE.indexOf(chosen)) chosen = id;
-    }
-    plan.push(chosen);
-  }
-  return plan;
+  return occurrencePlan(tokens(instr)).map((group) => LEX_OPS_BASE[group[0]!]!);
 }
 
-/** 启发式臂：LEXICON 线性首现顺序弱扫描重放（仅 follow；goal 时抛 N/A）。 */
+/** 启发式臂：occurrencePlan 弱词法扫描重放（仅 follow；goal 时抛 N/A）。 */
 export class HeuristicArm {
   readonly name = 'heuristic' as const;
 
@@ -141,6 +122,10 @@ export class HeuristicArm {
     let st: State = initState(task.x, task.spec);
     const trace: RolloutStep[] = [];
     for (const opId of plan) {
+      // 步数预算与 rollout 同源口径（C.4/G2.2「超预算不追认」）：EXIT 恒占一步，
+      // 算子步最多 MAX_STEPS−1；预算耗尽而计划未走完即收口 accepted=false，
+      // 不允许弱臂靠超长还原计划吃到 rollout 臂拿不到的通过。
+      if (trace.length >= MAX_STEPS - 1) return { trace, accepted: false };
       const cand = candidates(graph, st, st.hist);
       if (!cand.includes(opId)) continue;
       const next = applyOp(graph, opId, st);

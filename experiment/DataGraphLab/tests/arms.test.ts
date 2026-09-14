@@ -1,13 +1,12 @@
 /**
- * eval/arms 测试（C.7 三臂 + 两诊断/上界臂 + evaluateArm 口径）：
- * ①HeuristicArm 与测试内独立重算的弱词法扫描参照逐字一致（同语义非同源，同位命中按
- * LEX_OPS_BASE 固定序取首、不做类型消歧）；lexicon 线性渲染可还原故 accepted 非零；
- * 钉 seed 59/77/150 验 `取反` 恒选 neg → reverse 任务稳定失败；goal 抛 N/A；gold 毒化照样完成；②RandomArm 同 seed 逐字确定且与直接 rollout(Policy.random)
- * 一致（委托单一实现）、异 seed 权重必不同（轨迹不强断言，仅记录）；③TrainedArm 的
- * save→fromWeights 往返与注入同 seed Policy 逐字同解；④PlannerArm 对 goal 任务
- * accepted 必真且 trace 与 planBfs 同源、follow 抛 N/A、预算守卫先行；⑤ContractRouteArm
+ * eval/arms 测试（C.7 三臂 + 两诊断/上界臂 + evaluateArm 口径，HeuristicArm 弱扫描组
+ * 已拆至 arms_heuristic.test.ts）：
+ * ①RandomArm 同 seed 逐字确定且与直接 rollout(Policy.random)
+ * 一致（委托单一实现）、异 seed 权重必不同（轨迹不强断言，仅记录）；②TrainedArm 的
+ * save→fromWeights 往返与注入同 seed Policy 逐字同解；③PlannerArm 对 goal 任务
+ * accepted 必真且 trace 与 planBfs 同源、follow 抛 N/A、预算守卫先行；④ContractRouteArm
  * 确定性 + verify 族「先补 verdict 再 submit」的规则序（state 级场景）+ 真实 goal
- * 任务不抛错且 accepted 与 trace 重放一致；⑥evaluateArm 的 solved 与手工计数一致、
+ * 任务不抛错且 accepted 与 trace 重放一致；⑤evaluateArm 的 solved 与手工计数一致、
  * 策略臂逐字复用 passAt1（CI 同源）、style 过滤、N/A 记 applicable=false 全零、
  * 空集零值（ci95 走 metrics.js 同函数）。
  */
@@ -20,72 +19,13 @@ import { join } from 'node:path';
 import { ContractRouteArm, HeuristicArm, PlannerArm, RandomArm, TrainedArm, evaluateArm } from '../eval/arms.js';
 import { ci95, passAt1 } from '../eval/metrics.js';
 import { Policy } from '../controller/policy.js';
-import { rollout, type RolloutResult, type RolloutStep } from '../runner/rollout.js';
-import { MAX_STEPS, GRAPH, candidates } from '../runner/graph.js';
-import { EXIT, LEX_OPS_BASE, applyOp, initState, obsSnapshot, type Graph, type State } from '../world/operators.js';
-import { LEXICON } from '../world/lexicon.js';
-import { findSequence, senseTokens, tokens } from '../world/tokenize.js';
+import { rollout, type RolloutResult } from '../runner/rollout.js';
+import { MAX_STEPS, GRAPH } from '../runner/graph.js';
+import { EXIT, applyOp, initState, type Graph, type State } from '../world/operators.js';
 import { planBfs } from '../teacher/search.js';
 import { accept } from '../verify/acceptor.js';
-import { makeTask } from '../gen/generator.js';
-import type { Family, Style, Task } from '../schema.js';
-
-/** 在连续 seed 上取第一个生成成功的真实任务（null 换下一 seed）。 */
-function firstTask(style: Style, family?: Family, from = 1): Task {
-  for (let seed = from; seed < from + 60; seed++) {
-    const t = makeTask(seed, style, family);
-    if (t !== null) return t;
-  }
-  throw new Error(`makeTask(style=${style}, family=${String(family)}) 于 seed ${from}.. 连续失败`);
-}
-
-/** 收集 n 个指定 style 的真实任务（家族不限，同 generator 的轮转口径）。 */
-function collectTasks(style: Style, n: number, from = 1): Task[] {
-  const out: Task[] = [];
-  for (let seed = from; seed < from + 200 && out.length < n; seed++) {
-    const t = makeTask(seed, style);
-    if (t !== null) out.push(t);
-  }
-  if (out.length !== n) throw new Error(`collectTasks(${style}) 仅产出 ${out.length}/${n}`);
-  return out;
-}
-
-/** 隐藏 gold 毒化代理：读 plan_hidden 即抛——期望臂不读，读了当场暴露。 */
-function withoutGold(task: Task): Task {
-  return new Proxy(task, {
-    get(target, prop, receiver) {
-      if (prop === 'plan_hidden') throw new Error('leak: plan_hidden 被读取');
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as Task;
-}
-
-/** 手工参照：测试内独立重算弱扫描（首现位置升序、同位按 LEX_OPS_BASE 取首、无类型消歧），
- *  再逐步重放（在候选才走，错位跳步，末尾 EXIT）。 */
-function heuristicReference(task: Task): RolloutStep[] {
-  const toks = tokens(task.instruction);
-  const byFirst = new Map<number, string[]>();
-  for (const opId of LEX_OPS_BASE) {
-    for (const sense of LEXICON[opId] ?? []) {
-      const at = findSequence(toks, senseTokens(sense));
-      if (at < 0 || byFirst.get(at)?.includes(opId)) continue;
-      byFirst.set(at, [...(byFirst.get(at) ?? []), opId]);
-    }
-  }
-  let st: State = initState(task.x, task.spec);
-  const steps: RolloutStep[] = [];
-  for (const at of [...byFirst.keys()].sort((a, b) => a - b)) {
-    const chosen = byFirst.get(at)!.reduce((a, b) => (LEX_OPS_BASE.indexOf(b) < LEX_OPS_BASE.indexOf(a) ? b : a));
-    const cand = candidates(GRAPH, st, st.hist);
-    if (!cand.includes(chosen)) continue;
-    const next = applyOp(GRAPH, chosen, st);
-    if (next === null) continue;
-    steps.push({ obs: obsSnapshot(st), candidates: cand, action: chosen });
-    st = next;
-  }
-  steps.push({ obs: obsSnapshot(st), candidates: candidates(GRAPH, st, st.hist), action: EXIT });
-  return steps;
-}
+import type { Task } from '../schema.js';
+import { collectTasks, firstTask } from './fixtures_arms.js';
 
 /** 独立重放 trace 求 accepted：verify 臂的 accepted 字段不许自说自话。 */
 function replayAccepted(task: Task, result: RolloutResult): boolean {
@@ -98,53 +38,6 @@ function replayAccepted(task: Task, result: RolloutResult): boolean {
   }
   return false;
 }
-
-describe('HeuristicArm：follow 重放 + 零泄漏 + goal N/A', () => {
-  const arm = new HeuristicArm();
-  const tasks = collectTasks('follow', 5);
-
-  it('trace 与手工参照逐字一致（测试内独立弱扫描参照的逐步比对）', () => {
-    for (const task of tasks) {
-      const r = arm.solve(task, GRAPH);
-      expect(r.trace).toEqual(heuristicReference(task));
-      expect(r.trace[r.trace.length - 1]!.action).toBe(EXIT);
-    }
-  });
-
-  it('非类型感知确实生效：reverse·`取反` 任务恒误选 neg 而失败（seed 59/77/150）', () => {
-    for (const seed of [59, 77, 150]) {
-      const t = makeTask(seed, 'follow');
-      if (t === null) throw new Error(`seed=${seed} 应稳定产出 follow 任务`);
-      expect([t.root, t.plan_hidden.includes('reverse'), t.instruction.includes('取反')]).toEqual(['Str', true, true]);
-      expect(arm.solve(t, GRAPH).trace.some((s) => s.action === 'reverse')).toBe(false);
-      expect(arm.solve(t, GRAPH).accepted).toBe(false);
-    }
-  });
-
-  it('lexicon 线性首现解析可还原（与 oracle 前缀同构）：seed 1..24 至少 1 例 accepted', () => {
-    let solved = 0;
-    for (let seed = 1; seed < 24; seed++) {
-      const t = makeTask(seed, 'follow');
-      if (t !== null && arm.solve(t, GRAPH).accepted) solved++;
-    }
-    expect(solved).toBeGreaterThan(0);
-  });
-
-  it('goal 任务 solve 抛 N/A（两 goal 族各验一个）', () => {
-    for (const family of ['goal', 'goal_verify'] as const) {
-      expect(() => arm.solve(firstTask('goal', family), GRAPH)).toThrow(/N\/A/);
-    }
-  });
-
-  it('零泄漏：plan_hidden 毒化后 solve 照常完成且结果不变（expected 由 accept 合法读取）', () => {
-    for (const task of tasks) {
-      const r = arm.solve(task, GRAPH);
-      const t2 = withoutGold(task);
-      expect(() => arm.solve(t2, GRAPH)).not.toThrow();
-      expect(arm.solve(t2, GRAPH).accepted).toBe(r.accepted);
-    }
-  });
-});
 
 describe('RandomArm：随机权重下界的确定性', () => {
   const task = firstTask('follow', 'value', 11);

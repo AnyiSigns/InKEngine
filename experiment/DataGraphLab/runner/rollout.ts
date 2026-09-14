@@ -57,6 +57,12 @@ export function rollout(
   for (let step = 0; step < maxSteps; step++) {
     const cand = candidates(graph, st, st.hist);
     const obs = obsSnapshot(st);
+    // 单候选显式钉死「只能是 exit」：EXIT 恒在候选（B.3），候选数 1 ⇒ 其余算子全被
+    // 契约闸/访问上限滤光。若此不变量被未来改动打破，当场暴露而不是无提示地
+    // 绕开 policy 执行非 exit 动作。
+    if (cand.length === 1 && cand[0] !== EXIT) {
+      throw new Error(`rollout: 单候选步候选 ${JSON.stringify(cand)} 非 exit（候选构造不变量被破坏，fail-fast）`);
+    }
     const a = cand.length === 1 ? cand[0]! : policy.act(task.instruction, obs, cand, graph, greedy, rng);
     trace.push({ obs, candidates: cand, action: a });
     if (a === EXIT) return { trace, accepted: accept(task, st) };

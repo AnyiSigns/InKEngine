@@ -87,10 +87,16 @@ export function defaultOutRoot(): string {
   return join(pkgRoot(), 'runs');
 }
 
-/** oracle 一步 → F.2 记录：obs 走白名单投影，meta 只带派生指纹与切分坐标。 */
+/**
+ * oracle 一步 → F.2 记录：obs 走白名单投影，meta 只带派生指纹与切分坐标。
+ * `teacher` 标注监督来源（缺省 'oracle' 行为不变；DAgger 偏离打标行传 'dagger'），
+ * 属审计面坐标、不进 obs/特征；步级去重键不含 teacher，oracle/dagger 同步行仍由
+ * `dedup` 收口。
+ */
 export function recordFromStep(
   task: Task,
   step: Step,
+  teacher: string = 'oracle',
   extraMeta?: Readonly<Record<string, unknown>>,
 ): StoreRecord {
   const obs = obsSnapshot(step.obs as unknown as State);
@@ -110,7 +116,7 @@ export function recordFromStep(
       composition_id: task.composition_id,
       plan_hash: task.plan_hash,
       world_version: worldVersion,
-      teacher: 'oracle',
+      teacher,
       ...(extraMeta ?? {}),
     },
   };

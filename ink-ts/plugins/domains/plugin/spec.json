@@ -1,0 +1,19 @@
+{
+  "id": "plugin",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "plugin 域（agent 侧插件管理面工具族）：plugin.* 7 工具执行接线（plugin_command 端点族）——catalog 走宿主注入目录快照只读面，其余按工具名分发到既有 bridge 命令（plugin.mcp.enable→mcp.enable 等）；自定义端点 plugin_command 幂等登记。S4 域组3 自 hosts/lib/src/plugin_command.ts 迁入。",
+      "inject": []
+    }
+  }
+}

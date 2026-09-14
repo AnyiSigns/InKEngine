@@ -33,7 +33,9 @@ import { loadHostLogicFaces } from './face/loader.js';
 import type { DocParser } from './doc/_types.js';
 import type { InkHost } from './host.js';
 import type { WorkspaceStore, CapabilityStore } from './bridge/_types.js';
-import { buildPluginCommandTools } from './plugin_command.js';
+// plugin 域插件装配（S4 域组3：plugin_command 工具族值随 plugins/domains/plugin；
+// buildPluginCommandTools 经跨树引用构造工具族）
+import { buildPluginCommandTools } from '../../../plugins/domains/plugin/faces/logic/index.js';
 // collab 域插件装配（S4 域组3：collab_request 组织类工具执行接线值随插件；
 // buildCollabCommandTools 经跨树引用——装配契约类型 type import 取用）
 import { buildCollabCommandTools } from '../../../plugins/domains/collab/faces/logic/index.js';
@@ -389,22 +391,6 @@ export type { CapabilityRecord, CapabilityStore } from './bridge/_types.js';
 // ── 模型提供方映射（model_providers 宿主服务：role pick/掩码合并；models 命令消费）──
 export { asProvider, providerModelIds, samePick } from './model_providers.js';
 export type { ProviderPick } from './model_providers.js';
-
-// ── plugin_command 工具族（B6 agent 插件管理面；分发到既有桥命令/受控台账）──
-export {
-  PLUGIN_COMMAND_ENDPOINT,
-  PLUGIN_COMMAND_TOOLS,
-  buildPluginCommandTools,
-  ensurePluginCommandEndpointRegistered,
-  pluginCommandDefinitions,
-  pluginCommandEndpointSpec,
-  pluginCommandExecutor,
-} from './plugin_command.js';
-export type {
-  PluginCommandCall,
-  PluginCommandSnapshot,
-  PluginCommandTools,
-} from './plugin_command.js';
 
 // ── collab 域插件（S4 域组3：convene/collab_command/HostExecutionService 值随
 // plugins/domains/collab——命令面/演化资产经跨树 import 域插件取用；宿主只留

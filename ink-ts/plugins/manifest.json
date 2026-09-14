@@ -1985,6 +1985,19 @@
       }
     },
     {
+      "id": "plugin",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-plugin",
+      "dir": "domains/plugin",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "retrieval",
       "kind": "domain",
       "capability": "host_tool",
@@ -4963,6 +4976,10 @@
     },
     {
       "id": "os",
+      "entry": "./faces/logic/index.ts"
+    },
+    {
+      "id": "plugin",
       "entry": "./faces/logic/index.ts"
     },
     {

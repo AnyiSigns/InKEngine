@@ -5,7 +5,8 @@
  */
 
 import type { Storage } from '@ink-ts/engine';
-import { BridgeError, HostSessionStore } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
+import { HostSessionStore } from '../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, HostBridgeDeps, HostSessionRecord } from '@ink-ts/host';
 
 /** JSON 化任意引擎对象（有 to_dict 用 to_dict；否则字段透传/字符串化）。 */

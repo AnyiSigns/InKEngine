@@ -1,0 +1,21 @@
+{
+  "id": "sessions",
+  "kind": "domain",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "data": {
+    "service": {
+      "description": "会话宿主薄服务（sessions.create/rename/delete/refresh/tree/messages + records.sessions + rounds 收尾簿记）：checkpoint 链的宿主索引与簿记刷新，写宿主命名空间集合 host.sessions；命令面经 @ink-ts/host 装配契约类型取用（值经域插件）。S4 从 hosts/lib/src/sessions 迁入。",
+      "inject": [
+        "storage_seam"
+      ]
+    }
+  }
+}

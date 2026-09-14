@@ -5,7 +5,8 @@
  */
 
 import type { Storage } from '@ink-ts/engine';
-import { BridgeError, HostSessionStore } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
+import { HostSessionStore } from '../../../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
 import { requireThread } from '../../../_shared/sessions.js';
 

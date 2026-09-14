@@ -4,7 +4,7 @@
  */
 
 import type { Storage } from '@ink-ts/engine';
-import { HostSessionStore } from '@ink-ts/host';
+import { HostSessionStore } from '../../../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
 import { sessionToView } from '../../../_shared/records.js';
 import { requireThread, sessionOrThrow } from '../../../_shared/sessions.js';

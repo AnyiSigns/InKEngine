@@ -4,10 +4,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { loadTestStorage } from '../port_seam.js';
+import { loadTestStorage } from '../../../../../hosts/lib/test/port_seam.js';
 
-import { HostSessionStore } from '../../src/sessions/store.js';
-import { branch_tree_from_chain, fallback_title, normalize_title, parse_session_record } from '../../src/sessions/model.js';
+import { HostSessionStore } from './index.js';
+import { branch_tree_from_chain, fallback_title, normalize_title, parse_session_record } from './index.js';
 
 async function makeStore(): Promise<HostSessionStore> {
   const storage = await (await loadTestStorage())('memory://');

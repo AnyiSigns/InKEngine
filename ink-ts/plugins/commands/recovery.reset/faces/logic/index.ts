@@ -4,7 +4,8 @@
  * 标记 'factory-reset'；thread_id 缺省 = 全量重置，显式 = 单线程重置。
  */
 
-import { BridgeError, HostSessionStore } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
+import { HostSessionStore } from '../../../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
 import type { Storage } from '@ink-ts/engine';
 import { FACTORY_RESET_MARKER, writeResetAudit } from '../../../_shared/recovery.js';

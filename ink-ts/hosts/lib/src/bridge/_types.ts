@@ -11,8 +11,61 @@ import type { Runtime } from '@ink-ts/engine';
 
 import type { McpClientManagerLike } from '../assembly/ports.js';
 import type { InkHost } from '../host.js';
-import { HOST_SESSIONS_COLLECTION } from '../sessions/model.js';
-import type { HostSessionRecord } from '../sessions/model.js';
+
+/**
+ * 会话簿记契约（S4 域逻辑下沉：值随 plugins/domains/sessions，
+ * 装配契约类型留宿本文件——命令面 type import 从这里派生）。
+ */
+/** 宿主会话记录（epoch 秒时间戳；引擎 checkpoint 链 + 宿主簿记合并形态）。 */
+export interface HostSessionRecord {
+  thread_id: string;
+  title: string;
+  /** 创建时间（epoch 秒）。 */
+  created_at: number;
+  /** 最近回合时间（epoch 秒）。 */
+  updated_at: number;
+  /** 链内消息数（回合收尾刷新时从最新 checkpoint 派生）。 */
+  message_count: number;
+  /** 当前分支叶（checkpoint_id；null = 尚无链）。 */
+  current_leaf: number | null;
+  /** 人工改名次数（0 = 从未改名，标题可被自动候选覆盖）。 */
+  rename_count: number;
+  /** 逻辑删除标记（列表/查询一律过滤）。 */
+  deleted: boolean;
+  /** 收尾簿记：本线程已跑回合数。 */
+  round_count: number;
+  /** 收尾簿记：最近一次回合 id。 */
+  last_round_id: string | null;
+  /** 收尾簿记：最近一次回合结局（ok/aborted/interrupted…）。 */
+  last_outcome?: string;
+  /** 展示态消息流（thinking/tool/正文，宿主从引擎事件展示聚合器采集并持久化；
+   *  独立于引擎上下文 messages，刷新后据此恢复前端完整消息流）。 */
+  display_messages?: unknown[];
+}
+
+/** 分支树单节点（派生自 ChainLink；leaf 恒为某叶 checkpoint）。 */
+export interface SessionBranchNode {
+  leaf: number;
+  parent: number | null;
+  reason: string | null;
+}
+
+/** 分支树（链多叶形态；current_leaf = 当前活跃叶）。 */
+export interface SessionBranchTree {
+  session_id: string;
+  nodes: SessionBranchNode[];
+  current_leaf: number | null;
+}
+
+/** 存储访问器（调用时取 runtime.storage——boot 前为 null 时方法显式拒绝）。 */
+export type StorageGetter = () => import('@ink-ts/engine').Storage | null;
+
+/** 会话簿记刷新输入（rounds 收尾透传）。 */
+export interface SessionTouchInput {
+  round_id: string;
+  outcome: string;
+  checkpoint_id?: number | null;
+}
 
 /**
  * 工作区授权台账契约（S4 域逻辑下沉：值随 plugins/domains/workspace，
@@ -92,9 +145,6 @@ export class BridgeError extends Error {
     this.details = details;
   }
 }
-
-export { HOST_SESSIONS_COLLECTION };
-export type { HostSessionRecord };
 
 /** 模型运行配置句柄（models.config.* 消费面；createHost 以 InkHost 装配）。
  *  apply = 校验 + 合并 + 关停并置空 _llm（返回掩码当前值）；persist = 当前

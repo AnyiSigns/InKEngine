@@ -3,7 +3,8 @@
  * 迁入，语义零改）。回退入口：按链删除目标叶之后的派生 checkpoint，并审计留痕。
  */
 
-import { BridgeError, HostSessionStore } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
+import { HostSessionStore } from '../../../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
 import type { Storage } from '@ink-ts/engine';
 import { SET_AUDIT_COLLECTION } from '@ink-ts/engine';

@@ -1907,6 +1907,19 @@
       }
     },
     {
+      "id": "sessions",
+      "kind": "domain",
+      "capability": "host_tool",
+      "package": "@ink-ts/plugin-domains-sessions",
+      "dir": "domains/sessions",
+      "faces": {
+        "logic": {
+          "target": "host",
+          "entry": "./faces/logic/index.ts"
+        }
+      }
+    },
+    {
       "id": "workspace",
       "kind": "domain",
       "capability": "host_tool",
@@ -4824,6 +4837,10 @@
     }
   ],
   "domains": [
+    {
+      "id": "sessions",
+      "entry": "./faces/logic/index.ts"
+    },
     {
       "id": "workspace",
       "entry": "./faces/logic/index.ts"

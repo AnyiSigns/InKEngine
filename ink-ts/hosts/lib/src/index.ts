@@ -329,23 +329,15 @@ export type {
 export { PRODUCT_SWITCH_DEFAULTS, assert_product_switches_all_on, build_product_recipe } from './recipe.js';
 export type { ProductRecipeInit, ProductSwitchName, ProductSwitchOverrides } from './recipe.js';
 
-// ── 会话宿主薄服务 ──
-export { HostSessionStore, SessionServiceError } from './sessions/store.js';
-export type { SessionTouchInput } from './sessions/store.js';
-export {
-  HOST_SESSIONS_COLLECTION,
-  SESSION_TITLE_MAX,
-  branch_tree_from_chain,
-  fallback_title,
-  normalize_title,
-  parse_session_record,
-  session_record_to_json,
-} from './sessions/model.js';
+// ── 会话簿记契约（值随 plugins/domains/sessions——S4 域逻辑唯一实现位；
+// 命令面 import HostSessionStore 改走域插件包；装配契约类型留宿）──
 export type {
   HostSessionRecord,
   SessionBranchNode,
   SessionBranchTree,
-} from './sessions/model.js';
+  SessionTouchInput,
+  StorageGetter,
+} from './bridge/_types.js';
 
 // ── 宿主检索域（向量/FTS 检索源 + AsyncEmbedder seam）──
 export { buildHostRetrieval, FtsRetriever, RetrievalStore, VectorRetriever, SOURCE_FTS, SOURCE_VECTOR } from './retrieval/domain.js';

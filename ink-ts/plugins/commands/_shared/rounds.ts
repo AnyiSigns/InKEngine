@@ -26,7 +26,8 @@ import {
   isApprovalPose,
 } from '@ink-ts/engine';
 
-import { HostSessionStore, BridgeError, prepareRoundInput } from '@ink-ts/host';
+import { BridgeError, prepareRoundInput } from '@ink-ts/host';
+import { HostSessionStore } from '../../domains/sessions/faces/logic/index.js';
 import type { BridgeHandler, FileEventsTransport, HostBridgeDeps, PreparedRound } from '@ink-ts/host';
 
 interface RoundParams {

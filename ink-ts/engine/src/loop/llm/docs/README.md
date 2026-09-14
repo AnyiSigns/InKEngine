@@ -13,12 +13,12 @@ kernel 侧 LLM 机制契约层：统一 AsyncLLM 接口与数据形态、消息/
 - `fallback.ts` — `ModelChain` 主备链（指数退避重试 + 备用切换 + 流式首块前重试）与 `RetryPolicy`。
 - `cache.ts` — `CachingLLM` 调用缓存（sha256 指纹 + Storage records 持久化 + 版本失效 + TTL）。
 - `guard.ts` — `UsageTrackingLLM` 用量闭环 / `CompressingLLM` 回合内压缩包装、`current_node_context`（`AsyncLocalStorage` 节点上下文）。
-- `contract.ts` — `llm_contract` 机制契约（effects=storage_seam/llm_port，depends=builder）。
+- `contract.ts` — `llm_contract` 机制契约（effects=storage_seam/llm_port，depends=[]——S1-c builder 退役后 sha256 属 model/hashing 数据面公共 seam，不登机制 depends）。
 - `index.ts` — barrel 公开面（37 名，mirror Python `__all__` 本地纯契约模块）。
 - `_guard_types.ts` — guard 侧 `AsyncLLM` 最小结构契约视图（跨域契约模块：runtime/executor/nodes 按此消费）。
 - `_cache_serialize.ts` — 缓存负载序列化私有助手（`_result_to_dict`/`_result_from_dict`/`_stable_json`）。
 - `_types.ts` — `ROLES`/`ROLE_ALIASES`/`ATTACHMENT_KINDS`/`ATTACHMENT_SEGMENT_TYPES` 共享常量。
 
 ## 依赖
-- 上游（本目录实际 import）：`model/errors`（`EngineError`）、`core/context/context_compression`（压缩策略）、`core/storage`（`Storage` 类型）、`kernel/builder/_sha256`（纯 TS sha256）、`dock/ports`（端口常量）；`node:async_hooks`（仅 guard.ts，白名单唯一例外）。
+- 上游（本目录实际 import）：`model/errors`（`EngineError`）、`model/hashing`（纯 TS sha256 公共 seam，S1-c 自 graph/builder/_sha256 迁入）、`dock/ports`（端口常量）；`node:async_hooks`（仅 guard.ts，白名单唯一例外）。
 - 下游（实际 import 本目录）：`core/`（nodes、context window+compression、storage/storage_records、tool_index、tool_orchestrator、harness、declarative_tools、execution_runtime）；`kernel/`（executor、runtime、tool_pipeline、self_tools、introspection、registry/contracts）；`adapters/llm`（全部适配器/注册表/解析负载）；公共面 `src/index.ts`「LLM 机制契约」组 `export *`；hosts/lib（`host.ts` 用 `AsyncLLM`/`ModelChain`、`bridge/rounds.ts` 用 `project_history_baseline`）；测试 `test/kernel/llm`（11 测试 + 2 助手）。

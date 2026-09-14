@@ -35,7 +35,8 @@ engine/
 │   │                   #   turn_settle/display_stream/llm/route
 │   ├─ graph/           # 最小图解释器：executor（子图/条件边/检查点）、
 │   │                   #   nodes（结点类型池 + default_engine_pool_seed 池种子）、
-│   │                   #   builder、node_registry、registry（图注册）
+│   │                   #   exec_types（图执行协议结构接口面，S1-c）、
+│   │                   #   node_registry、registry（图注册）
 │   ├─ gate/            # 运行期「可不可以」：approval（审批裁决）、audit_log
 │   │                   #   （审计）、budget（预算闸门）、patch（补丁链）、
 │   │                   #   permissions（权限）、sandbox（文件/进程沙箱判定，

@@ -15,7 +15,7 @@
     scopes/harness/state 形态等纯数据，零依赖首层。
   - `engine/src/loop/`：执行主线——runtime/round_steps/tools/execution_runtime/
     whiteboard/collab/context/recovery/interrupt/trial 等回合循环与执行运行时。
-  - `engine/src/graph/`：最小图解释器——executor/nodes（含池种子）/builder/
+  - `engine/src/graph/`：最小图解释器——executor/nodes（含池种子）/exec_types/
     node_registry/registry，图=数据的纯解释。
   - `engine/src/gate/`：运行期「可不可以」——approval/audit_log/budget/patch/
     permissions/sandbox/security/tool_vetting/link_validator，审批/审计/补丁链/

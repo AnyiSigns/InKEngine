@@ -18,7 +18,7 @@ import type { McpClientManagerLike, McpClientPortSeam } from '../../src/assembly
 import { loadTestMcpSeam, newTestMcpManager } from '../port_seam.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createCapabilityStore } from '../../src/capability/store.js';
+import { createCapabilityStore } from '../../../../plugins/domains/capability/faces/logic/index.js';
 import {
   MCP_PLUGINS_ENABLED_KEY,
   MCP_PLUGINS_EXTRA_KEY,

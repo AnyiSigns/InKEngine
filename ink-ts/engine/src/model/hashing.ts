@@ -1,4 +1,6 @@
-// 跨域契约模块 - 共享工具 seam：sha256 内容寻址跨域复用（llm/cache、entity_evolution；共享工具宜收敛为公共导出面）
+// 跨域契约模块 - 公共哈希 seam：sha256 内容寻址跨域复用（llm/cache、
+// entity_evolution；S1-c 自 graph/builder/_sha256.ts 迁入——builder 退役，
+// 共享工具收敛公共导出面，机制语义与算法契约留引擎）
 /**
  * 纯 TS SHA-256（hashlib.sha256(...).hexdigest() 的镜像，64 位小写 hex）。
  *

@@ -1,3 +1,4 @@
+// gate: test-exempt - import 路径迁移（S1-c），行为由 cache.test 覆盖
 /**
  * LLM 调用缓存包装器（AsyncLLM 协议；Storage records 通道持久化）——Python
  * kernel/llm/cache.py 移植（TS core 机制层，1:1 语义）。
@@ -25,12 +26,12 @@
  *   （语义不改）；缓存读写失败一律静默按 miss 处理（fail-open：缓存是
  *   增强不是依赖，绝不阻断调用）。
  *
- * core 零 IO：不落任何存储实现；sha256 用纯 TS 实现（builder/_sha256，
+ * core 零 IO：不落任何存储实现；sha256 用纯 TS 实现（model/hashing 公共 seam，
  * core 禁 node:crypto）。时钟缺省 Date.now 秒（运行期默认），测试经
  * clock 注入面获得确定性。序列化助手拆入 _cache_serialize.ts（≤350 行纪律）。
  */
 
-import { sha256_hex } from '../../graph/builder/_sha256.js';
+import { sha256_hex } from '../../model/hashing.js';
 import type { Storage } from '../../dock/ports/storage.js';
 
 import type { LLMParams, LLMResult } from '../../dock/ports/llm.js';

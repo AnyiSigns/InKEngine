@@ -1,3 +1,4 @@
+// gate: test-exempt - 机制契约声明数据（一致性由 contracts.test + verify:mechanisms 守护）
 /**
  * entity_evolution 机制件契约声明。
  *
@@ -8,19 +9,20 @@
  * 契约面声明，本机制不直接持有存储端口）。回合事件观察（EngineTransport）
  * 与回合收尾触发（settle）均为被注入的入向钩子，不构成端口消费。
  *
- * depends：entity_evolution 组合复用两个下游机制——builder（教训指纹取
- * 其 _sha256 纯实现）与 knowledge_gate（EntityMutationGate 组合复用
+ * depends：entity_evolution 组合复用两个下游机制——model/hashing（教训指纹取
+ * 其 sha256_hex 纯实现）与 knowledge_gate（EntityMutationGate 组合复用
  * KnowledgeGate 判定件）。契约化归属见
  * engine/src/dock/registry/contract_types.ts。
  */
 
 import type { MechanismContract } from '../../../dock/registry/contract_types.js';
 
-/** 实体演化机制契约：消费 builder 与 knowledge_gate，effects 为空（零端口）。 */
+/** 实体演化机制契约：组合 knowledge_gate（模型/hashing 为数据面公共 seam
+ *  直接依赖，不属机制 depends 登记），effects 为空（零端口）。 */
 export const entity_evolution_contract: MechanismContract = {
   id: 'entity_evolution',
   contract: {
     effects: [],
   },
-  depends: ['builder', 'knowledge_gate'],
+  depends: ['knowledge_gate'],
 };

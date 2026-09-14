@@ -45,7 +45,8 @@ export interface EngineTurnRunnerInit {
   /** 工具回合上限（缺省 = 引擎常量；run 级覆写经 ScopeTurnContext 透传）。 */
   max_tool_rounds?: number;
   /** 装配池种子（S1-b2 装配权威迁移：缺省 = 引擎出厂默认 default_engine_pool_seed；
-   *  装配方显式注入 = 节点实例构图取此清单，与 runtime recipe.pool_seed 同源）。 */
+   *  装配方显式注入 = 节点实例构图取此清单，与 runtime recipe.pool_seed 同源；
+   *  空池注入 = 作用域回合显式失败——注入被消费，见 runner 测试空池用例）。 */
   pool_seed?: EnginePoolSeed | null;
 }
 

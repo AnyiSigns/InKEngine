@@ -1,3 +1,4 @@
+// gate: test-exempt - 机制契约声明数据（一致性由 contracts.test + verify:mechanisms 守护）
 /**
  * runtime 机制件契约声明。
  *
@@ -57,5 +58,8 @@ export const runtime_contract: MechanismContract = {
     'tool_pipeline',
     'tool_vetting',
     'tuning',
+    // S1-c：builder 退役后 sandbox 原唯一机制入边消失，收编 runtime 装配面
+    // （gate 系运行期判定件与 approval/permissions/tool_vetting 同列装配）
+    'sandbox',
   ],
 };

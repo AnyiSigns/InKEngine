@@ -1,7 +1,8 @@
+// gate: test-exempt - 机制契约注册表数据（一致性由 contracts.test + verify:mechanisms 守护）
 /**
  * 机制契约单一真源聚合（阶段1 verify/装配完整 + boot 密封共用）。
  *
- * 全量机制契约清单（28 项，与各机制层 `<mechanism>/contract.ts`——跨
+ * 全量机制契约清单（27 项，与各机制层 `<mechanism>/contract.ts`——跨
  * kernel/graph/gate/loop/evolve——一一对应，id = 目录名）。boot 密封
  * （seal_mechanism_registry）与 verify 脚本
  * （依赖单向/装配完整）从此聚合取数，不再在测试/脚本侧各自拼清单——契约
@@ -16,7 +17,6 @@ import type { MechanismContract } from './contract_types.js';
 import { approval_contract } from '../../gate/approval/contract.js';
 import { audit_log_contract } from '../../gate/audit_log/contract.js';
 import { budget_contract } from '../../gate/budget/contract.js';
-import { builder_contract } from '../../graph/builder/contract.js';
 import { entity_evolution_contract } from '../../evolve/legacy/entity_evolution/contract.js';
 import { evolution_contract } from '../../evolve/legacy/evolution/contract.js';
 import { evolution_writer_contract } from '../../evolve/proposal/evolution_writer/contract.js';
@@ -42,12 +42,11 @@ import { tool_pipeline_contract } from '../../loop/tools/tool_pipeline/contract.
 import { tool_vetting_contract } from '../../gate/tool_vetting/contract.js';
 import { tuning_contract } from '../../evolve/param_tuning/contract.js';
 
-/** 全量机制契约清单（28 项；id 与目录同集，由 validate 强制唯一）。 */
+/** 全量机制契约清单（27 项；id 与目录同集，由 validate 强制唯一）。 */
 export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   approval_contract,
   audit_log_contract,
   budget_contract,
-  builder_contract,
   entity_evolution_contract,
   evolution_contract,
   evolution_writer_contract,

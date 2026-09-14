@@ -1,15 +1,16 @@
+// gate: test-exempt - import 路径迁移（S1-c），行为由 entity_evolution.test 覆盖
 /**
  * 实体演化域工具 + 演化事件负载构建（entity_evolution.py 私有模块函数面
  * 移植：教训指纹 / 事件来源派生 / 信号稳定 id / 演化动态事件负载）。
  *
  * 指纹与 id 的确定性 seam：Python 侧 sha1/hash() 的随机进程种子在本重表达
- * 中替换为纯 TS 确定性实现——教训指纹取 sha256（_sha256.ts，与 builder 域
+ * 中替换为纯 TS 确定性实现——教训指纹取 sha256（model/hashing 公共 seam，
  * 同源纯实现）12 hex 前缀；信号 id 取 FNV-1a 32 位稳定哈希（`% 1e8` 与
  * Python 对齐）。时间 seam = 模块时钟注入面（对齐 growth 注入式时钟：
  * 未注入按确定值 0，测试可经 set_entity_evolution_now 冻结/推进）。
  */
 
-import { sha256_hex } from '../../../graph/builder/_sha256.js';
+import { sha256_hex } from '../../../model/hashing.js';
 import type { EntitySpec } from '../../../core/entities/entities.js';
 import type { EngineEvent } from '../../../dock/ports/events.js';
 import { SOURCE_MODEL, SOURCE_RANK, SOURCE_USER } from '../../learn/signals/_types.js';

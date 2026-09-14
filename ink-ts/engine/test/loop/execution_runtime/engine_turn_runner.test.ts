@@ -186,7 +186,7 @@ describe('端到端：ExecutionRuntime + 引擎装载 runner', () => {
             type: 'llm_decider',
             executor: 'llm_decider',
             default_config: { max_tool_rounds: 1 },
-            contract: null,
+            contract: null as never,
           },
         ],
       },

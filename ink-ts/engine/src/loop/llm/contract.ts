@@ -1,3 +1,4 @@
+// gate: test-exempt - 机制契约声明数据（一致性由 contracts.test + verify:mechanisms 守护）
 /**
  * llm 机制件契约声明：统一 LLM 接入面（AsyncLLM 协议 + 守卫链 + 模型链 +
  * 调用缓存）。
@@ -11,7 +12,7 @@
  * delete_collection），属 storage_seam 端口面；适配器实时传输/SSE 解析注册
  * 在适配器层，不在本机制。0-IO：不自持 IO，只调声明端口。
  *
- * depends：llm 引用 builder 的纯 TS sha256（_sha256，缓存指纹与内容寻址，
+ * depends：llm 引用 model/hashing 公共 seam 的纯 TS sha256（缓存指纹与内容寻址，
  * core 禁 node:crypto）。契约化归属见
  * engine/src/dock/registry/contract_types.ts。
  */
@@ -19,11 +20,13 @@
 import type { MechanismContract } from '../../dock/registry/contract_types.js';
 import { PORT_LLM_PORT, PORT_STORAGE_SEAM } from '../../dock/ports.js';
 
-/** llm 机制契约：依赖 builder，消费 storage_seam 缓存落库 + llm_port 推理端口面。 */
+/** llm 机制契约：依赖 model/hashing 公共 seam（S1-c builder 退役后数据面
+ *  直接依赖，不属机制 depends 登记），消费 storage_seam 缓存落库 +
+ *  llm_port 推理端口面。 */
 export const llm_contract: MechanismContract = {
   id: 'llm',
   contract: {
     effects: [PORT_STORAGE_SEAM, PORT_LLM_PORT],
   },
-  depends: ['builder'],
+  depends: [],
 };

@@ -128,6 +128,11 @@ interface Plugin {
   isUiEntry: boolean;
   /** 设置页段声明（data.settings_section.key；经 settings 清单引用，非布局树）。 */
   settingsKey?: string;
+  /** 端口提供方声明（S2，kind='ports'）：data.port.implemented（∈ dock/ports 词表；
+   *  undefined = 纯数据资产形态，须随 data.boot 存在）。 */
+  portImplemented?: string;
+  /** 纯数据资产形态（S2 端口提供方：boot 类，无 implemented + data.boot 存在）。 */
+  hasPortDataAssets: boolean;
 }
 
 interface Violation {
@@ -334,6 +339,21 @@ function pluginOf(spec: Record<string, unknown>, kind: string, dir: string): Plu
       (data as Record<string, unknown>).settings_section !== null
         ? ((data as Record<string, unknown>).settings_section as { key?: string }).key
         : undefined,
+    portImplemented:
+      kind === 'ports' &&
+      typeof data === 'object' &&
+      data !== null &&
+      typeof (data as Record<string, unknown>).port === 'object' &&
+      (data as Record<string, unknown>).port !== null
+        ? typeof ((data as Record<string, unknown>).port as { implemented?: unknown }).implemented === 'string'
+          ? ((data as Record<string, unknown>).port as { implemented: string }).implemented
+          : undefined
+        : undefined,
+    hasPortDataAssets:
+      kind === 'ports' &&
+      typeof data === 'object' &&
+      data !== null &&
+      (data as Record<string, unknown>).boot !== undefined,
   };
 }
 
@@ -416,7 +436,8 @@ function realFaceAllowed(plugin: Plugin): boolean {
     plugin.capability === 'external_tool' ||
     REAL_FACE_BUILTINS.has(plugin.id) ||
     plugin.isUiComponent === true ||
-    plugin.kind === 'graph_node'
+    plugin.kind === 'graph_node' ||
+    plugin.kind === 'ports'
   );
 }
 
@@ -643,6 +664,35 @@ function auditThirdPartyKind(universe: Map<string, Plugin>): void {
   }
 }
 
+/** S2 端口提供方审计（kind='ports'，端口实装位）：data.port.implemented ⊆ dock/ports
+ *  词表（单一真源 engine/src/dock/ports.ts；storage_seam/llm_port/exec_envelope/
+ *  rounds_port）；boot 类纯数据资产形态 = 无 implemented + data.boot 存在；faces.logic
+ *  entry 默认导出（端口实现工厂）由 auditLogicFaceContract 统一守（S0 §2.2 豁免子句：
+ *  端口实装位 IO 合法）；manifest「ports 段」即装配引入（hosts/lib 注入引擎 seam），
+ *  端口提供方是基建槽位，不适用「第三方须被 depends 引用」的孤儿口径。 */
+function auditPortProvider(universe: Map<string, Plugin>): void {
+  for (const plugin of universe.values()) {
+    if (plugin.kind !== 'ports') continue;
+    if (plugin.portImplemented !== undefined) {
+      if (!PORT_IDS.has(plugin.portImplemented)) {
+        violation(
+          plugin.id,
+          `data.port.implemented 不属 dock/ports 词表: ${plugin.portImplemented}（${MECHANISM_PORT_IDS.join('|')}）`,
+        );
+      }
+    } else if (!plugin.hasPortDataAssets) {
+      violation(
+        plugin.id,
+        'ports 插件须声明 data.port.implemented（∈ dock/ports 词表）或 data.boot（纯数据资产形态）',
+      );
+    }
+    const logic = plugin.faces['logic'];
+    if (logic === undefined) {
+      violation(plugin.id, 'ports 插件须声明 faces.logic（target=host，端口实现工厂入口）');
+    }
+  }
+}
+
 function printViolations(): void {
   if (violations.length === 0) return;
   console.error(`verify:unload FAIL (${violations.length} 违规)`);
@@ -695,6 +745,7 @@ function main(): void {
   auditDataOnlyState(universe);
   auditUiReachability(universe, referrers);
   auditThirdPartyKind(universe);
+  auditPortProvider(universe);
 
   if (violations.length > 0) {
     printViolations();

@@ -204,6 +204,13 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
   密封共用同一词表）；
 - logic face 内**只经声明过的端口做副作用**，直接 IO（node:*/子进程/网络/文件
   系统）违契约；
+- **S2 端口提供方豁免子句（2026-09-14 用户拍板）**：端口提供方插件
+  （`kind='ports'`，spec 声明 `data.port.implemented`）的 logic face entry
+  **是端口实装位**——在该声明对应的端口上做 IO 合法，不受「直接 IO 违契约」
+  约束；豁免仅限该声明覆盖的端口（首方 `plugins/ports/*` 或第三方 `x-*`
+  端口提供方同口径），功能插件不适用、不借端口提供方形态走私功能逻辑
+  （功能逻辑归属见 §2.4）。`verify:unload` 经 `auditPortProvider` 守
+  implemented ⊆ 端口词表；
 - **端口扩展流程**：`dock/ports.ts` 加值 → `verify:unload` 与 boot 密封自动继承
   （零脚本改动，词表不自维护第二份）。
 
@@ -228,6 +235,32 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 face 默认导出静态守卫）+ 失败用例 `plugins/scripts/verify_unload.test.ts`
 （`--root` 夹具根注入：合法对照组 PASS；缺默认导出 / effects 越界 / entry 逃逸
 三类违规 fail-closed）。
+
+### 2.2bis 端口提供方插件（S2 适配器下沉，2026-09-14 用户拍板）
+
+**定位**：端口的实现位 = 端口提供方插件自己。引擎 `src/adapters/` 随 S2 整目录
+移出后，storage/llm/mcp/boot 的 IO 实现落 `plugins/ports/<id>/`（首方基线四个：
+storage/llm/mcp/boot）或第三方 `plugins/x-<vendor>.<port>/`（同契约、同装卸、
+同审计）。宿主只装配注入，不再 import 任何适配器实现符号。
+
+**声明与装载**：
+
+- `spec.data.port.implemented` ∈ 端口词表（单一真源 `engine/src/dock/ports.ts`：
+  storage_seam / llm_port / exec_envelope / rounds_port）——声明本插件实装哪个
+  端口；**boot 纯数据资产**（BOOT_* 系统提示/ui spec/事件类型/harness 定义）
+  **省略 implemented + 必带 `data.boot`**（数据真源随插件，宿主配方默认
+  data-only 消费）；
+- `faces.logic = { target: 'host', entry }`，默认导出 = **端口实现工厂**
+  `(init?) => 端口实现实例`（S2 豁免子句见 §2.2：端口实装位 IO 合法）；
+- 装载：hosts/lib 装配层按 `manifest.ports[]` 清单动态 import 工厂、产出
+  `{storage, llm, boot}` 注入对象，注入引擎 seam（与旧 create_storage/
+  create_llm/McpClientManager 同一语义 slot）；mcp 经既有 mcp 装配面；
+- 卸载：删插件目录 + 重跑生成器 + `verify:unload`（`auditPortProvider` 守
+  implemented 词表归属/工厂形态/无孤儿/无环），治理资产随插件行同消；
+- 二义说明：`plugins/mcp/*`（kind='mcp'）与 `plugins/ports/mcp`（kind='ports'）
+  ——前者是 MCP 市场候选 server 声明，后者是 MCP 客户端实现提供方，职责分工
+  不同，勿混读；第三方新端口实现一律走 `x-<vendor>.<port>`，不占 `ports`
+  首方名。
 
 
 ### 2.1 工具类插件（分发单位 vs 控制单位，正交）
@@ -280,7 +313,7 @@ face 默认导出静态守卫）+ 失败用例 `plugins/scripts/verify_unload.te
 
 | 面 | 首方 kind（内置模板） | 第三方 kind（开放命名空间） |
 |---|---|---|
-| 名单 | `tool` / `command` / `ui_feature` / `endpoint` / `mcp` / `graph_node`（真源 `plugins/kinds.json`） | `x-<vendor>.<name>`（目录名即 kind，名字第三方自定） |
+| 名单 | `tool` / `command` / `ui_feature` / `endpoint` / `mcp` / `graph_node` / `ports`（真源 `plugins/kinds.json`，S2 增 ports） | `x-<vendor>.<name>`（目录名即 kind，名字第三方自定） |
 | 声明 | `plugins/<dir>/<id>/spec.json`（kind 契约模板见 kinds.json 各条） | `plugins/x-<vendor>.<name>/<id>/spec.json`；模板由插件自带：`faces`（ui/logic/data 任意组合）、`contract.effects`（⊆ 端口词表）、`capability: 'external_tool'`、`data` schema、`loader` |
 | 校验 | 引擎按契约校验（生成器守形状、`verify:unload` 守语义） | 引擎**按契约校验，不认名单**；`verify:unload`/生成器统一 fail-closed（命名空间前缀、faces ≥1、effects ⊆ 端口词表、entry 相对插件目录且文件同住、无孤儿、无环） |
 | 装卸/审计 | 受控动作（审批/审计/回退） | 与首方同装卸、同审计 |

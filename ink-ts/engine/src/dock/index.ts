@@ -698,6 +698,20 @@ export type {
 //    契约；W6C2 缺口补透出）──
 export type { AuthorizedBlock } from '../loop/context/block_source.js';
 
+// ── 2bis. 端口提供方契约面（S2：适配器下沉的契约立法——引擎停供适配器
+//    实现符号后，端口提供方插件（plugins/ports 或第三方 x-*）经本公共面
+//    取型实现契约；具名再导出，禁 star 汇总撞名）──
+export type { JsonRecord } from '../model/json.js';
+export { deepCopy, isRecord, typeName } from '../model/json.js';
+export { DEFAULT_MAX_RESULT_CHARS } from '../model/llm/tools.js';
+export type { FsSeam } from './ports/exec.js';
+export { HarnessDefinition } from '../model/harness/definition.js';
+export { REASONING_EFFORTS } from './ports/llm.js';
+export { strip_sensitive } from '../model/storage/sensitive.js';
+export { KnowledgeEntry, SOURCE_MODEL } from '../core/knowledge_set/index.js';
+export { ShadowRunResult, ToolManifest, ToolSource, VettingVerdict } from '../model/tool_vetting/index.js';
+export type { ToolSourceValue } from '../model/tool_vetting/index.js';
+
 // ── 3. adapters 工厂面 ──
 
 // boot 引导种子（装配期数据资产：宿主配方经 AssemblyRecipe 直注消费）

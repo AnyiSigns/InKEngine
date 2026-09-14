@@ -47,6 +47,18 @@ plugins/
 │                        #   data.node = { type, executor?, kind, label, description, flags?,
 │                        #   config_defaults?, contract }；faces.logic entry = 节点注册声明/
 │                        #   工厂入口（S1-b2 物理迁移后统一工厂））
+├─ ports/               # kind='ports' 插件域：一个端口提供方一个目录（S2 适配器下沉，
+│                       #   引擎 src/adapters 移出后的端口实现位）
+│   ├─ storage/         #   实装 storage_seam（MemoryStorage/SqliteStorage 工厂）
+│   ├─ llm/             #   实装 llm_port（协议适配器注册/创建）
+│   ├─ mcp/             #   实装 exec_envelope（MCP 客户端 stdio/进程 IO；与 plugins/mcp
+│   │                   #   市场候选声明职责分工不同，勿混读）
+│   ├─ boot/            #   纯数据资产（data.boot 承载 BOOT_*；省略 implemented）
+│   ├─ package.json     #   npm 包名 = @ink-ts/plugin-ports-<kebab>
+│   └─ spec.json        #   声明（id/kind='ports'/capability='host_tool'/
+│                        #   data.port = { implemented（∈ dock/ports 词表，boot 省略）}，
+│                        #   data.boot（纯数据）；faces.logic target='host' entry =
+│                        #   端口实现工厂（S0 §2.2 豁免子句：端口实装位 IO 合法））
 ├─ manifest.json        # 派生视图（生成物，禁手改）：plugins 索引 + tools 聚合 +
 │                       #   mcp 市场视图 + graph_nodes 节点注册清单 + ui_features 组件白名单；由
 │                       #   scripts/sync_plugin_manifest.mjs 生成，--check 强制漂移为红
@@ -62,9 +74,12 @@ plugins/
                                   # hosts/web/src/app/settings/settingsSections.generated.ts 派生视图）
 ```
 
-kind 全集（PLUGINS.md §1/§4）：首方 6 值 `tool | command | ui_feature | endpoint | mcp | graph_node`
+kind 全集（PLUGINS.md §1/§4）：首方 7 值 `tool | command | ui_feature | endpoint | mcp | graph_node | ports`
 （真源 `plugins/kinds.json`，各自 {dir, contractTemplate, faces, capabilityDefault,
-loader}）+ 第三方开放命名空间 `x-<vendor>.<name>`（目录名即 kind，声明式模板由插件
+loader}；`ports` 为 S2 适配器下沉新增：端口提供方插件，`data.port.implemented` ⊆
+dock/ports 词表、faces.logic = 端口实装位（S0 §2.2 豁免子句）、boot 纯数据资产
+省略 implemented + 必带 data.boot）+ 第三方开放命名空间
+`x-<vendor>.<name>`（目录名即 kind，声明式模板由插件
 自带：faces/effects/capability='external_tool'/data/loader，与首方同校验、同装卸、
 同审计）——plugins/ 按 kind 分子目录，其中 `host` 例外住 `hosts/<host>.spec.json`
 （不进 plugins/）；`recipe`/`executor` 旧死 kind 值已随 P9 移除（第三方新形态走

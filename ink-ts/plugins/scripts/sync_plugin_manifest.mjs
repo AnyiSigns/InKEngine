@@ -115,6 +115,9 @@ const MANIFEST_NOTE =
   '原生执行件端点声明（data.native；hosts/lib/src/exec/native.generated.ts 同源派生）。' +
   'graph_nodes = kind=graph_node 图节点注册清单（spec.data.node：type/executor/' +
   'contract/config_defaults/kind/label/description/flags；runtime 装配据此清单建节点）。' +
+  'ports = kind=ports 端口提供方清单（spec.data.port.implemented = 声明端口实现位 ' +
+  '（∈ dock/ports 词表，boot 纯数据资产省略 + data.boot）；faces.logic entry = 端口 ' +
+  '实现工厂实装位；hosts/lib 装配按此注入引擎 seam，S2 适配器下沉）。' +
   '第三方 kind = x-<vendor>.<name>（目录名即 kind）：capability=external_tool + faces ≥1，' +
   '只进 plugins[] 索引，语义由 verify:unload fail-closed。';
 
@@ -525,6 +528,47 @@ async function derive() {
   }
   graphNodeRows.sort((a, b) => a.type.localeCompare(b.type));
 
+  // kind='ports'：plugins/ports/<id>/spec.json → 端口提供方清单（S2 adapters
+  //  下沉：引擎停供适配器实现后，端口实现位 = 端口提供方插件）。spec.data.port =
+  //  { implemented ∈ dock/ports 词表（storage_seam/llm_port/exec_envelope/rounds_port，
+  //  声明端口实现位；boot 纯数据资产可省略 implemented + 必带 data.boot）}；
+  //  faces.logic（target='host'）默认导出 = 端口实现工厂——端口实装位，S0 §2.2
+  //  豁免子句适用。hosts/lib 装配按本清单注入引擎 seam；语义（词表归属/工厂形态/
+  //  无孤儿/无环）由 verify:unload fail-closed 守（同源双保险）。
+  const portRows = [];
+  for (const id of await listDirs(join(PLUGINS_ROOT, kindDir('ports')))) {
+    const dir = join(PLUGINS_ROOT, kindDir('ports'), id);
+    const spec = await readSpec(dir, 'ports');
+    const port = spec.data?.port;
+    if (typeof port !== 'object' || port === null) {
+      await fail(`ports 插件 ${id} 缺 data.port（端口提供方声明）`);
+    }
+    const implemented = typeof port.implemented === 'string' && port.implemented.length > 0
+      ? port.implemented
+      : undefined;
+    if (implemented === undefined && spec.data?.boot === undefined) {
+      await fail(
+        `ports 插件 ${id} 须声明 data.port.implemented（∈ dock/ports 词表）或 data.boot（纯数据资产）`,
+      );
+    }
+    const row = { id };
+    if (implemented !== undefined) row.implemented = implemented;
+    const logicFace = typeof spec.faces === 'object' && spec.faces !== null ? spec.faces.logic : undefined;
+    if (typeof logicFace === 'object' && logicFace !== null && typeof logicFace.entry === 'string') {
+      row.entry = logicFace.entry;
+    }
+    portRows.push(row);
+    plugins.push({
+      id,
+      kind: 'ports',
+      capability: spec.capability ?? 'host_tool',
+      package: await loadPackage(dir),
+      dir: `${kindDir('ports')}/${id}`,
+      ...declaredRow(spec),
+    });
+  }
+  portRows.sort((a, b) => a.id.localeCompare(b.id));
+
   // 第三方 kind（x-<vendor>.<name> 开放命名空间，§4.6）：顶层目录名即 kind，
   // 插件住 plugins/<kind>/<id>/spec.json；声明式模板由插件自带（faces/effects/
   // capability='external_tool'/data/loader），引擎按契约校验不认名单。只进
@@ -689,6 +733,7 @@ async function derive() {
     },
     commands,
     graph_nodes: graphNodeRows,
+    ports: portRows,
     ui_features: {
       components: uiCanonical,
       settings: settingsSections,
@@ -703,7 +748,7 @@ async function derive() {
 function render(data) {
   const order = {
     version: 1, note: 2, plugins: 3, tools: 4, mcp_market: 5,
-    commands: 6, graph_nodes: 7, ui_features: 8,
+    commands: 6, graph_nodes: 7, ports: 8, ui_features: 9,
   };
   const toolOrder = {
     name: 1, description: 2, parameters: 3, permissions: 4, approval: 5,
@@ -739,6 +784,8 @@ function render(data) {
     config_defaults: 7, contract: 8,
   };
   const graphNodes = data.graph_nodes.map((r) => sortKeys(r, nodeOrder));
+  const portOrder = { id: 1, implemented: 2, entry: 3 };
+  const ports = data.ports.map((r) => sortKeys(r, portOrder));
   return JSON.stringify(
     sortKeys(
       {
@@ -749,6 +796,7 @@ function render(data) {
         mcp_market: market,
         commands: data.commands,
         graph_nodes: graphNodes,
+        ports,
         ui_features: { components: data.ui_features.components, settings },
       },
       order,
@@ -1006,7 +1054,7 @@ async function main() {
     `${data.tools.length} tools + ${data.mcp_market.servers.length} mcp + ` +
     `${data.commands.length} commands + ` +
     `${data.plugins.filter((p) => p.kind === 'ui_feature').length} ui_features + ` +
-    `${data.native.length} endpoints + ${data._thirdPartyKindCount} 第三方 kind + ` +
+    `${data.native.length} endpoints + ${data.ports.length} 端口提供方 + ${data._thirdPartyKindCount} 第三方 kind + ` +
     `${data.ui_faces.length} 真 ui 面 + ` +
     `${data.ui_features.settings.length} settings 段，真源 plugins/）`,
   );

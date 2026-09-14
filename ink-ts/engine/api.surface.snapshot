@@ -144,6 +144,7 @@ DEFAULT_CONFIRM_K:type
 DEFAULT_ENVS_DIR:type
 DEFAULT_LIST_CHECKPOINTS_LIMIT:value
 DEFAULT_MAX_EVENT_TYPES:value
+DEFAULT_MAX_RESULT_CHARS:type
 DEFAULT_MAX_TOOLS:type
 DEFAULT_MIN_SCORE:type
 DEFAULT_NAMESPACE:type
@@ -256,6 +257,7 @@ FileSandbox:type
 FileSnapshot:type
 FixtureGateError:value
 FsOperation:type
+FsSeam:type
 GATE_ADDITIVE_KINDS:type
 GATE_KEY_PREFIX:type
 GATE_MANDATORY_KINDS:type
@@ -277,6 +279,7 @@ GuardedStorage:type
 GuardedStorageInit:type
 GuardrailConfig:type
 GuardrailVerdict:type
+HarnessDefinition:type
 Host:type
 HttpMcpTransport:type
 HttpStreamClient:type
@@ -290,7 +293,9 @@ InterruptPolicy:type
 InterruptSignal:type
 InterruptState:type
 Json:type
+JsonRecord:type
 KeepProposal:type
+KnowledgeEntry:type
 KnowledgeSkillStore:type
 KnowledgeSkillStoreOptions:type
 KnownDefaultPatchKind:type
@@ -447,6 +452,7 @@ ProtocolVersionError:type
 PruningAdaptation:type
 PruningThresholds:type
 QualityGate:type
+REASONING_EFFORTS:type
 REDUCER_REGISTRY:value
 RESERVED_BIND_PREFIXES:type
 RETIRED_META_KEY:type
@@ -523,6 +529,7 @@ SCOPE_ROLE_TESTER:type
 SEGMENT_TO_KIND:type
 SELF_TOOL_CONTRACT:type
 SET_AUDIT_COLLECTION:type
+SOURCE_MODEL:type
 STATE_MESSAGES:type
 STATE_PENDING:type
 STATE_PLAN:type
@@ -569,6 +576,7 @@ SessionOpenOptions:type
 SessionOpener:type
 SetPatchChain:type
 SetPatchChainInit:type
+ShadowRunResult:type
 ShortcutProposal:type
 SkillCrystallizeHook:type
 SkillStore:type
@@ -616,12 +624,15 @@ ToolCandidate:type
 ToolCandidateOptions:type
 ToolGateConfig:value
 ToolLookup:type
+ToolManifest:type
 ToolMatchStrategy:type
 ToolPipeline:type
 ToolResult:type
 ToolScoring:type
 ToolSelector:value
 ToolSelectorOptions:type
+ToolSource:type
+ToolSourceValue:type
 ToolSpec:type
 ToolTrace:type
 ToolTraceOptions:type
@@ -661,6 +672,7 @@ ValidateChainOptions:type
 ValidateLinkOptions:type
 ValidatePrefixOptions:type
 VersionRegistry:type
+VettingVerdict:type
 WHITEBOARD_VERSION:type
 WebBridgeProvider:type
 WeightedToolScorer:value
@@ -734,6 +746,7 @@ declarative_operation:type
 decode_chain_key:type
 decode_transition_key:type
 dedupe_opinions:type
+deepCopy:type
 default_approval_seam:value
 default_channel_conditions:type
 default_channel_seeds:type
@@ -782,6 +795,7 @@ hop_to_decision:value
 interrupt_base_key:value
 interrupt_key_matches:value
 isApprovalPose:type
+isRecord:type
 is_additive_reducer:value
 is_auto_round_id:type
 is_business_error:type
@@ -899,6 +913,7 @@ stateEquals:value
 state_from_dict:value
 state_to_dict:value
 strip_quality:value
+strip_sensitive:type
 subgraph_overlay_delta:value
 success_rate:type
 suggest_downranks:type
@@ -921,6 +936,7 @@ trial_spec_for:type
 trial_verdict:value
 turn_image_ref:value
 turn_image_to_attachment:value
+typeName:type
 user:type
 validate_chain:value
 validate_channel_id:type

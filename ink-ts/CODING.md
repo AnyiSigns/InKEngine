@@ -116,8 +116,9 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 5. 需要存储/LLM 等 IO 的机制：端口词表与 seam 接口声明在
    `engine/src/dock/ports.ts` 与 `engine/src/dock/ports/*`（纯 seam），机制契约在各机制层
    `<mechanism>/contract.ts`（零 IO 白名单声明），IO 实现在
-   `engine/src/adapters`（可选装载、DI 注入）——机制层、dock 保持纯函数无
-   全局状态，宿主/host 只装配不实现。
+   **端口提供方插件**（S2 起：`plugins/ports/<id>` 首方 + 第三方 `x-*`，spec 声明
+   `data.port.implemented`、faces.logic = 端口实装位；引擎不再携带 `src/adapters/`）
+   ——机制层、dock 保持纯函数无全局状态，宿主/host 只装配不实现。
 6. 超过 350 行仍膨胀 → 按「子机制/子渲染区」拆目录，不凑文件。
 7. **测试与源码分离（包内）/ 插件测试随插件同住**：engine/hosts(lib·cli·web)/renderer 包内 vitest
    测试放所属包 `test/` 目录（镜像被测 src 路径，文件仍名 `<机制>.test.ts`），

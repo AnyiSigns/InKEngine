@@ -71,13 +71,13 @@
 | `isGoalDomain` | `isGoalDomain(family): boolean` | `gen/producibility.ts` | 已落地 | goal 与 goal_verify 同池采目标，适格性对两族一致（伪代码字面 fam!="goal" 漏掉 goal_verify，落地按语义补齐） |
 | `coverageKey` | `coverageKey(style, family, compositionId): string` | `gen/producibility.ts` | 已落地 | `style:family:composition_id` 稳定键 |
 | `hasOneStepSolution` | `hasOneStepSolution(task, graph): boolean` | `gen/producibility.ts` | 已落地 | 关死单步 echo/submit 捷径；O(|candidates|) apply+accept；经 generator.ts 公开 |
-| `hasShortcut` | `hasShortcut(task, graph): boolean` | `gen/producibility.ts` | 已落地 | follow 极小性守卫（R2-P0-3）：单算子+收尾提交过验收且严格短于金计划 → 非最小，换 witness |
-| `UNPRODUCIBLE_HELDOUT` | `ReadonlySet<string>` | `gen/producibility.ts` | 已落地 | heldout 不适格注册表，goal 两族键由 goalEligible 派生（薄层视图，无第二套判定）；follow 判入册仅兜底、按构造恒空 |
-| `instanceFollow / instanceGoal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 已落地 | public spec + hidden gold；回放穿 accept 才返回 |
+| `hasShortcut` | `hasShortcut(task, graph): boolean` | `gen/producibility.ts` | 已落地 | follow 极小性守卫（R2-P0-3 删任意步版）：单步替换 + 删任意 ≥1 骨架步（真子序列 ≤31 个）回放穿验收且严格短于金计划 → 非最小，换 witness。**R5 轨迹约束后按定义恒 false**（捷径自带不同 trace → 验收拒），保留作安全网，不再滤任务 |
+| `UNPRODUCIBLE_HELDOUT` | `ReadonlySet<string>` | `gen/producibility.ts` | 已落地 | heldout 不可产注册表：goal 两族键由 goalEligible 派生（薄层视图，无第二套判定）；**R5 轨迹约束后 follow 键清空**（结构性非最小不再是缺陷，全骨架重新可产；原 80×2 键移除），覆盖构造按可产域声明、键显式上报 |
+| `instanceFollow / instanceGoal` | `instanceFollow(...); instanceGoal(...)` | `gen/generator.ts` | 已落地 | public spec + hidden gold；回放穿 accept 才返回；follow 族 spec 恒带公开 trace（R5：含收尾终算子的渲染序列，验收 = 值 ∧ hist==trace） |
 | `STYLES / instanceTask` | `STYLES: Record<Style, Family[]>; instanceTask(...)` | `gen/generator.ts` | 已落地 | follow→value/verify；goal→goal/goal_verify |
 | `makeTask` | `makeTask(seed, style?, family?, split?, skeleton?): Task | null` | `gen/generator.ts` | 已落地 | 同 seed 完全确定；可钉骨架/族/切分；goal 域族抽样只走适格池，钉入不适格骨架即返回 null |
-| `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；goal 域族只走适格池（R2-P0-2），适格池空/配额不足抛错不静默；follow 产出经 hasShortcut 极小性守卫 |
-| `makeCoverageSplitInfo` | `makeCoverageSplitInfo(split, seed?, skeletons?): {tasks; unproducible; unproducibleCount; ineligible; ineligibleCount}` | `gen/generator.ts` | 已落地 | follow 全域 + goal 适格池每骨架每 (style,family) 恰 1 条；goal 域族覆盖声明缩到适格池，ineligible 清单与计数显式上报（R2-P0-2 不静默）；适格池产不出/注册表含 follow 键均抛错；骨架池可注入 |
+| `makeSplit` | `makeSplit(split, perFamily, seed?, maxPerSkeleton?): Task[]` | `gen/generator.ts` | 已落地 | 配额制；goal 域族只走适格池（R2-P0-2）；R5 后 follow 无可产域限制（hasShortcut 恒 false、followUnproducible 退化为回放可穿），配额不足抛错不静默 |
+| `makeCoverageSplitInfo` | `makeCoverageSplitInfo(split, seed?, skeletons?): {tasks; unproducible; unproducibleCount; ineligible; ineligibleCount}` | `gen/generator.ts` | 已落地 | follow 可产域 + goal 适格池每骨架每 (style,family) 恰 1 条；goal 不适格与 follow 非最小骨架均以键显式上报（不静默），ineligible 清单仅 goal 侧；可产域内产不出抛错；骨架池可注入 |
 | `makeCoverageSplit` | `makeCoverageSplit(split, seed?): Task[]` | `gen/generator.ts` | 已落地 | makeCoverageSplitInfo 的任务列表口径（C.1 签名保持） |
 | `GRAPH` | `Graph` | `runner/graph.ts` | 已落地 | OPS/NODES_BASE 组装；entry/exit kind=structural（无契约，不参与契约/动作分类） |
 | `candidates` | `candidates(graph, st, hist): string[]` | `runner/graph.ts` | 已落地 | entry 禁入；exit 恒在；访问上限唯一实现 |
@@ -94,9 +94,9 @@
 | `safeActionConflictRate` | `safeActionConflictRate(records, opts?): ConflictRateReport` | `data/provenance.ts` | 已落地 | 目标族多解诊断：先 join+on-path 过滤（缺省只统计 goal/goal_verify，includeFollow 放开），再在子池上固定 seed 抽样 ≤200 做 bounded BFS；C.8 诊断项不进门禁 |
 | `stateDigest / reachesAccept` | `stateDigest(st): string; reachesAccept(graph, task, start, budget): ReachResult` | `data/conflict_bfs.ts` | 已落地 | C.4 去重键（值字段+逐算子计数，不含完整 hist）；BFS 超预算保守判不可达；plan_bfs 落地时 import 本键 |
 | `main / buildTasks / loadDemoTasks` | `main(argv?): number; buildTasks(n, seed): Task[]; loadDemoTasks(path): Task[]` | `demos/generate_demo.ts` | 已落地 | style follow/goal 严格轮转 50/50，canonical Task JSONL（每行一键序稳定）；失败退出码非 0 |
-| `featurizeObs` | `featurizeObs(instruction, obs: ObsView, featureSet?): Float32Array` | `controller/features.ts` | 已落地 | lang 主臂 obs=732 维；struct/hash_only 为诊断/消融 arch；白名单只读 instruction/state，`struct` 的 goal 段由调用方经 featurizeGoalStruct 拼接 |
+| `featurizeObs` | `featurizeObs(instruction, obs: ObsView, featureSet?): Float32Array` | `controller/features.ts` | 已落地 | lang 主臂 obs=867 维（R6 词法顺序槽 +120、R7 进度对齐槽 +15）；struct/hash_only 为诊断/消融 arch；白名单只读 instruction/state，`struct` 的 goal 段由调用方经 featurizeGoalStruct 拼接 |
 | `featurizeAction` | `featurizeAction(graph, nid): Float32Array` | `controller/features.ts` | 已落地 | 契约派生+哈希算子桶，ACT_DIM=83；新增算子不改宽；"any" 不置位、exit/decoy kind 独占 |
-| `OBS_DIM / ACT_DIM` | `OBS_DIM: Readonly<Record<FeatureSet, number>>; ACT_DIM=83` | `controller/features.ts` | 已落地 | lang=732 / struct=740 / hash_only=671；与 Python 侧 arch 串互钉 |
+| `OBS_DIM / ACT_DIM` | `OBS_DIM: Readonly<Record<FeatureSet, number>>; ACT_DIM=83` | `controller/features.ts` | 已落地 | lang=867 / struct=875 / hash_only=671（R6 顺序槽 + R7 进度槽后）；与 Python 侧 arch 串互钉 |
 | `stateStats` | `stateStats(v: unknown): readonly [number, number, number]` | `controller/features.ts` | 已落地 | 值字段统计三特征（Int 数值归一/Str 长度与字符桶）；类型 one-hot 由 featurizeState 负责 |
 | `featurizeGoalStruct` | `featurizeGoalStruct(spec): Float32Array` | `controller/features_struct.ts` | 已落地 | GOAL_STRUCT_DIM=8；只进 struct 诊断 arch（G0.4 唯一例外，audit_features 执法） |
 | `Policy` | `class Policy; static random(seed, featureSet?, head?); act(instr, obs, cand, graph, greedy?, rng?); save(path, trainMeta?); static load(path, expect?)` | `controller/policy.ts` | 已落地 | pointer 打分前向（hiddenOf/zOf/probsOf/scoresFromObs）；反向只在 train.py（F.1）；load 走 arch fail-fast 通道 |
@@ -111,7 +111,7 @@
 | `routingAcc` | `routingAcc(policy, graph, tasks): {match; total}` | `eval/metrics.ts` | 已落地 | teacher-forced 逐步路由（oracleTrace 上 greedy act）；仅诊断项不入门禁；坏标签任务整任务跳过 |
 | `ci95` | `ci95(p, n): [number, number]` | `eval/metrics.ts` | 已落地 | Wilson score 95% 区间钳 [0,1]；n=0 返 [0,0]；全仓唯一 CI 口径 |
 | `calibrationEce` | `calibrationEce(confs, outcomes, bins?): number` | `eval/metrics.ts` | 已落地 | 等宽分桶 ECE（§7 校准列）；长度不一致即抛 |
-| `beyondOracleRate` | `beyondOracleRate(tasks, graph, opts?): BeyondOracleReport` | `eval/beyond_oracle.ts` | 已落地 | G2.2 超 oracle 率（仅 follow）：逐任务 planBfs 限深 goldLen−1 早停，非 null 记命中；超预算按保守未命名单列 overBudget，不入 hits |
+| `beyondOracleRate` | `beyondOracleRate(tasks, graph, opts?): BeyondOracleReport` | `eval/beyond_oracle.ts` | 已落地 | G2.2 超 oracle 率（仅 follow）：逐任务 planBfs 限深 goldLen−1 早停，非 null 记命中；超预算按保守未命名单列 overBudget，不入 hits。**R5 后真实 follow 任务按定义归零**（验收要求 hist==trace，更短解不存在），手工无 trace 任务仍走完整 BFS |
 | `HeuristicArm` | `class HeuristicArm { solve(task, graph): RolloutResult }` | `eval/arms.ts` | 已落地 | 仅 follow：弱词法扫描（义项首现升序，同位命中按 LEX_OPS_BASE 固定序取最小、放弃类型消歧，C.7 规格）；goal 抛 N/A（记 N/A 非 0）；零泄漏不触 plan_hidden/expected |
 | `RandomArm` | `new RandomArm(seed, featureSet?)` | `eval/arms.ts` | 已落地 | 同架构 Policy.random(seed) 下界，greedy rollout；同 seed 两次 solve 逐字相同（G1.1 臂） |
 | `TrainedArm` | `new TrainedArm(policy); static fromWeights(path, expect?)` | `eval/arms.ts` | 已落地 | 训练产物臂唯一入口；fromWeights 走 Policy.load arch fail-fast（F.2） |
@@ -123,8 +123,8 @@
 | `bc_train` | `bc_train(D, val_D, act_table, epochs=30, patience=4, min_epochs=5, min_delta=1e-4, seed=0, batch=512, lr_schedule="cosine", head="progress", save_last_k=5)` | `controller/train.py` | 已落地 | 纯拟合、不触环境/rollout（F.1 语言分工）；val CE 早停恢复 best；落最近 K epoch 快照供 TS 按 held-out/val pass@1 选点（C.7）；train.py CLI main(argv?)：--train/--val/--out/--loss |
 | `val_ce` | `val_ce(params, rows, act_table): float` | `controller/train.py` | 已落地 | 早停指标（连续 CE，非 route_acc）；batches/snapshot 非公开符号（bc_train 内联） |
 | `Adam` | `class Adam(params); step(params, grads, lr)` | `controller/train_nn.py` | 已落地 | 矩估计优化器；numpy-only；二次函数收敛测试 |
-| `check_numeric_gradient` | `check_numeric_gradient(seed=7, delta=1e-5, verbose=True)` | `controller/train_nn.py` | 已落地 | 变长 mask backward 数值梯度校验：‖∇num−∇ana‖/‖∇num‖ < 1e-5（D 表断言）；CLI 开关 --check-grad |
-| `memory_selftest` | `memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True)` | `controller/train_nn.py` | 已落地 | 记忆 32 例 → train acc ≥ 0.99 的拟合能力自检；CLI 开关 --selftest |
+| `check_numeric_gradient` | `check_numeric_gradient(seed=7, delta=1e-5, verbose=True)` | `controller/train_nn.py` | 已落地 | 变长 mask backward 数值梯度校验：‖∇num−∇ana‖/‖∇num‖ < 1e-5（D 表断言）；经 train.py --check-grad 暴露 |
+| `memory_selftest` | `memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True)` | `controller/train_nn.py` | 已落地 | 记忆 32 例 → train acc ≥ 0.99 的拟合能力自检；经 train.py --selftest 暴露 |
 | `collectReinforceRows` | `collectReinforceRows(policy, tasks, opts?): CollectResult` | `eval/reinforce.ts` | 已落地 | G2.3 采样轨迹 → 优势标签行（非 greedy 需 seed rng；baseline=滑动均值 200、排除当前；单候选步不入集）；行经 recordFromStep/featurizeRecord 唯一口径产出 |
 | `slidingBaseline` | `slidingBaseline(rewards, window=200): number` | `eval/reinforce.ts` | 已落地 | 最近 window 条 rollout 奖励均值；调用方在推入当前奖励前取值，自然排除自身（防优势泄漏） |
 | `ReinforceArm` | `class ReinforceArm { policy; solve(task, graph?); static evaluate(arm, tasks, graph?) }` | `eval/reinforce.ts` | 已落地 | G2.3 对照臂：白手起家随机初始化、greedy 评测走 passAt1；不从 BC checkpoint 热启（A.2）；lr=1e-3/β_ent=0.01/batch=512 在 Python 侧 |
@@ -142,14 +142,14 @@
 | `apply_op` | `applyOp(graph, nid, st): State | null` | `world/operators.ts` | 已落地 | 契约闸+变换+hist 追加；null=死路；check_* 通过写 verdictPass(x)="pass:"+hash8(x)，不通过写 "fail" |
 | `run_plan` | `runPlan(plan, st): State | null` | `world/operators.ts` | 已落地 | 顺序回放，不写 expected；submit→check 间 x 不变 ⇒ verdict 与 answer 指纹恒一致 |
 | `obs_snapshot` | `obsSnapshot(st): object` | `world/operators.ts` | 已落地 | 只投影 x/answer/verdict/hist |
-| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；两生产者族 verdict 判定 = verdictPass(answer)（旧 verdict 复用因指纹漂移必拒，R2-P0-1） |
+| `accept / acceptor_view` | `accept(task, st): boolean; acceptorView(task)` | `verify/acceptor.ts` | 已落地 | 通道收口；两生产者族 verdict 判定 = verdictPass(answer)（旧 verdict 复用因指纹漂移必拒，R2-P0-1）；**R5 轨迹约束**：follow 族（spec.trace 存在）另要求 hist==trace 精确匹配，终值对但轨迹不符必拒；goal 族无轨迹约束（多解合法） |
 | `CHANNEL` | `Readonly<Record<Family, readonly string[]>>` | `verify/acceptor.ts` | 已落地 | 通道表唯一真源；value/goal 单生产者，verify/goal_verify 双生产者 |
 | `acceptChannelled` | `acceptChannelled(task, st): Verdict` | `verify/acceptor.ts` | 已落地 | 只读本族通道字段；缺失即 reason=missing:<field> |
-| `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/复述原题/硬编码常量+旧 verdict 复用新口径（先 check 后改值再 submit、跨任务搬运指纹、裸 "pass" 旗标——answer 达标也必拒） |
+| `WRONG_ARTIFACTS` | `readonly AdversarialCase[]` | `verify/adversarial.ts` | 已落地 | 空值/语义错/复述原题/硬编码常量+旧 verdict 复用新口径（先 check 后改值再 submit、跨任务搬运指纹、裸 "pass" 旗标——answer 达标也必拒）；**R5 增轨迹不符类**（终值对+指纹对但 hist≠spec.trace 的恒等绕路/等价重排必拒） |
 | `runAll` | `runAll(): {rejectRatio; acceptCorrectRatio; caseCount}` | `verify/adversarial.ts` | 已落地 | 错误产物全拒 + 正确通道全收 + 固定 seed fuzz |
 | `FUZZ_COUNT` | `number` | `verify/adversarial.ts` | 已落地 | runAll 固定 seed 补刀错误产物条数 = 24 |
 | `runSandboxed` | `runSandboxed(code, tests, timeoutS?): Promise<{ok; output}>` | `verify/sandbox.ts` | 已落地 | 接口占位；代码族验证未启用，调用即抛错 |
-| `plan_bfs` | `planBfs(task, graph, opts?): string[] | null` | `teacher/search.ts` | 已落地 | BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集 |
+| `plan_bfs` | `planBfs(task, graph, opts?): string[] | null` | `teacher/search.ts` | 已落地 | BFS 最短解；去重键复用 data/conflict_bfs.ts 的 stateDigest（C.4 唯一口径）；仅可解性 QA/上界诊断，不进训练集。**R5**：follow 族（spec.trace 存在）沿 trace 前缀剪枝，解唯一 = trace（等长，G2.2 归零），maxDepth 语义不变；goal 族走完整 BFS |
 | `structure/*` | `Genome; validate; MUTATIONS; fitness; search; promote` | `structure/*` | 待 Phase 0 | 离线、需求触发、成功非降 + 回滚 |
 | `chat / listFreeModels` | `chat(messages, model); listFreeModels()` | `adapters/llm_gateway.ts` | 待 Phase 0 | Kilo 网关免费档；run 内 pin 死 |
 

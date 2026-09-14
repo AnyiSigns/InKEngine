@@ -104,7 +104,12 @@ export function createGateContext(opts: { runId?: string; resultsPath?: string }
     meta: { generator: string; schema: number };
   };
   const fixturesHash = hashObj(fixtures);
-  const manifestHash = hashObj(manifest());
+  // manifestHash 与 run 级快照（下方 manifest.json）同参取真实源码指纹：
+  // generator/acceptor 源码漂移必须翻转 inputs_hash，旧门禁结果不可复用（全员版本化）。
+  const manifestHash = hashObj(manifest({
+    generatorVersion: generatorSourceVersion(),
+    acceptorVersion: acceptorSourceVersion(),
+  }));
   const inputsHash = hashObj({ world_version: worldVersion, manifest_hash: manifestHash, fixtures_hash: fixturesHash });
   const runId = opts.runId;
   const outDir = runId === undefined ? undefined : join(RUNS_ROOT, runId, 'gates');

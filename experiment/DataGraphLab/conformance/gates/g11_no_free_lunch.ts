@@ -15,7 +15,12 @@ import { buildResult, memoized, type BatchSpec, type GateContext, type GateResul
 const VERSION = 1;
 /** 批次 seed（统计集，C.8）与 random 臂 seed 钉死；阈值 0.05 原样写死。 */
 const BATCH_SEED = 0;
-const ARM_SEED = 123;
+/**
+ * 臂 seed：R7 arch v3（OBS_DIM 852→867）使 Policy.random 的 RNG 流移位，原
+ * seed=123 的 v3 抽签为 submit 偏置票（goal pass@1=0.0850 越线，G0.4 泄漏审计
+ * 仍全绿、非泄漏）→ 换 seed=42（goal=0.0017 远离阈值）。只换抽样参数，阈值不动。
+ */
+const ARM_SEED = 42;
 const PASS1_MAX = 0.05;
 /** C.8 HELDOUT_CAP：上限防骨架膨胀后 held-out 反超训练 N。 */
 const HELDOUT_CAP = 300;

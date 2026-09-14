@@ -1,4 +1,4 @@
-# DataGraphLab 门禁判定脚本规格（G0.1–G0.6、G1.1–G1.3、G2.2）
+# DataGraphLab 门禁判定脚本规格（G0.1–G0.6、G1.1–G1.3、G2.2、F1–F4）
 
 > 本文件是**判定口径**（输入/算法/输出/判据/落点），不是实现稿。所有门禁共享
 > 一套 harness；判据只许引用冻结 fixture 与实测值，**禁止手写期望数字**。
@@ -24,7 +24,7 @@
 
 ```typescript
 interface GateResult {
-  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6' | 'G1.1' | 'G1.2' | 'G1.3' | 'G2.1' | 'G2.2' | 'G2.3';
+  gate: 'G0.1' | 'G0.2' | 'G0.3' | 'G0.4' | 'G0.5' | 'G0.6' | 'G1.1' | 'G1.2' | 'G1.3' | 'G2.1' | 'G2.2' | 'G2.3' | 'F1' | 'F2' | 'F3' | 'F4';
   version: number;              // 判定脚本语义版本，改动即 +1
   world_version: string;        // = world/operators 契约表 hash
   seeds: number[];              // 本次使用的全部种子
@@ -53,12 +53,12 @@ interface GateResult {
 
 ## G0.1 生成确定性（determinism）
 
-- **输入**：`(seed, style, family, split?)`；`world_version`；冻结 `nodeSlots`/`rng`/`crc32`。
+- **输入**：`(seed, style, family, split?)`；`world_version`；冻结 fixture 的 `rng`/`crc32`/`canonical` 三段。
 - **算法**：
   1. 在两个独立进程各跑 `make_task(seed, ...)`（同参），取全部 `task_hash`；
   2. 序列化为规范 JSON（键排序），逐字节比较两进程输出；
   3. 对 fixture 中的 `makeRng(seed).next()`、`crc32(s)`、`canonicalJson(edge)` 复算比对。
-- **输出 metrics**：`hash_match_ratio`、`fixture_match_count`、`fixture_case_count`。
+- **输出 metrics**：`hash_match_ratio`、`process_case_count`、`fixture_match_count`、`fixture_case_count`。
 - **通过判据**：`hash_match_ratio == 1` 且 `fixture_match_count == fixture_case_count`。
 - **落点**：`conformance/gates/g01_determinism.ts`；断言于 `tests/gates.test.ts`。
 
@@ -77,7 +77,7 @@ interface GateResult {
   复用、直接复述原题、硬编码常量）+ 固定 seed 的 fuzz 错误产物。
 - **算法**：对每个错误产物构造 state 跑 `accept`；同时用**正确通道产物**跑正例确认
   验收可被正确喂饱（避免“全拒”通过）。
-- **输出 metrics**：`reject_ratio`、`accept_correct_ratio`、`case_count`。
+- **输出 metrics**：`reject_ratio`、`accept_correct_ratio`、`case_count`、`wrong_static_count`、`fuzz_count`。
 - **通过判据**：`reject_ratio == 1` 且 `accept_correct_ratio == 1`。
 - **落点**：`conformance/gates/g03_adversarial.ts`。
 
@@ -146,10 +146,10 @@ interface GateResult {
 
 - **输入**：C.8 统计集口径的 heldout 批次——
   `makeSplit('heldout', perFamily=min(max(30, |HELDOUT_SKELETONS|), 300), seed=0)`，
-  经 `ctx.genTasks` 同口径缓存；`RandomArm(seed=123)`（同架构随机权重）；`GRAPH`。
+  经 `ctx.genTasks` 同口径缓存；`RandomArm(seed=42)`（同架构随机权重）；`GRAPH`。
 - **算法**：`evaluateArm` 两 style 各评一次 greedy pass@1（每题一次，主指标走
   `passAt1`/`ci95` 唯一口径，禁本地重写）。
-- **输出 metrics**：`pass1_follow`、`pass1_goal`、`n_follow`、`n_goal`、`seed`（臂 seed=123）。
+- **输出 metrics**：`pass1_follow`、`pass1_goal`、`n_follow`、`n_goal`、`seed`（臂 seed=42）。
 - **通过判据**：`pass1_follow ≤ 0.05` **且** `pass1_goal ≤ 0.05`（同时成立）。
 - **失败模式**：任一 style 越线 → FAIL（notes 报两 style 实测与 CI）。**不许改阈值**
   （A.2/E.7）；先查 G0.4 泄漏审计与 C.1 极小性守卫（`hasShortcut`/`hasOneStepSolution`），
@@ -170,7 +170,10 @@ interface GateResult {
   C.8 均值口径）：
   1. `S_goal(10_000) ≥ 0.50`（目标式主指标）；
   2. `S_follow(10_000) ≥ 0.80`（配方式）；
-  3. `S_follow(10k) − S_heur_follow(10k) ≥ 0.05`（`heuristic` 行必须存在，消歧+组合增益）；
+  3. `S_follow(10k) − S_heur_follow(10k)` 为**报告列**（R5 预注册修订：`≥ 0.05`
+     阈值条款在 R5 轨迹语义下结构性不可满足，已降为报告列 + 失败集重叠诊断，
+     计划 §10 R5；主门槛 2. 不动）。`heuristic` 行仍必须存在以供给报告值，
+     缺行即 FAIL（不许删基线）；
   4. 单调性 `S_goal(30_000) ≥ S_goal(1_000)`（种子噪声内非降）；网格缺 30000 点
      时该项**跳过**（notes 标 `monotonicity: skipped(no 30k)`，`monotonicity_checked=0`），
      不把缺证当通过也不当失败。
@@ -209,15 +212,18 @@ interface GateResult {
 > 配方式 gold 计划应当就是最短验收解；held-out 上若被搜出**严格更短**且过验收的
 > 算子序列，说明生成端守卫有漏。仅配方族——goal 族多解是设计语义（accept 只读
 > 公开 spec），不参评本门。
+>
+> **R5 轨迹约束（2026-09-14）后按定义归零**：follow 族验收要求 `hist ==
+> spec.trace` 精确匹配，`plan_bfs` 沿 trace 前缀剪枝，唯一解即金计划（等长），
+> "严格更短"按定义不存在 ⇒ `hits` 恒 0、门禁恒绿。本节的"失败模式"登记为
+> R5 前（A 落地后 0.825、门禁小样 4/4 恒红）的历史基线；`beyondOracleRate` 的
+> BFS 口径边界（等长不算超/补冗余命中/超预算/退化 gold）仍由手工无 trace 任务
+> 在 `tests/beyond_oracle.test.ts` 钉死。
 
 - **输入**：`makeSplit('heldout', 2, 13)` 的 **follow 子集**（value/verify 各 2、
   共 4 条），批常量 `G22_SAMPLE_BATCH` 导出自门禁脚本，经 `ctx.genTasks` 按批次
-  哈希共享缓存。小样是**运行时约束**：plan_bfs 在「无更短解」任务上要耗尽
-  `goldLen−1` 深球，单任务秒级，整批 120 条约 4 分钟——任何进程内同步块都会越过
-  vitest worker→main 的心跳（与 G0.1 把复算放进子进程同一规避动机）；4 条把单块
-  压到数秒内，且实测率≈1 时判决完全无歧义。完整 120 条统计量在 README 报告
-  （实测 108/120≈0.90），**门禁筛查只为运行时约束，主指标与阈值不受其替换**。
-  plan_bfs 一律用缺省节点预算；批内退化 gold（`goldLen−1 < 1`）恒判未命中但仍计
+  哈希共享缓存。R5 后 plan_bfs 对 follow 为 O(goldLen) 前缀回溯（无全深球展开），
+  小样与完整批都是瞬时的；批内退化 gold（`goldLen−1 < 1`）恒判未命中但仍计
   分母。
 - **判定式**（计划 A.2 原文口径）：逐任务取 `goldLen = len(plan_hidden)`（含
   `submit(+check_*)`，不含 EXIT；plan_bfs 返回值同样不含 EXIT，两边同口径按
@@ -230,11 +236,10 @@ interface GateResult {
   `n_value`、`n_verify`。
 - **通过判据**：`beyond_oracle_rate ≤ 0.02`（A.2 固定值，**禁止改动**；样本量
   下限阈只做哨兵，防子集萎缩造成假通过）。
-- **失败模式**：期望≈0 的前提是恒等签名去冗余与 follow 极小性守卫（该守卫只挡
-  「单算子+收尾提交」捷径）。实测 >0 的来源是 Str 探针/代数碰撞或**多算子巧合
-  捷径**（多算子组合值碰撞不在守卫覆盖内，极小域 mod7 上尤密）——非零一律如实
-  报告作自检证据，notes 带全 hits/total/over_budget 数字；**禁止**据此调阈值或
-  削基线（A.1/E.7），红也是报告。
+- **历史失败模式（R5 前）**：期望≈0 的前提是恒等签名去冗余与 follow 极小性守卫。
+  实测 >0 的来源是 Str 探针/代数碰撞或**多算子巧合捷径**（多算子组合值碰撞不在
+  守卫覆盖内，极小域 mod7 上尤密）——非零一律如实报告作自检证据；R5 轨迹约束
+  后该类命中按定义不存在。
 - **落点**：判定式 `eval/beyond_oracle.ts`（`beyondOracleRate(tasks, graph, opts?)`
   → `{total, hits, overBudget, rate}`）；门禁 `conformance/gates/g22_beyond_oracle.ts`；
   断言于 `tests/beyond_oracle.test.ts` 与 `tests/gates.test.ts`。
@@ -244,7 +249,7 @@ interface GateResult {
 ## F1 前向一致
 
 - **输入**：`conformance/ffixtures/f1_forward.json`（冻结权重子集 + obs/候选动作特征，
-  arch `v1:lang:732:83:128:none`，无时间戳、git 跟踪）。
+  arch `v4:lang:867:83:128:none`，无时间戳、git 跟踪）。
 - **算法**：TS 与 Python 两侧统一 **float64 累加**重算前向（TS 走 `f_math.forward64`，
   Python 走 `conformance/py_forward.py`，前向数学 `import controller/train_nn`，两侧都不
   复刻公式），比对 softmax 分布逐元素。

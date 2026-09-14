@@ -12,7 +12,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { acceptorSourceVersion, generatorSourceVersion } from '../data/provenance.js';
+import { acceptorSourceVersion, generatorSourceVersion, manifest } from '../data/provenance.js';
+import { hashObj } from '../world/hash.js';
 import { createGateContext } from '../conformance/gates/harness.js';
 import { worldVersion } from '../world/version.js';
 
@@ -84,5 +85,22 @@ describe('门禁 run manifest（runs/<run_id>/manifest.json，全员版本化快
     expect(acceptorSourceVersion()).toMatch(/^[0-9a-f]{16}$/);
     expect(generatorSourceVersion()).toBe(generatorSourceVersion());
     expect(acceptorSourceVersion()).toBe(acceptorSourceVersion());
+  });
+
+  it('inputs_hash 绑定 generator/acceptor 源码指纹：版本漂移必须翻转 manifestHash（P1-B）', () => {
+    const gv = generatorSourceVersion();
+    const av = acceptorSourceVersion();
+    const ctx = createGateContext();
+    // 与 run 级 manifest.json 快照同参（非缺省 'unknown'）：口径唯一。
+    expect(ctx.manifestHash).toBe(hashObj(manifest({ generatorVersion: gv, acceptorVersion: av })));
+    expect(ctx.manifestHash).not.toBe(hashObj(manifest()));
+    // 任一侧源码版本变化都翻转 manifestHash 与合成 inputs_hash——旧门禁结果不可复用。
+    const flippedG = hashObj(manifest({ generatorVersion: 'drift', acceptorVersion: av }));
+    const flippedA = hashObj(manifest({ generatorVersion: gv, acceptorVersion: 'drift' }));
+    expect(flippedG).not.toBe(ctx.manifestHash);
+    expect(flippedA).not.toBe(ctx.manifestHash);
+    const inputsOf = (mh: string) => hashObj({ world_version: worldVersion, manifest_hash: mh, fixtures_hash: ctx.fixturesHash });
+    expect(inputsOf(flippedG)).not.toBe(ctx.inputsHash);
+    expect(inputsOf(flippedA)).not.toBe(ctx.inputsHash);
   });
 });

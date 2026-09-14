@@ -236,11 +236,11 @@ def check_numeric_gradient(seed=7, delta=1e-5, verbose=True):
     ±δ 扰动恰为 ±δ·input[c]，逐列走真实整链前向；其余样本贡献两侧同值相消。
     1D 张量条目标量差分；WD 精确二次式差分后恰为 wd·W，后置加上。
     """
-    dims = {"obsDim": 732, "actDim": 83, "h": 128, "head": "progress"}
+    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "progress"}  # 867=arch v4 lang 宽，与 train.py EXPECTED_OBS_DIM 对齐
     params = params_from_json(dims, seed)
     prng = np.random.default_rng(seed)
     B, M = 2, 5
-    o = prng.standard_normal((B, 732))
+    o = prng.standard_normal((B, 867))
     a = np.zeros((B, M, 83))
     mask = np.zeros((B, M), dtype=bool)
     for b, m in enumerate([3, 5]):
@@ -275,11 +275,11 @@ def check_numeric_gradient(seed=7, delta=1e-5, verbose=True):
         return ce + aux
 
     def loss_wo(b, r, sign):
-        preK = np.broadcast_to(pre_o0[b], (732, 128)).copy()
+        preK = np.broadcast_to(pre_o0[b], (867, 128)).copy()
         preK[:, r] += sign * delta * o[b]
         hK = np.tanh(preK)
         pK = softmax_masked((z[b] * hK[:, None, :]) @ params["ws"],
-                            np.broadcast_to(mask[b], (732, M)))
+                            np.broadcast_to(mask[b], (867, M)))
         return row_loss_vec(pK, hK @ params["wp"] + float(params["bp"][0]), b)
 
     def loss_wa(b, r, sign):
@@ -316,15 +316,15 @@ def memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True):
     训练至 train acc ≥0.99——拟合链路（前向/反向/Adam）端到端证明。限制 60s 内。"""
     rng = random.Random(seed)
     prng = np.random.default_rng(seed)
-    dims = {"obsDim": 732, "actDim": 83, "h": 128, "head": "none"}
+    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "none"}  # arch v4 口径，与 train.py EXPECTED_OBS_DIM 一致
     params = params_from_json(dims, seed)
     nslots = 8
     slots = np.zeros((nslots, 83))
     for j in range(nslots):
         slots[j, rng.randrange(83)] = 1.0
-    o, t, Ms = np.zeros((batch, 732)), np.zeros(batch, dtype=int), []
+    o, t, Ms = np.zeros((batch, 867)), np.zeros(batch, dtype=int), []
     for i in range(batch):
-        idx = np.sort(prng.choice(732, size=24, replace=False))
+        idx = np.sort(prng.choice(867, size=24, replace=False))
         o[i, idx] = prng.uniform(-1, 1, size=24)
         Ms.append(rng.randint(3, nslots))
         t[i] = rng.randrange(Ms[i])

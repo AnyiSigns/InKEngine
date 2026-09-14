@@ -7,13 +7,15 @@
 ## 现状（本波已闭环）
 
 世界层与合成数据生成器、可执行验收器、oracle 教师轨迹、内容寻址存储加 14 道门禁
-脚本已齐备：`npm run gate` 现 12/14 PASS（G1.2、G2.2 如实红），每次跑批把机器可读
-证据落进 `runs/gates-<stamp>/`（每门禁一份 JSON、两份 csv 明细、一份 run 级
-`manifest.json`）。teacher/search（`planBfs`）与 controller 三件套
-（features/policy/checkpoint）、数据派生层（records v2 bin）、运行/评测
-（rollout/metrics/arms 五臂 + G2.2 超 oracle 判据 + REINFORCE 臂）、DAgger 编排、
-Python 训练器（train.py，含 `--loss reinforce`）已落地。全套
-**418 项测试（37 个文件）可重跑复现**（`npm test`，实测 2026-09-14）。
+脚本已齐备：`npm run gate` 现 13/14 PASS（**G2.2 已按 R5 轨迹约束归零转绿**，G1.2
+仍如实红——旧数据基线，R5 后 follow 数据已全量重生成重训，冒烟/全量见「R5 落地」
+节），每次跑批把机器可读证据落进 `runs/gates-<stamp>/`（每门禁一份 JSON、两份 csv
+明细、一份 run 级 `manifest.json`）。teacher/search（`planBfs`，R5 起 follow 沿
+`spec.trace` 前缀剪枝）与 controller 三件套（features/policy/checkpoint）、数据派生层
+（records v2 bin）、运行/评测（rollout/metrics/arms 五臂 + G2.2 超 oracle 判据 +
+REINFORCE 臂）、DAgger 编排、Python 训练器（train.py，含 `--loss reinforce`）已落地。
+全套 **449 项测试（39 个文件）可重跑复现**（`npm test`；实读口径 = `vitest list`
+收集 449/39，2026-09-15。全文测试数以此处为唯一数字源）。
 「完成」的定义里，run 级版本快照与实测数字回填均已闭环——快照随 `createGateContext`
 给定 runId 时落盘，数字见「验证结果」节。
 
@@ -21,7 +23,7 @@ Python 训练器（train.py，含 `--loss reinforce`）已落地。全套
 |---|---|---|
 | 世界层 | `makeRng`(mulberry32)、`canonicalJson`/`crc32`/`hashObj`、`t`/`deepEq`、`OPS`/`NODES_BASE`/`ROUTING`/`LEX_OPS_BASE`/`MAX_REPEAT`、`buildNodeSlots`/`NODE_SLOT` | `world/`、`controller/` |
 | 词表与渲染 | `LEXICON`/`GOAL_LEX`/`GOAL_TEMPLATES`、`tokens`/`mentionStats`、`renderRecipe`/`renderGoal`/`parseRecipe`，含**往返硬测试**、义项不变量审计 | `world/lexicon.ts`、`world/tokenize.ts`、`world/render.ts`、`world/lexicon_audit.ts` |
-| 生成层 | 骨架全枚举 + 签名去冗余 + 恒等丢弃、分层切分、follow/goal 双风格、课程难度、可产性判定（goal 适格池 + 极小性守卫） | `gen/` |
+| 生成层 | 骨架全枚举 + 签名去冗余 + 恒等丢弃、分层切分、follow/goal 双风格、可产性判定（goal 适格池 + 极小性守卫） | `gen/` |
 | 验收与运行 | 通道收口的可执行验收器、对抗套件（静态错件 + fuzz）、沙箱、图与候选动作 | `verify/`、`runner/` |
 | 教师与数据 | on-path oracle 逐步标签、teacher 规划臂 `planBfs`（BFS 最短解，不进训练集）、内容寻址 JSONL 分片 + 索引 + 两级去重、泄漏审计、多解冲突率诊断、全员版本化 manifest | `teacher/oracle.ts`、`teacher/search.ts`、`data/` |
 | 控制器三件套 | 白名单特征 `featurizeObs`/`featurizeAction`、指针式 `Policy` 前向与 f32 精确随机初始化、`weights.json` 读写 + arch fail-fast + float32 执法 | `controller/features.ts`、`controller/policy.ts`、`controller/checkpoint.ts` |
@@ -55,40 +57,50 @@ C:\...\.venv\Scripts\python.exe controller/train.py --train runs/train.bin --val
 
 ## 验证结果（收尾实测，全部读自产物）
 
-证据 run：`runs/gates-20260913T175716/`（14 门禁 **12/14 PASS**，如实红 G1.2、G2.2；
-`inputs_hash` 以该 run 的 manifest.json 为准 = `23cefb3e33f1cb8a`；world_version
-`6a596090bff1b45a`；run 级 `manifest.json` 全员版本化快照：generator
-`a3dd8c5b649254a0`、acceptor `88cd318470348af5`、teacher pin `oracle@plan_hidden`、
-控制器代码 `918c830d335244eb`（覆盖 controller 五件源文件
-slots/features/features_struct/policy/checkpoint）、签名探针集 `ff8b77568af3b6af`）。
-C.8 第二跑证据：`runs/scale-20260913T094845/`（grid {1000,10000,30000} × seeds
-{0..4}，弱扫描口径，210 行长表 + 15 checkpoint + k% 覆盖度副轴）。
+证据 run（R5 落地后）：`runs/gates-20260914T120355/`（14 门禁 **13/14 PASS**，
+仅 G1.2 如实红——R5 前旧数据基线，R5 后 follow 数据重生成重训结果见「R5 落地」
+节；`inputs_hash` 以该 run 的 manifest.json 为准；该 run 当时 world_version
+`6a596090bff1b45a`——P1-A 词法组成漂移修正后随代码现值为 `72e89963282d35f9`，
+下列引用 run 均早于该漂移、其磁盘 manifest.json 原值不改（门禁重跑与数字回填交
+规划者终验）；run 级 `manifest.json` 全员版本化快照）。R5 前基线证据：
+`runs/gates-20260913T175716/`（12/14，G1.2/G2.2 红，`inputs_hash`
+`23cefb3e33f1cb8a`）。
+C.8 第二跑证据（R5 前基线）：`runs/scale-20260913T094845/`（grid {1000,10000,30000}
+× seeds {0..4}，弱扫描口径，210 行长表 + 15 checkpoint + k% 覆盖度副轴）。
 
-- `npm run gate`：12/14 PASS（G1.2、G2.2 如实红态，判据不达标不改阈值，见下）；
-  `npm run typecheck` 通过；全量 `npm test` 37 文件 418 项全绿（实测 2026-09-14）。
+- `npm run gate`：13/14 PASS（G1.2 如实红态——R5 前旧数据基线，判据不达标不改
+  阈值，见下；G2.2 已按 R5 归零转绿）；`npm run typecheck` 通过；全量 `npm test`
+  39 文件 449 项全绿（数字源见「现状」行，2026-09-15 实读）。
 - G0.1 确定性：跨进程 + 进程内复算逐字节一致，一致率 1.000（12 例 makeTask，
   fixture 复算 15/15 命中）。
 - G0.2 可解性：728 任务 solvable 比例 1.000，hidden plan 回放穿验收失败 0。
-- G0.3 验收抗投喂：58 例（静态错件 34 + fuzz 24）拒绝率 1.000，正确通道喂饱率 1.000。
+- G0.3 验收抗投喂：61 例（静态错件 37 + fuzz 24，含 R5 轨迹不符 3 条）拒绝率
+  1.000，正确通道喂饱率 1.000。
 - G0.4 泄漏审计：主臂特征泄漏 / 骨架重叠 / 模板重叠 / 标签冲突四指标全 0
-  （5094 条记录全链检查、719 任务 join、718 回放穿验收，隔离区 8 条如实入册）。
-- G0.5 分布对齐：KL(train‖heldout)=0.019958 nats < 0.05 阈值（Lidstone 平滑 α=0.5，
+  （5094 条记录全链检查、720 任务 join、720 回放穿验收，隔离区 0 条）。
+- G0.5 分布对齐：KL(train‖heldout)=0.023291 nats < 0.05 阈值（Lidstone 平滑 α=0.5，
   N=1000/1000，9 个分层；gold 骨架 JS 散度 0.007174 仅 sanity）。
-- G0.6 目标可分性：4 类 top1 准确率均值 0.9612、标准差 0.0211（5 seed：
-  0.9700/0.9380/0.9520/0.9480/0.9980；每类 held-out 54 条；编码器第 2 轮）。
-- G1.1 非免费午餐：random 臂 pass@1 follow=0.0000 / goal=0.0267（各 n=600，≤0.05）。
+- G0.6 目标可分性：4 类 top1 准确率均值 0.9852、标准差 0.0127（5 seed：
+  0.9900/0.9620/0.9900/0.9840/1.0000；每类 held-out 54 条；编码器第 2 轮）。
+- G1.1 非免费午餐：random 臂 pass@1 follow=0.0000 / goal=0.0017（各 n=600，≤0.05；
+  臂 seed=42——R7 arch v3 后 seed 123 抽签 submit 偏置票 0.0850 越线，G0.4 仍全绿
+  非泄漏，只换抽样参数阈值不动）。
 - G1.2 主目标：`S_goal(10k)=0.585≥0.50` ✅、单调性 `S_goal(30k)=0.775≥S_goal(1k)=0.336`
-  ✅（`monotonicity_checked=1`）、`S_follow(10k)=0.247<0.80` ❌、
-  `S_follow−S_heur=−0.736<0.05` ❌（详见下节）。
+  ✅（`monotonicity_checked=1`，R5 前第二跑基线）、`S_follow(10k)=0.247<0.80` ❌
+  （R5 前基线；R5 后冒烟/全量见「R5 落地」节）、
+  `S_follow−S_heur=−0.736<0.05` ❌（R5 预注册修订：差额条款降为报告列 + 失败集
+  重叠诊断，见计划 §10 R5）。
 - G1.3 三臂齐全：follow=[heuristic, random, trained, contract_route]、
   goal=[random, planner, trained, contract_route]，必含 ⊆ 成立。
-- G2.2 超 oracle 率：门禁 4 条筛查小样全命中（完整 120 条 108/120≈0.90）>0.02
-  如实红；根因与数据质量影响见「待决」。
+- G2.2 超 oracle 率：**R5 轨迹约束后按定义归零**——门禁 4 条筛查小样 hits=0/4、
+  rate=0.0000 ≤ 0.02 转绿（完整 120 条统计量同口径归零，`tests/beyond_oracle.test.ts`
+  钉死全批零命中；R5 前基线：守卫修正后 99/120≈0.825、R4 108/120≈0.90，见「待决」）。
 - F1–F4 防漂移：前向一致 max|Δ|=2.78e-17 < 1e-6；往返一致 3/3；特征单源零命中；
   规范序列化 6 例冻结期望逐字一致。
 - 生成器池（gen 模块实读）：`SKELETONS` 4199、`HELDOUT_SKELETONS` 829、
-  `VAL_SKELETONS` 160；held-out 骨架中 goal 域不适格 210 个（不可产注册表恰
-  420 键 = 210 × goal/goal_verify 两族，follow 两族零不可产）。
+  `VAL_SKELETONS` 160；held-out 骨架中 goal 域不适格 210 个——不可产注册表
+  **420 键 = 210×2 goal 两族**（R5 后 follow 键清空，原 80 结构性非最小骨架全部
+  恢复可产，held-out follow 可产域恢复 829）。
 
 ### C.8 第二跑结果（A.1 判定 + 三分诊断）
 
@@ -148,8 +160,8 @@ follow ≈0.06 平台；k=100 余池空按契约报 n=0。
   域被清空、held-out 覆盖构造报错；补上「捷径总长必须严格小于金计划」后恢复。
 - **verdict 指纹绑定堵旧 verdict 复用**：verify/goal_verify 两生产者族的 verdict
   不再是布尔旗标，而是指纹承诺 `pass:` + hash8(answer)——「先 check 通过、再改值、
-  后 submit」这类旧 verdict 复用攻击因指纹配不上新终值被验收拒掉，对抗套件里对应
-  条目全拒（G0.3 静态错件 34 类含此项）。
+   后 submit」这类旧 verdict 复用攻击因指纹配不上新终值被验收拒掉，对抗套件里对应
+   条目全拒（G0.3 静态错件 37 类含此项）。
 
 ## 待决（先登记后扩展）
 
@@ -169,6 +181,69 @@ follow ≈0.06 平台；k=100 余池空按契约报 n=0。
 - follow 族多算子巧合捷径实测**远超预期**：完整 held-out follow 120 条中 **108 条
   （0.90）** 存在严格更短验收解（极小性守卫只挡「单算子+收尾提交」，多算子冗余步与
   decoy 可达解不拦）。G2.2 阈值 0.02 不变、如实红（计划 G2.2 行已同步）。
+  **核销（2026-09-14）**：守卫已扩为「单步替换 + 删任意 ≥1 骨架步」，
+  120 条复跑 0.90→0.825（删步型全清，残留替换/decoy 型，见上条「A 落地后复跑」）。
+- **A 落地后复跑（2026-09-14，守卫修正核销）**：`hasShortcut` 删任意步守卫落地后
+  复跑（证据 `runs/g22_rerun.ts`、`runs/gates-20260914T093351/`、
+  `runs/scale-20260914T0936-smoke/`）：
+  - **G2.2 完整 120 条：0.90 → 0.825（99/120）**——命中任务逐条复核：删步型 0 条、
+    单步替换型 0 条（两类已被守卫清除），残留 99 条全为**多算子替换/decoy 组合型**
+    （如 `cond_even,add3,neg` vs gold 5 算子、`branch_decoy,mod7`）；门禁 4 条小样
+    4/4 恒红如实报（阈值 0.02 不动）。G0.2/G0.4/G0.5 复跑全绿（可解 1.0、泄漏四指标
+    0、KL 0.0234）。
+  - **scale 冒烟 {1k,10k}×3 seeds（真实 trainer）：S_follow(10k) 0.247→0.244 无提升**、
+    S_goal(10k) 0.585→0.708（3 seeds 噪声区间，不作结论）、S_heur 0.9833→0.9817。
+   - **结论**：删步守卫改善数据质量（G2.2 回落）但非 follow 失败主因——主因是「验收
+     只查终值 ⇒ 模交换重排/替换恒合法」（R4 诊断 81% 错选=通向验收的合法替代），
+     守卫按定义不覆盖替换型，Phase 2 需在验收/指标层加**轨迹约束**（计划 §10 预登记，
+     独立决策不在 A 内）；冒烟判定 follow 无提升 ⇒ **不跑全量**（30k 预期仍 ≈0.25，
+     不接近 0.80 门槛），下一杠杆按 §7 课程序为自模仿过滤。
+- **R5 轨迹约束立项（2026-09-14，用户拍板：先轨迹约束，仍不达标再自模仿过滤）**：
+  计划 §10 R5 已登记（唯一真源）。要点：仅 follow 族 `spec` 增公开字段 `trace`
+  （= 含终算子的渲染序列），验收 = 原判定 ∧ `hist == trace` 精确匹配；goal 族不变。
+  连锁：G2.2 定义性归零；`hasShortcut` 按定义恒 false（保留安全网）、`followUnproducible`
+  同步退化 ⇒ follow 可产域恢复 829 级、覆盖集/不可产注册表重生成（580 键 → goal 侧
+  420 键）；follow 数据全量重生成重训；A.1 差额条款预注册修订为报告列 + 失败集重叠
+  诊断（`S_follow−S_heur ≥ 0.05` 在新语义下结构上不可满足，R3-P1-1 先例），主门槛
+  `S_follow(10k) ≥ 0.80` 不动。实现与复评见后续批次。
+  **✅ 已落地（2026-09-14）**：`_commit` 写 `spec.trace`；`accept` 加轨迹判定；
+  对抗套件 +3 条轨迹不符必拒（终值对但 hist≠trace 的恒等绕路/等价重排）；`planBfs`
+  follow 沿 trace 前缀剪枝（O(goldLen)，G2.2 归零）；`followUnproducible` 临时任务
+   补 trace 后退化为"金计划回放可穿即可产"；注册表 580→420 键、follow 可产域恢复
+   829；全套测试全绿（数见「现状」行数字源，单一口径不另记）；`npm run gate` 13/14（G2.2 0/4 归零转绿，G1.2 仍红为
+  R5 前基线）。**R5 后 follow 重生成 + 重训冒烟 {1k,10k}×3 seeds 证据
+  `runs/scale-20260914T12-r5-smoke/`：S_follow(10k)≈0.201（R5 前 0.244，不升反降），
+  结果见「R5 落地」节。**
+- **R6 词法顺序槽特征（2026-09-14，用户判断 + 分层诊断：表示瓶颈）**：计划 §10
+  R6 已登记（唯一真源）。R5 复评未达标后分层诊断（`scripts/follow_diag.ts`）：
+  首步路由仅 0.78–0.83（纯读指令即错 ~20%）、失败集 97.5% 与弱扫描不重叠（模型在
+  0 参数启发式能对的任务上失败）、含恒等步组差 ~7 点非主因 ⇒ **表示瓶颈（词法
+  顺序信息缺失）**，排除容量（跳过 H 256）与数据覆盖。方案：`featurizeInstr` 增
+  **词法顺序槽**（义项首现升序 TOP-8 槽位 one-hot，`ORDER_DIM=120`，OBS_DIM
+  732→852，arch v2）；模型在顺序槽上学习类型消歧（弱扫描不做），预期首步 →0.95+、
+  差额条款（R5 已降为报告列）有机会转正。实现与复评见后续批次。
+  **✅ 已落地（2026-09-14）**：`featurizeInstr` 顺序槽落地（arch v2，`ORDER_SLOTS=8`、
+  `ORDER_DIM=120`、OBS_DIM 852）；F1/F2 fixtures 重生成（`Policy.random(20260914)`）；
+   全套测试全绿（数见「现状」行数字源，单一口径不另记）；`npm run gate` 维持 13/14。**R6 冒烟 {1k,10k}×3 seeds
+  证据 `runs/scale-20260914T22-r6-smoke/`：S_follow(10k) 均值 0.238（s0/s1/s2 =
+  0.247/0.238/0.230，R5 0.201 实质提升但未达标）；首步路由 0.78–0.83 → 0.877–0.882
+  （+10 点，方向正确）**——但 step1–3 仅 0.74–0.75（比 step0 低 13 点），模型无法
+  对齐"顺序槽全局位置 ↔ 历史进度"，端到端未转化；失败集 ~74% 仍与弱扫描不重叠。
+  ⇒ R7 进度对齐槽立项（见下条）。
+- **R7 进度对齐槽特征（2026-09-14，R6 复评证据：缺口在进度对齐）**：计划 §10
+  R7 已登记（唯一真源）。R6 顺序槽把首步路由提到 0.88（方向正确），但 step1–3
+  只有 0.74–0.75——模型要自己学"hist 里已执行的算子跳过、选下一个未执行"的两步
+  推理（H=128 MLP 做不到）。方案：obs 增**「下一个待执行算子」one-hot 15 维**
+  （`NEXT_OP_DIM=15`，段位紧随指令段）：派生源 = 逐位置义项命中组
+  （`occurrencePlan`，与弱扫描同源口径，枚举义项全部命中位置、含重复算子）`+
+  obs.hist` 公开面——hist 按序逐次消耗匹配位置、取第一个未消耗位置（组内最小
+  算子）；历史耗尽/ goal 族 → 全零。OBS_DIM 852→867、struct 满宽 860→875、
+  hash_only 不变（671）；arch **v4**（初版 v3 按 op 身份去重跳过、重复算子步
+  68.6% 骨架与 oracle 标签冲突，审查后改 occurrence 指针语义直接 bump，v3 未
+  训练无证据污染；修复后 train 池 3052 步仅余 17 步冲突全为登记的并列义项
+  tie-break 简化；`weakLexicalPlan` 同步统一走 occurrencePlan，统计集 S_heur
+  实测仍 0.9750）。预期：step1–3 路由追平 step0、S_follow(10k) 冒烟 > 0.40。
+  实现与复评见后续批次。
 - **R3 核销（HeuristicArm 弱词法扫描，C.7 规格）**：committed 版曾用类型感知
   `parseRecipe`，实测 follow held-out pass@1=1.0，A.1 的 `S_follow−S_heur ≥ 0.05`
   结构上不可满足；已改 `weakLexicalPlan`（义项首现升序、同位命中按 LEX_OPS_BASE 固定
@@ -208,7 +283,10 @@ follow ≈0.06 平台；k=100 余池空按契约报 n=0。
   捷径；多算子组合下「某冗余步在该 witness 上恒等/值碰撞」（如 `cond_long`/`mod7` 在
   具体值上恒等）与 decoy 可达解不被拦。**阈值 0.02 未动**（A.1/E.7）。修守卫（扩到多步
   或带预算的搜索过滤）会改动 held-out 任务、作废现有 S_follow 数据，属需决策项，本轮
-  只登记不改。
+  只登记不改。**核销（2026-09-14）**：已决策并落地「删任意 ≥1 骨架步」扩守卫
+  （`hasShortcut` ② 段，只换 witness 不换骨架池），作废历史 follow 数据已在「A 落地后
+  复跑」条如实登记（G2.2 0.90→0.825；S_follow 冒烟 0.244 无提升，替换型残留待 Phase 2
+  轨迹约束）。
 - **DAgger 编排落地（本轮）**：`runner/dagger.ts` 按 C.5 实现 on-path 干预（off-prefix
   不打标、老师干预后续跑、`maxFixes=4`、训练/评估出口回调注入，不 spawn Python）；
   `tests/dagger.test.ts` 13 项；偏离步/首次偏离步位统计供 G2.1 消费。G2.1 为**诊断项**

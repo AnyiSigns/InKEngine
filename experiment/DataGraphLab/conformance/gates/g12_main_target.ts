@@ -1,8 +1,10 @@
 /**
  * G1.2 主目标（A.1 / docs/gates.md G1.2）：消费 C.8 scaling 产物
  * `ctx.results.json`（results.json 长表，读取与聚合唯一口径见 results_view.ts）。
- * 判定式照 A.1 原样写死：`S_goal(10_000) ≥ 0.50`、`S_follow(10_000) ≥ 0.80`、
- * `S_follow(10k) − S_heur_follow(10k) ≥ 0.05`（heuristic 行必须存在）；单调性
+ * 判定式照 A.1 原样写死：`S_goal(10_000) ≥ 0.50`、`S_follow(10_000) ≥ 0.80`；
+ * 差额条款 `S_follow−S_heur≥0.05` 按 R5 预注册修订降为**报告列**（R5 轨迹约束新
+ * 语义下结构不可满足，README/计划 §10 R5），主门槛 `S_follow(10k)≥0.80` 不动，
+ * `heuristic` 行仍必须存在以供给报告列；单调性
  * `S_goal(30_000) ≥ S_goal(1_000)`——网格缺 30000 点时该项**跳过**并在 notes 标
  * `monotonicity: skipped(no 30k)`，不拿缺证当通过也不当失败。主指标一律取
  * `trained` 臂 `pass1` 行的跨 seed 均值（C.8 均值口径）。results 文件缺失/网格缺
@@ -21,7 +23,6 @@ const N_10K = 10_000;
 const N_30K = 30_000;
 const S_GOAL_MIN = 0.5;
 const S_FOLLOW_MIN = 0.8;
-const HEUR_MARGIN_MIN = 0.05;
 /** 缺数据/缺行的占位值：取 -1 保证 min 阈值必红，notes 负责归因（不 NaN 进 JSON）。 */
 const ABSENT = -1;
 
@@ -58,11 +59,11 @@ function notFound(ctx: GateContext, note: string): GateResult {
 }
 
 function commonThresholds(): Record<string, number> {
+  // R5 预注册修订：follow_minus_heur 降为报告列，不在此设阈值（主门槛 S_follow 不动）。
   return {
     'grid_has_10k:eq': 1,
     'S_goal_10k:min': S_GOAL_MIN,
     'S_follow_10k:min': S_FOLLOW_MIN,
-    'follow_minus_heur:min': HEUR_MARGIN_MIN,
     'monotonicity_ok:min': 1,
   };
 }
@@ -112,7 +113,7 @@ function compute(ctx: GateContext): GateResult {
     problems.push('grid missing N=10000');
   }
   if (gridHas10k && heur10k === undefined) {
-    problems.push('heuristic 行缺失（S_heur 对照不许删基线，A.1：S_follow−S_heur ≥ 0.05 必须可算）');
+    problems.push('heuristic 行缺失（S_heur 对照不许删基线；R5 后差额为报告列，缺行即无报告证据）');
   }
   // 主判据违反也要点名，notes 归因与 evaluateThresholds 结论保持一致（判据仍只由
   // metrics×thresholds 机器复算，这里只负责失败模式说明，不做第二套判定）。
@@ -121,9 +122,6 @@ function compute(ctx: GateContext): GateResult {
   }
   if (follow10k !== undefined && follow10k < S_FOLLOW_MIN) {
     problems.push(`S_follow(10k)=${fmt(follow10k)} <${String(S_FOLLOW_MIN)}`);
-  }
-  if (follow10k !== undefined && heur10k !== undefined && follow10k - heur10k < HEUR_MARGIN_MIN) {
-    problems.push(`S_follow−S_heur=${fmt(follow10k - heur10k)} <${String(HEUR_MARGIN_MIN)}（消歧+组合增益不足：heur=${fmt(heur10k)}）`);
   }
   let notes = '';
   if (goal1k !== undefined && goal30k !== undefined && monotonicityOk === 0) {
@@ -135,7 +133,7 @@ function compute(ctx: GateContext): GateResult {
       : 'monotonicity: skipped(no 30k)';
     notes =
       `A.1 达成：S_goal(10k)=${fmt2(goal10k)} ≥${String(S_GOAL_MIN)}、S_follow(10k)=${fmt2(follow10k)} ≥${String(S_FOLLOW_MIN)}、` +
-      `S_follow−S_heur=${fmt((follow10k ?? 0) - (heur10k ?? 0))} ≥${String(HEUR_MARGIN_MIN)}（heur=${fmt2(heur10k)}）；${mono}` +
+      `S_follow−S_heur=${fmt((follow10k ?? 0) - (heur10k ?? 0))}（报告列，R5 降阈值不入判，heur=${fmt2(heur10k)}）；${mono}` +
       `（证据 ${path}，trained 臂 pass1 跨 seed 均值，seed∈{${seeds.join(',')}}）`;
   } else {
     notes =

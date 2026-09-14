@@ -19,6 +19,7 @@ import { GOAL_CONNECTORS, GOAL_LEX, mentionStats, tokens } from '../world/gramma
 import { crc32 } from '../world/hash.js';
 import { MAX_STEPS } from '../runner/graph.js';
 import { HIST_SLOTS, NODE_SLOT } from './slots.js';
+import { occurrencePlan } from '../world/tokenize.js';
 import { featurizeGoalStruct, GOAL_STRUCT_DIM } from './features_struct.js';
 
 export { featurizeGoalStruct, GOAL_STRUCT_DIM };
@@ -40,6 +41,25 @@ export interface ObsView extends ObsFields {
 
 /** 义项词表冻结在 op+terminal 基础序上，每 op 3 维（命中数/首现/序位）。 */
 export const MENTION_DIM = LEX_OPS_BASE.length * 3;
+/** R6 词法顺序槽：按义项首现位置升序取前 ORDER_SLOTS 个算子逐位 one-hot。
+ * 把弱扫描（HeuristicArm）能看到的"指令内相对顺序"显式编码——排序比较对
+ * 小 MLP 不可分（R6 分层诊断：首步路由仅 0.78、失败集 97.5% 与弱扫描不重叠）。
+ * 并列位置（共享义项如 `取反`）按 LEX_OPS_BASE 固定序 tie-break，与弱扫描同源；
+ * 模型仍可经 mention/hash 冗余信号学习偏离（类型消歧 = A.1 差额的语义通道）。 */
+export const ORDER_SLOTS = 8;
+export const ORDER_DIM = ORDER_SLOTS * LEX_OPS_BASE.length;
+/**
+ * R7 进度对齐槽：下一个待执行算子 one-hot 的段宽（= 义项词表宽度，15 维）。
+ * 派生源 = 逐位置义项命中组（occurrencePlan，与弱扫描同源口径，含重复算子）+
+ * obs.hist 公开面：hist 按序逐次消耗匹配位置（组内任一算子命中即消耗该位置；
+ * 非序列算子如 decoy 干预不消耗），取第一个未消耗位置、按 LEX_OPS_BASE 序编码
+ * 组内最小算子；全部消耗 / goal 族无算子义项 → 全零（此时应选 submit/check/exit，
+ * 靠原特征）。零泄漏：只读 instruction 与 hist 两个公开面。
+ * R7 复评（代码纪律审查）：初版按 op 身份去重跳过，重复算子步（68.6% 骨架 /
+ * 14.7% BC 记录）与 oracle 标签冲突（槽位诱导提前 submit / 指向错算子）→ 修正
+ * 为 occurrence 指针语义（arch v3→v4，v3 未训练未发布，无证据污染）。
+ */
+export const NEXT_OP_DIM = LEX_OPS_BASE.length;
 /** parity/gt/len 三类目标义项 + 合取连接词，共 4 组 × 2 维。 */
 const GOAL_GROUPS: readonly (readonly string[])[] = [
   ...Object.values(GOAL_LEX),
@@ -56,8 +76,11 @@ export const HIST_LEN = MAX_STEPS;
 export const HIST_DIM = HIST_LEN * HIST_SLOTS;
 export const STEP_DIM = 1;
 
-/** instruction 段宽度：hash_only 消融臂只保留哈希词袋。 */
-const INSTR_FULL = MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + HASH_DIM;
+/** 指令段布局：mention + goal_hint + num + order + hash（段序冻结，见 featurizeInstr）。 */
+const INSTR_FULL = MENTION_DIM + GOAL_HINT_DIM + NUM_DIM + ORDER_DIM + HASH_DIM;
+/** 进度对齐槽紧随指令段之后（段序冻结：instr + next_op + state + hist + step）。 */
+const NEXT_OP_OFF = INSTR_FULL;
+const OBS_FULL = INSTR_FULL + NEXT_OP_DIM + STATE_DIM + HIST_DIM + STEP_DIM;
 const INSTR_BLOCK: Readonly<Record<FeatureSet, number>> = {
   lang: INSTR_FULL,
   struct: INSTR_FULL,
@@ -66,9 +89,9 @@ const INSTR_BLOCK: Readonly<Record<FeatureSet, number>> = {
 
 /** 各特征集的完整 obs 宽度（struct 含 goal 编码段，由诊断侧自行拼接）。 */
 export const OBS_DIM: Readonly<Record<FeatureSet, number>> = {
-  lang: INSTR_BLOCK.lang + STATE_DIM + HIST_DIM + STEP_DIM,
+  lang: OBS_FULL,
   hash_only: INSTR_BLOCK.hash_only + STATE_DIM + HIST_DIM + STEP_DIM,
-  struct: INSTR_BLOCK.struct + STATE_DIM + HIST_DIM + STEP_DIM + GOAL_STRUCT_DIM,
+  struct: OBS_FULL + GOAL_STRUCT_DIM,
 };
 
 /** 动作特征 = 契约派生（provides/kind/accepts/returns）+ 哈希算子桶。 */
@@ -83,9 +106,12 @@ export const ACT_DIM = E_OFF + OP_BUCKETS;
 
 /** 词表扩容会平移 dims 却不改 arch 写法，启动即核对，防静默错位。 */
 function assertFeatureDims(): void {
-  if (MENTION_DIM !== 45 || GOAL_HINT_DIM !== 8 || NUM_DIM !== 8 || HASH_DIM !== 256) {
+  if (
+    MENTION_DIM !== 45 || GOAL_HINT_DIM !== 8 || NUM_DIM !== 8 || HASH_DIM !== 256 ||
+    ORDER_DIM !== 120 || NEXT_OP_DIM !== 15
+  ) {
     throw new Error(
-      `features: 指令段 dims 漂移 m=${MENTION_DIM} g=${GOAL_HINT_DIM} n=${NUM_DIM} h=${HASH_DIM}`,
+      `features: 指令段 dims 漂移 m=${MENTION_DIM} g=${GOAL_HINT_DIM} n=${NUM_DIM} h=${HASH_DIM} order=${ORDER_DIM} next=${NEXT_OP_DIM}`,
     );
   }
   if (STATE_DIM !== 30 || HIST_DIM !== 384 || ACT_DIM !== 83) {
@@ -100,6 +126,9 @@ assertFeatureDims();
  * 白名单字段值摘要（带符号值 / 幅度 / 奇偶）。Int 必须保留符号与奇偶：abs 抹号会让
  * 严格大于（gt）与 cond_even 类目标在特征层面系统性盲视，这是原设计的特征级缺陷；
  * 奇偶一律走 `emod`——JS 裸 `%` 对负数返回负余数，与 Python 不一致。非有限数记零。
+ * 设计语义（勿改）：非整数 number 与空值同样落 [0,0,0]，在「值摘要」面不可分——
+ * 特征层只承诺整数值状态，world `t()` 亦把非整数排除在 Int 义项外；该信息损失已由
+ * 测试断言钉死。
  */
 export function stateStats(v: unknown): readonly [number, number, number] {
   if (v === null || v === undefined) return [0, 0, 0];
@@ -128,9 +157,25 @@ function hashBag(toks: readonly string[]): Float32Array {
 }
 
 /**
- * 公开指令特征（语言优先）：逐算子义项提及 + 目标类别义项 + 数值端点 + 哈希兜底。
- * `hash_only` 消融臂把前三段整块丢弃、只留 256 维哈希袋——同一段字符串在两套
- * arch 下的向量长度不同，权重天然不互通，由 arch fail-fast 兜底。
+ * R6 顺序槽单一排序口径：义项首现位置升序（并列按 LEX_OPS_BASE 固定序 tie-break），
+ * 返回**去重**算子下标序列。只服务词法顺序槽（静态指令编码）；R7 进度对齐槽走
+ * `occurrencePlan`（含重复，与弱扫描同源）——两者口径不同属设计语义，见各注释。
+ */
+function rankOrder(toks: readonly string[]): readonly number[] {
+  const firsts = new Map<number, number>();
+  for (let k = 0; k < LEX_OPS_BASE.length; k++) {
+    const { first } = mentionStats(toks, LEX_OPS_BASE[k]!);
+    if (first >= 0) firsts.set(k, first);
+  }
+  return [...firsts.entries()].sort((p, q) => p[1] - q[1] || p[0] - q[0]).map((p) => p[0]);
+}
+
+/**
+ * 公开指令特征（语言优先）：逐算子义项提及 + 目标类别义项 + 数值端点 + 词法顺序槽
+ * + 哈希兜底。段序冻结：mention(0..45) + goal_hint(45..53) + num(53..61) +
+ * order(61..181) + hash(181..437)——新增顺序槽不改 goal/num/hash 偏移。
+ * `hash_only` 消融臂把前三段与顺序槽整块丢弃、只留 256 维哈希袋——同一段字符串
+ * 在两套 arch 下的向量长度不同，权重天然不互通，由 arch fail-fast 兜底。
  */
 export function featurizeInstr(instruction: string, featureSet: FeatureSet = 'lang'): Float32Array {
   const toks = tokens(instruction);
@@ -160,7 +205,34 @@ export function featurizeInstr(instruction: string, featureSet: FeatureSet = 'la
       a[o + 1] = Math.max(-1, Math.min(1, v / 50));
     }
   }
-  a.set(hashed, MENTION_DIM + GOAL_HINT_DIM + NUM_DIM);
+  // R6 词法顺序槽：rankOrder（义项首现升序、并列按 LEX_OPS_BASE 序 tie-break，与
+  // 弱扫描同源口径）取前 ORDER_SLOTS 个算子，逐位 one-hot。goal 族指令无算子义项
+  // → 全零。
+  const orderOff = MENTION_DIM + GOAL_HINT_DIM + NUM_DIM;
+  const ranked = rankOrder(toks);
+  for (let j = 0; j < Math.min(ORDER_SLOTS, ranked.length); j++) {
+    a[orderOff + j * LEX_OPS_BASE.length + ranked[j]!] = 1;
+  }
+  a.set(hashed, orderOff + ORDER_DIM);
+  return a;
+}
+
+/**
+ * R7 进度对齐槽：下一个待执行算子 one-hot（NEXT_OP_DIM=15）。occurrence 指针
+ * 语义：occurrencePlan 逐位置推进，hist 按序消耗匹配位置（组内任一算子命中即
+ * 消耗；decoy 等非序列算子不消耗），取第一个未消耗位置按 LEX_OPS_BASE 序编码
+ * 组内最小算子；全部消耗 / goal 族无算子义项 → 全零。零泄漏。
+ * `hash_only` 消融臂不含本段。
+ */
+export function nextOpFeatures(instruction: string, hist: readonly string[]): Float32Array {
+  const a = new Float32Array(NEXT_OP_DIM);
+  const plan = occurrencePlan(tokens(instruction));
+  let p = 0;
+  for (const h of hist) {
+    if (p >= plan.length) break;
+    if (plan[p]!.includes(LEX_OPS_BASE.indexOf(h))) p++;
+  }
+  if (p < plan.length) a[plan[p]![0]!] = 1;
   return a;
 }
 
@@ -202,9 +274,10 @@ export function histFeatures(hist: readonly string[]): Float32Array {
 }
 
 /**
- * 完整 obs 基座：指令段 + 状态 + 历史 + 步进度。`lang`/`hash_only` 的输出即整段
- * obs；`struct` 只产出 732 维基座，8 维 goal 编码由诊断侧调 `featurizeGoalStruct`
- * 自行追加——本函数不接收 spec，白名单在签名层封死。
+ * 完整 obs：指令段 + 进度对齐槽 + 状态 + 历史 + 步进度（段序冻结）。`lang` 输出
+ * 867 维整段；`hash_only` 只留哈希袋（无进度槽，671）；`struct` 产出 867 维基座，
+ * 8 维 goal 编码由诊断侧调 `featurizeGoalStruct` 自行追加——本函数不接收 spec，
+ * 白名单在签名层封死。
  */
 export function featurizeObs(
   instruction: string,
@@ -215,12 +288,19 @@ export function featurizeObs(
   if (instr.length !== INSTR_BLOCK[featureSet]) {
     throw new Error(`featurizeObs: 指令段长度 ${instr.length} 与 arch ${featureSet} 不符`);
   }
+  const nextOp = nextOpFeatures(instruction, obs.hist);
   const state = featurizeState(obs);
   const hist = histFeatures(obs.hist);
-  const out = new Float32Array(instr.length + STATE_DIM + HIST_DIM + STEP_DIM);
+  const out = new Float32Array(
+    instr.length + (featureSet === 'hash_only' ? 0 : NEXT_OP_DIM) + STATE_DIM + HIST_DIM + STEP_DIM,
+  );
   let o = 0;
   out.set(instr, o);
   o += instr.length;
+  if (featureSet !== 'hash_only') {
+    out.set(nextOp, NEXT_OP_OFF);
+    o += NEXT_OP_DIM;
+  }
   out.set(state, o);
   o += STATE_DIM;
   out.set(hist, o);

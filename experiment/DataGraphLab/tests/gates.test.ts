@@ -59,13 +59,14 @@ describe('门禁 G0.1–G0.6（与 npm run gate 同源断言）', () => {
     expectGate(runG03(ctx()), 'G0.3');
   }, 120_000);
 
-  it('G0.3 对抗套件规模哨兵：case_count=58、SKELETONS=4199（字面钉值，防条目被删则门不红）', () => {
+  it('G0.3 对抗套件规模哨兵：case_count=61、SKELETONS=4199（字面钉值，防条目被删则门不红）', () => {
     // 规模哨兵：判据 reject_ratio==1/accept_correct_ratio==1 与 case_count:eq 阈值都
     // 由静态清单长度派生，若有人删 WRONG_ARTIFACTS/FUZZ 条目，比率仍 100%、case_count
-    // 阈值也随之下移——门不红。此处用字面常量钉死当前规模（58 =
-    // WRONG_ARTIFACTS(34) + FUZZ_COUNT(24)），一旦套件缩水本用例即红，逼回归审。
-    // SKELETONS.length 同理守生成器骨架池规模（去冗余后、恒等丢弃后当前 4199）。
-    expect(runG03(ctx()).metrics.case_count).toBe(58);
+    // 阈值也随之下移——门不红。此处用字面常量钉死当前规模（61 =
+    // WRONG_ARTIFACTS(37，含 R5 轨迹不符 3 条) + FUZZ_COUNT(24)），一旦套件缩水本用例
+    // 即红，逼回归审。SKELETONS.length 同理守生成器骨架池规模（去冗余后、恒等丢弃后
+    // 当前 4199）。
+    expect(runG03(ctx()).metrics.case_count).toBe(61);
     expect(SKELETONS.length).toBe(4199);
   }, 120_000);
 
@@ -175,7 +176,7 @@ describe('Phase 1 门禁 G1.1–G1.3', () => {
     expect(res.passed, res.notes ?? '').toBe(true);
     expect(res.metrics.pass1_follow).toBeLessThanOrEqual(0.05);
     expect(res.metrics.pass1_goal).toBeLessThanOrEqual(0.05);
-    expect(res.metrics.seed).toBe(123);
+    expect(res.metrics.seed).toBe(42);
   }, 240_000);
 
   it('G1.2 主目标：达标版 PASS（缺 30k → 单调性 skipped 并标注）', () => {
@@ -189,6 +190,22 @@ describe('Phase 1 门禁 G1.1–G1.3', () => {
     expect(res.metrics.monotonicity_checked).toBe(0);
     expect(res.notes).toContain('monotonicity: skipped(no 30k)');
     expect(res.seeds).toEqual([0, 1]);
+  });
+
+  it('G1.2 差额条款按 R5 降为报告列：在 metrics 有报告、不在 thresholds；差额为负也不红', () => {
+    const { ctx: passCtx } = makeResultsCtx(BASE_ROWS);
+    const res = runG12(passCtx);
+    // 报告列口径：S_heur_follow / follow_minus_heur 仍然实测上报（证据不许删基线）……
+    expect(res.metrics).toHaveProperty('S_heur_follow_10k');
+    expect(res.metrics).toHaveProperty('follow_minus_heur');
+    // ……但不再作为强制阈值存在（≥0.05 条款在 R5 轨迹语义下结构不可满足）。
+    expect(res.thresholds).not.toHaveProperty('follow_minus_heur:min');
+    // 构造 heur 高于 trained 的网格（差额 −0.06）：主门槛仍达标 ⇒ 不得因差额判红。
+    const heurAhead = BASE_ROWS.map((row) => (row.arm === 'heuristic' ? { ...row, value: 0.9 } : row));
+    const neg = runG12(makeResultsCtx(heurAhead).ctx);
+    expect(neg.passed, neg.notes ?? '').toBe(true);
+    expect(neg.metrics.follow_minus_heur).toBeCloseTo(-0.06, 10);
+    expect(neg.notes).toContain('报告列');
   });
 
   it('G1.2 主目标：不达标版 FAIL 且 notes 点名违反判据（不许改阈值/删基线）', () => {

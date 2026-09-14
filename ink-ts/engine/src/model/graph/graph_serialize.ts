@@ -21,6 +21,7 @@ import {
   Edge,
   type EdgeConditionRegistryLike,
   fnv1a64Hex,
+  type GraphLike,
   type NodeTypeRegistryLike,
   type SchemaSerializable,
 } from './graph_types.js';
@@ -69,7 +70,7 @@ function schemaFromData(data: unknown): unknown {
 
 // ── 公开辅助（Graph.to_dict / from_dict / digest 的实现）────────────────────
 
-export function graphToDict(graph: Graph): Record<string, unknown> {
+export function graphToDict(graph: GraphLike): Record<string, unknown> {
   const nodes: Record<string, Record<string, unknown>> = {};
   const allNames = new Set<string>([
     ...Object.keys(graph.nodes),
@@ -244,7 +245,7 @@ export function loadGraphFromDict(
 }
 
 /** 计算图指纹（name 排除；递归子图；FNV-1a 64 hex）。 */
-export function graphDigest(graph: Graph): string {
+export function graphDigest(graph: GraphLike): string {
   const nodeRef = (name: string): string => {
     const binding = graph.node_bindings[name];
     if (binding !== undefined) {

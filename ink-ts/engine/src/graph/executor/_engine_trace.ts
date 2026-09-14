@@ -14,14 +14,14 @@ import { SettleContext, TraceStep } from '../../loop/turn_settle/index.js';
 import { DEFAULT_DOMAIN } from '../../loop/turn_settle/index.js';
 import { path_key, token_key } from '../../model/turn_settle/types.js';
 import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/turn_settle/index.js';
-import type { Graph } from '../../model/graph/graph.js';
+import type { GraphLike } from '../exec_types.js';
 import type { RunResult } from '../../core/run_result/run_result.js';
 import { EngineEvents } from './_engine_events.js';
 import { _error } from './_internals.js';
 /** 可并入轨迹的嵌套引擎形态（子图/实例/分支引擎共有的留痕字段面）。 */
 export interface _TraceCarrier {
   _run_trace: TraceStep[];
-  _trace_graphs: Map<string, Graph>;
+  _trace_graphs: Map<string, GraphLike>;
   _node_tokens: Map<string, number>;
 }
 
@@ -32,10 +32,10 @@ export abstract class EngineTrace extends EngineEvents {
   /**
    * 复位本引擎的轨迹（_execute 入口调用；嵌套引擎各自独立）。
    */
-  _trace_reset(graph: Graph, graph_path: readonly string[]): void {
+  _trace_reset(graph: GraphLike, graph_path: readonly string[]): void {
     this._run_trace = [];
     this._node_tokens = new Map<string, number>();
-    this._trace_graphs = new Map<string, Graph>();
+    this._trace_graphs = new Map<string, GraphLike>();
     this._pending_step = null;
     this._trace_graphs.set(path_key(graph_path), graph);
   }

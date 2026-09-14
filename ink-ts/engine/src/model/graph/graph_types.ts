@@ -65,12 +65,72 @@ export class TerminateReason {
   private constructor() {}
 }
 
+// ── 图执行协议结构接口（S1-c2：引擎留结构接口）───────────────────────────────
+// Graph 为受控自进化运行时对象（同一张持续进化的图），执行面（executor/harness/
+// loop 经 graph/exec_types 聚合面）按本结构面消费；具体类同住本层 implements，
+// model 零出边约束下不引外层接口。
+
+/** 边结构面（静态/条件边按判定函数或条件名；函数本身不是数据）。 */
+export interface EdgeLike {
+  readonly target: string;
+  readonly condition: EdgeCondition | null;
+  readonly condition_name: string | null;
+  readonly kind: EdgeKind | null;
+  to_dict(): { target: string; condition?: string; kind?: 'loop' };
+}
+
+/** 节点绑定结构面（声明式：节点名 → 注册类型名 + 配置 + 契约，可序列化）。 */
+export interface NodeBindingLike {
+  readonly type_name: string;
+  readonly config: Record<string, unknown>;
+  readonly contract: NodeContract | null;
+}
+
+/** 编译产物结构面（执行校验通过后的图冻结视图）。 */
+export interface CompiledGraphLike {
+  readonly graph: GraphLike;
+}
+
+/** 图结构面（执行协议消费的最小结构：节点/边注册、声明式解析、序列化、编译）。 */
+export interface GraphLike {
+  readonly name: string;
+  entry: string;
+  readonly nodes: Record<string, NodeFn>;
+  readonly edges: Record<string, EdgeLike[]>;
+  readonly exits: Set<string>;
+  readonly subgraphs: Record<string, GraphLike>;
+  schema: unknown;
+  readonly node_bindings: Record<string, NodeBindingLike>;
+  add_node(name: string, fn: NodeFn): void;
+  add_node_type(
+    name: string,
+    type_name: string,
+    config?: Record<string, unknown> | null,
+    contract?: NodeContract | null,
+  ): void;
+  add_edge(source: string, target: string, kind?: EdgeKind): void;
+  add_conditional_edge(source: string, target: string, condition: EdgeCondition, kind?: EdgeKind): void;
+  add_conditional_edge_by_name(source: string, target: string, condition_name: string, kind?: EdgeKind): void;
+  add_loop_edge(
+    source: string,
+    target: string,
+    init?: { condition?: EdgeCondition | null; condition_name?: string | null },
+  ): void;
+  add_exit(name: string): void;
+  add_subgraph(name: string, graph: GraphLike): void;
+  resolve_types(registry: NodeTypeRegistryLike | null): void;
+  resolve_conditions(edge_registry: EdgeConditionRegistryLike | null): void;
+  to_dict(): Record<string, unknown>;
+  digest(): string;
+  compile(): CompiledGraphLike;
+}
+
 // ── 边：静态边 / 条件边 ──────────────────────────────────────────────────────
 
 /** 边 kind（standard=顺序 / conditional=确定性条件边 / loop=回边）。 */
 export type EdgeKind = 'standard' | 'conditional' | 'loop';
 
-export class Edge {
+export class Edge implements EdgeLike {
   readonly target: string;
   readonly condition: EdgeCondition | null;
   readonly condition_name: string | null;
@@ -121,7 +181,7 @@ export interface EdgeConditionRegistryLike {
 
 // ── 节点绑定（声明式） ──────────────────────────────────────────────────────
 
-export class NodeBinding {
+export class NodeBinding implements NodeBindingLike {
   readonly type_name: string;
   readonly config: Record<string, unknown>;
   readonly contract: NodeContract | null;

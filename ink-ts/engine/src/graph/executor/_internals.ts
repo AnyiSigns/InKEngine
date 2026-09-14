@@ -14,7 +14,7 @@
  */
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import { TerminateReason } from '../../model/graph/graph_types.js';
-import type { Graph } from '../../model/graph/graph.js';
+import type { GraphLike } from '../exec_types.js';
 import { InterruptSignal } from '../../loop/interrupt/interrupt_types.js';
 import { InterruptState } from '../../model/storage/interrupt_state.js';
 import { strip_sensitive } from '../../model/storage/sensitive.js';
@@ -258,7 +258,7 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
  * 条件边兼容同步/异步判定（thenable 检测）；判定失败按不满足处理
  * （fail-open 不阻断执行，留痕日志——core 零 IO 以静默省略）。
  */
-export async function _select_next_node(graph: Graph, ctx: unknown, current: string): Promise<string | null> {
+export async function _select_next_node(  graph: GraphLike, ctx: unknown, current: string): Promise<string | null> {
   const edges = graph.edges[current];
   if (edges === undefined || edges.length === 0) return null;
   for (const edge of edges) {
@@ -282,7 +282,7 @@ export async function _select_next_node(graph: Graph, ctx: unknown, current: str
  *   非 exit），按 stop 终止（入轨迹可诊断）。
  */
 export async function _locate_next(
-  graph: Graph,
+  graph: GraphLike,
   ctx: unknown,
   current: string,
 ): Promise<[string | null, string | null]> {

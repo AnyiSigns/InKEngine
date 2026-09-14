@@ -19,7 +19,7 @@ import { BudgetExceededError } from '../../model/errors.js';
 import { strip_sensitive } from '../../model/storage/sensitive.js';
 import { current_node_context } from '../../loop/llm/guard.js';
 import { TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/turn_settle/index.js';
-import type { Graph } from '../../model/graph/graph.js';
+import type { GraphLike } from '../exec_types.js';
 import { _NodeContextImpl } from './_node_context.js';
 import { EngineCheckpoint } from './_engine_checkpoint.js';
 import { _interrupt_state, _PlanWorkOutcome, _warn } from './_internals.js';
@@ -60,7 +60,7 @@ export abstract class EngineExecuteHelpers extends EngineCheckpoint {
    */
   async _run_node_attempts(opts: {
     ctx: _NodeContextImpl;
-    graph: Graph;
+    graph: GraphLike;
     current: string;
     on_first_execution?: (() => Promise<void>) | null;
   }): Promise<NodeAttemptOutcome> {
@@ -147,7 +147,7 @@ export abstract class EngineExecuteHelpers extends EngineCheckpoint {
     names: readonly string[],
     ctx: _NodeContextImpl,
     state: Record<string, unknown>,
-    graph: Graph,
+    graph: GraphLike,
   ): Promise<_PlanWorkOutcome> {
     const outcome = new _PlanWorkOutcome();
     const results: Record<string, Record<string, unknown> | null> = {};

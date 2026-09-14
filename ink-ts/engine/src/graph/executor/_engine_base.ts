@@ -19,13 +19,13 @@
  * 确定性 seam：checkpoint/事件的时间戳与默认 thread/trace id 经
  * ``_internals`` 的时钟/id 注入面提供（core 零 IO 确定性），构造零副作用。
  */
-import { Graph, type CompiledGraph } from '../../model/graph/graph.js';
+import { Graph } from '../../model/graph/graph.js';
 import { RunOptions } from '../../core/run_result/run_result.js';
 import { InterruptCoordinator } from '../../loop/interrupt/interrupt.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { EngineEvent, type EngineTransport } from '../../dock/ports/events.js';
 import { TraceStep, TRACE_SUCCESS, TRACE_FAILED, TRACE_SKIPPED } from '../../loop/turn_settle/index.js';
-import type { Graph as GraphType } from '../../model/graph/graph.js';
+import type { CompiledGraphLike, GraphLike } from '../exec_types.js';
 
 import type { _AsyncQueue, NodeContext } from './_internals.js';
 import { _TransportSequencer, _Mutex } from './_internals.js';
@@ -58,12 +58,12 @@ export interface ExecuteOptions {
  * ``_trace_add_tokens``——节点上下文与入口/展开层据此静态可见）。
  */
 export abstract class EngineBase {
-  /** 图定义（业务侧注入，编译/指纹在构造期完成）。 */
-  graph: Graph;
+  /** 图定义（业务侧注入，编译/指纹在构造期完成；执行面按结构接口持有）。 */
+  graph: GraphLike;
   /** 执行选项（存储/传输/预算/schema/计划/推演/调配注入面）。 */
   options: RunOptions;
   /** 编译校验产物（构造期 graph.compile()）。 */
-  compiled: CompiledGraph;
+  compiled: CompiledGraphLike;
   /** 中断协调器（注入值挂载/重入判定/gate 发卡计数）。 */
   _coordinator: InterruptCoordinator;
   /** 事件计数（每 run 归零；events_emitted 统计来源）。 */
@@ -95,7 +95,7 @@ export abstract class EngineBase {
   /** 结点 token 账（(graph_path, node) 编码键 → tokens）。 */
   _node_tokens: Map<string, number>;
   /** 轨迹图映射（graph_path 编码键 → Graph；沉淀回放同源）。 */
-  _trace_graphs: Map<string, GraphType>;
+  _trace_graphs: Map<string, GraphLike>;
   /** 待收尾的当前结点步骤（成败在收尾前经标记定型）。 */
   _pending_step: TraceStep | null;
   /** 轨迹追加锁（并行组成员并发追加串行化）。 */
@@ -126,7 +126,7 @@ export abstract class EngineBase {
     // 事件（观测侧零影响）。_execute 入口复位；嵌套引擎执行完经合并点并入。
     this._run_trace = [];
     this._node_tokens = new Map<string, number>();
-    this._trace_graphs = new Map<string, GraphType>();
+    this._trace_graphs = new Map<string, GraphLike>();
     this._pending_step = null;
     this._trace_lock = new _Mutex();
   }

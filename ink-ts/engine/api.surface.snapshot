@@ -115,6 +115,7 @@ ChildRunOutcome:type
 Clock:type
 CollectorTransport:type
 CompiledGraph:value
+CompiledGraphLike:type
 ConflictPair:type
 ConflictSuggestion:type
 ContainerProvider:type
@@ -185,6 +186,7 @@ Edge:value
 EdgeCondition:type
 EdgeConditionRegistryLike:type
 EdgeKind:type
+EdgeLike:type
 EndpointExtractor:type
 EndpointFailureReason:type
 EndpointOutputField:type
@@ -268,6 +270,7 @@ GateSeam:type
 Graph:value
 GraphDefinitionError:value
 GraphInit:type
+GraphLike:type
 GraphVersionMismatchError:value
 Guard:type
 GuardedStorage:type
@@ -353,6 +356,7 @@ NetworkPolicy:type
 NetworkPolicySandbox:type
 NextKind:type
 NodeBinding:value
+NodeBindingLike:type
 NodeContext:type
 NodeContextLike:type
 NodeContract:type

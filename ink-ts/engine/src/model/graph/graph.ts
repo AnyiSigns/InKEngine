@@ -16,9 +16,11 @@ import { EngineError, GraphDefinitionError, NodeNotFoundError } from '../errors.
 import { deepCopy } from '../json.js';
 import {
   Edge,
+  type CompiledGraphLike,
   type EdgeCondition,
   type EdgeConditionRegistryLike,
   type EdgeKind,
+  type GraphLike,
   NodeBinding,
   type NodeFn,
   type NodeTypeRegistryLike,
@@ -27,7 +29,7 @@ import { graphDigest, graphToDict, loadGraphFromDict } from './graph_serialize.j
 
 // ── 编译产物 ────────────────────────────────────────────────────────────────
 
-export class CompiledGraph {
+export class CompiledGraph implements CompiledGraphLike {
   constructor(public readonly graph: Graph) {
     Object.freeze(this);
   }
@@ -46,13 +48,13 @@ export interface GraphInit {
   node_bindings?: Record<string, NodeBinding>;
 }
 
-export class Graph {
+export class Graph implements GraphLike {
   readonly name: string;
   entry: string;
   readonly nodes: Record<string, NodeFn>;
   readonly edges: Record<string, Edge[]>;
   readonly exits: Set<string>;
-  readonly subgraphs: Record<string, Graph>;
+  readonly subgraphs: Record<string, GraphLike>;
   schema: unknown;
   readonly node_bindings: Record<string, NodeBinding>;
 
@@ -151,7 +153,7 @@ export class Graph {
     this.exits.add(name);
   }
 
-  add_subgraph(name: string, graph: Graph): void {
+  add_subgraph(name: string, graph: GraphLike): void {
     if (this.nodes[name] !== undefined || this.node_bindings[name] !== undefined) {
       throw new GraphDefinitionError(`节点名冲突: ${name}`);
     }

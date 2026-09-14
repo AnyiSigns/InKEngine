@@ -18,7 +18,7 @@ import { strip_sensitive } from '../../model/storage/sensitive.js';
 import { isRecord, type JsonRecord } from '../../model/json.js';
 import { GraphDefinitionError } from '../../model/errors.js';
 import { TraceStep } from '../../loop/turn_settle/index.js';
-import type { Graph } from '../../model/graph/graph.js';
+import type { GraphLike } from '../exec_types.js';
 import type { ResumeMap } from '../../loop/recovery/recovery_types.js';
 import type { AsyncLLM } from '../../model/llm/_guard_types.js';
 import type { EngineBase } from './_engine_base.js';
@@ -173,7 +173,7 @@ export class _NodeContextImpl implements NodeContext {
   }
 
   async run_agent_scope(
-    subgraph: Graph,
+    subgraph: GraphLike,
     opts: {
       scope_llm?: AsyncLLM | null;
       entity_id?: string | null;

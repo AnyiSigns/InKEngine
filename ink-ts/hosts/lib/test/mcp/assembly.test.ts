@@ -23,7 +23,7 @@ import {
   assembleHostMcp,
   resolveBuiltinOverrides,
 } from '../../src/mcp/assembly.js';
-import { locateNativeBinary } from '../../src/exec/binary.js';
+import { locateNativeBinary } from '../../../../plugins/ports/exec_client/faces/logic/index.js';
 import { loadTestMcpSeam } from '../port_seam.js';
 
 function tempDir(label: string): string {
@@ -43,7 +43,7 @@ describe('内置 MCP server 装配接线', () => {
     try {
       const file = path.join(dir, process.platform === 'win32' ? 'ink_ts_mcp.exe' : 'ink_ts_mcp');
       writeFileSync(file, 'MZ fake');
-      const resolved = resolveBuiltinOverrides('inkling_exec', null, { env: { INK_NATIVE_DIR: dir } });
+      const resolved = resolveBuiltinOverrides('inkling_exec', null, { env: { INK_NATIVE_DIR: dir } }, locateNativeBinary);
       expect(resolved.error).toBeNull();
       expect(resolved.overrides).toEqual({
         command: file,
@@ -52,7 +52,7 @@ describe('内置 MCP server 装配接线', () => {
       });
       const shell = resolveBuiltinOverrides('inkling_shell', null, {
         env: { INK_NATIVE_DIR: dir },
-      });
+      }, locateNativeBinary);
       expect(shell.overrides['args']).toEqual(['shell']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -63,7 +63,7 @@ describe('内置 MCP server 装配接线', () => {
     const resolved = resolveBuiltinOverrides('inkling_exec', 'C:/bin/custom-mcp', {
       env: {},
       cwd: tempDir('nowhere'),
-    });
+    }, locateNativeBinary);
     expect(resolved.error).toBeNull();
     expect(resolved.overrides['command']).toBe('C:/bin/custom-mcp');
     expect(resolved.overrides['args']).toEqual(['exec']);
@@ -75,7 +75,7 @@ describe('内置 MCP server 装配接线', () => {
       const resolved = resolveBuiltinOverrides('inkling_exec', null, {
         env: {},
         cwd: outside,
-      });
+      }, locateNativeBinary);
       expect(resolved.overrides).toEqual({});
       expect(resolved.error).not.toBeNull();
       expect(resolved.error).toContain('ink_ts_mcp');
@@ -96,7 +96,7 @@ describe('内置 MCP server 装配接线', () => {
           { server_id: 'inkling_exec', command: fake },
           { server_id: 'ghost-server' },
         ],
-      }, seam);
+      }, seam, { locateNativeBinary });
       expect(mcp.status).toHaveLength(2);
       expect(mcp.status[0]!.server_id).toBe('inkling_exec');
       expect(mcp.status[0]!.connected).toBe(false);
@@ -122,7 +122,7 @@ mcpDescribe('ink_ts_mcp 真二进制连接（R1 exec profile）', () => {
     manager = new seam.McpClientManager() as McpClientManagerLike;
     process.env['INK_MCP_ROOT'] = rootDir;
     writeFileSync(path.join(rootDir, 'hello.txt'), '你好 builtin-mcp');
-    const resolved = resolveBuiltinOverrides('inkling_exec', null);
+    const resolved = resolveBuiltinOverrides('inkling_exec', null, {}, locateNativeBinary);
     if (resolved.error !== null) {
       throw new Error(resolved.error);
     }

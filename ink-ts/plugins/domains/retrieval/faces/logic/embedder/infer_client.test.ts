@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { locateNativeBinary } from '@ink-ts/host';
+import { locateNativeBinary } from '../../../../../ports/exec_client/faces/logic/index.js';
 import { deterministicVector } from './deterministic.js';
 import { InferClient } from './infer_client.js';
 import { GRANITE_97M_DIM } from './resolve_plan.js';

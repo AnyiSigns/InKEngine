@@ -12,7 +12,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { binaryFileName, locateNativeBinary } from '../../src/exec/binary.js';
+import { binaryFileName, locateNativeBinary } from './binary.js';
 
 const tempDirs: string[] = [];
 

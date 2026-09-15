@@ -18,7 +18,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { NATIVE_BINARY_DECLS, type NativeBinaryKind } from './native.generated.js';
+import { NATIVE_BINARY_DECLS, type NativeBinaryKind } from '@ink-ts/host';
 
 /** 默认 target profile 探测顺序（debug 优先——开发期复用最近一次构建）。 */
 const PROFILE_ORDER = ['debug', 'release'] as const;

@@ -12,8 +12,8 @@
  * 语义零改；exec 原生件经 @ink-ts/host 公共面取用（域组3 exec → exec_client 改口）。
  */
 
-import { ExecClient, EXEC_SESSION_KEY_ENV, locateNativeBinary } from '@ink-ts/host';
-import type { ExecOutcome } from '@ink-ts/host';
+import { ExecClient, EXEC_SESSION_KEY_ENV, locateNativeBinary } from '../../../../ports/exec_client/faces/logic/index.js';
+import type { ExecOutcome } from '../../../../ports/exec_client/faces/logic/index.js';
 import type { GuardedStorage } from '@ink-ts/engine';
 import { SET_AUDIT_COLLECTION } from '@ink-ts/engine';
 

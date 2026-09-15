@@ -14,7 +14,7 @@ import { SET_AUDIT_COLLECTION } from '@ink-ts/engine';
 
 // os 域值随域插件（S4 域组2；涉 createHost 装配留宿主，取域工厂跨树 import）
 import { HostOsRunner } from '../../../../plugins/domains/os/faces/logic/index.js';
-import { locateNativeBinary } from '../../src/exec/binary.js';
+import { locateNativeBinary } from '../../../../plugins/ports/exec_client/faces/logic/index.js';
 import { createHost } from '../../src/index.js';
 import type { HostHandle } from '../../src/index.js';
 

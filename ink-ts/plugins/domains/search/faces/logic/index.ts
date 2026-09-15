@@ -13,7 +13,10 @@
  * 域组3 随 exec → plugins/ports/exec_client；本域插件经装配契约窄面互通）。
  */
 
-import { hostAllowed, maskKey } from '@ink-ts/host';
+// 域名裁决面门 hostAllowed 值随 exec_client 端口提供方（S4 域组3）；密钥掩码
+// maskKey 留宿主视图纯工具（@ink-ts/host）
+import { hostAllowed } from '../../../../ports/exec_client/faces/logic/index.js';
+import { maskKey } from '@ink-ts/host';
 import {
   DeclarativeToolSpec,
   EndpointType,

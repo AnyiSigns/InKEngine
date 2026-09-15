@@ -16,9 +16,9 @@
  * 改口）。
  */
 
-import type { RestartPolicy } from '@ink-ts/host';
-import { SupervisedNativeSession } from '@ink-ts/host';
-import type { SessionOpener } from '@ink-ts/host';
+import type { RestartPolicy } from '../../../../../ports/exec_client/faces/logic/index.js';
+import { SupervisedNativeSession } from '../../../../../ports/exec_client/faces/logic/index.js';
+import type { SessionOpener } from '../../../../../ports/exec_client/faces/logic/index.js';
 import { deterministicVector, l2Normalize } from './deterministic.js';
 import { InferClient } from './infer_client.js';
 import { remoteEmbed } from './remote.js';

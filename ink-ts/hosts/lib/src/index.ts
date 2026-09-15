@@ -401,34 +401,8 @@ export type {
   RunExecutionOptions,
 } from '../../../plugins/domains/collab/faces/logic/index.js';
 
-// ── 原生机制件 client / 嵌入适配器（exec + infer + AsyncEmbedder）──
-export { locateNativeBinary } from './exec/binary.js';
-export type { NativeBinaryKind } from './exec/_types.js';
-export {
-  buildSignedExecEnvelope,
-  hmacHex,
-  hostAllowed,
-  isPathWithinRoots,
-  pathHasDotdot,
-  randomSessionKey,
-  verifySignature,
-} from './exec/envelope.js';
-export type { AdjudicatedDecision, ExecRequest } from './exec/envelope.js';
-export { ExecClient, EXEC_SESSION_KEY_ENV } from './exec/client.js';
-export { SupervisedNativeSession } from './exec/session.js';
-export type { SessionOpener } from './exec/session.js';
-export { StdioProcessSession } from './exec/transport.js';
-export type { NativeSpawnOptions } from './exec/transport.js';
-export {
-  DEFAULT_RESTART_POLICY,
-  ExecRefusedError,
-  RpcError,
-  SessionLostError,
-} from './exec/_types.js';
-export type {
-  ExecDecision,
-  ExecEnvelope,
-  ExecOp,
-  ExecOutcome,
-  RestartPolicy,
-} from './exec/_types.js';
+// ── exec 原生机制件 client（S4 域组3：值随 plugins/ports/exec_client 端口提供方
+// 插件——域/命令插件经跨树 import 取 ExecClient/SupervisedNativeSession/hostAllowed
+// 等；宿主只留生成物声明面 native.generated.ts（真源 plugins/endpoints spec））──
+export { NATIVE_BINARY_DECLS } from './exec/native.generated.js';
+export type { NativeBinaryKind } from './exec/native.generated.js';

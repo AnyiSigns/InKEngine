@@ -103,7 +103,7 @@ export class InkHost {
   ) {
     this.config = config;
     this._capability = capability;
-    this._ports = ports ?? { storage: null, llm: null, mcpClient: null, boot: null };
+    this._ports = ports ?? { storage: null, llm: null, mcpClient: null, boot: null, execClient: null };
   }
 
   /** 存储工厂：经端口提供方 seam（S2：plugins/ports/storage）路由 memory/sqlite。

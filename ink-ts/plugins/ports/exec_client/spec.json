@@ -1,0 +1,23 @@
+{
+  "id": "exec_client",
+  "kind": "ports",
+  "capability": "host_tool",
+  "depends": [],
+  "actions": [],
+  "faces": {
+    "logic": {
+      "target": "host",
+      "entry": "./faces/logic/index.ts"
+    }
+  },
+  "contract": {
+    "effects": [
+      "exec_envelope"
+    ]
+  },
+  "data": {
+    "port": {
+      "implemented": "exec_envelope"
+    }
+  }
+}

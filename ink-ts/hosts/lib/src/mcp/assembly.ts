@@ -21,7 +21,7 @@ import type {
   McpClientManagerLike,
   McpClientPortSeam,
 } from '../assembly/ports.js';
-import { locateNativeBinary } from '../exec/binary.js';
+import type { ExecClientPortSeam } from '../assembly/ports.js';
 
 /** 宿主 MCP 装配配置（环境连接位注入；不配置 = 装配管理器但不连接）。 */
 export interface HostMcpConfig {
@@ -57,12 +57,14 @@ export interface BuiltinOverridesResult {
  * （复用 exec/infer 同款二进制定位）+ profile 参数 + Content-Length 分帧。
  * 未列 profile 的 server_id 原样返回（不做二进制接线）；命令显式提供时仍
  * 注入 profile 参数与分帧（内置 server 的 profile 契约固定，见
- * plugins/ports/mcp_client/registry.ts）。
+ * plugins/ports/mcp_client/registry.ts）。二进制定位经 exec_client 端口
+ * 提供方窄面注入（S4 域组3：值随 plugins/ports/exec_client）。
  */
 export function resolveBuiltinOverrides(
   server_id: string,
   command: string | null,
   opts: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
+  execLocate: ExecClientPortSeam['locateNativeBinary'] | null = null,
 ): BuiltinOverridesResult {
   const profile = BUILTIN_MCP_PROFILES[server_id];
   if (profile === undefined) {
@@ -70,7 +72,7 @@ export function resolveBuiltinOverrides(
   }
   const binary =
     (command !== null && command !== undefined && command !== '' ? command : null) ??
-    locateNativeBinary('mcp', opts);
+    (execLocate !== null ? execLocate('mcp', opts) : null);
   if (binary === null) {
     return {
       overrides: {},
@@ -87,11 +89,13 @@ export function resolveBuiltinOverrides(
   return { overrides, error: null };
 }
 
-/** 装配 MCP 管理器（引擎注入 + 配置连接）；返回管理器供宿主域使用。 */
+/** 装配 MCP 管理器（引擎注入 + 配置连接）；返回管理器供宿主域使用。
+ *  execSeam = exec_client 端口提供方窄面（内置 server 二进制定位）。 */
 export async function assembleHostMcp(
   runtime: Runtime,
   config: HostMcpConfig | null,
   seam: McpClientPortSeam | null,
+  execSeam: ExecClientPortSeam | null = null,
 ): Promise<{ manager: McpClientManagerLike | null; status: McpConnectStatus[] }> {
   if (seam === null) {
     return { manager: null, status: [] };
@@ -112,7 +116,12 @@ export async function assembleHostMcp(
       });
       continue;
     }
-    const resolved = resolveBuiltinOverrides(entry.server_id, entry.command ?? null);
+    const resolved = resolveBuiltinOverrides(
+      entry.server_id,
+      entry.command ?? null,
+      {},
+      execSeam !== null ? execSeam.locateNativeBinary : null,
+    );
     if (resolved.error !== null) {
       // 内置 server 无二进制：fail-closed 只记诊断（不击穿 boot）
       status.push({

@@ -14,11 +14,11 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { locateNativeBinary } from '../../src/exec/binary.js';
-import { ExecClient } from '../../src/exec/client.js';
-import { hmacHex } from '../../src/exec/envelope.js';
-import type { SessionOpener } from '../../src/exec/session.js';
-import { StdioProcessSession } from '../../src/exec/transport.js';
+import { locateNativeBinary } from './binary.js';
+import { ExecClient } from './client.js';
+import { hmacHex } from './envelope.js';
+import type { SessionOpener } from './session.js';
+import { StdioProcessSession } from './transport.js';
 
 const execBinary = locateNativeBinary('exec');
 const describeOrSkip = execBinary === null ? describe.skip : describe;

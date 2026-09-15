@@ -14,7 +14,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { locateNativeBinary } from '@ink-ts/host';
+import { locateNativeBinary } from '../../../plugins/ports/exec_client/faces/logic/index.js';
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvelope, runCli } from './_spawn.js';

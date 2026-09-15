@@ -13,15 +13,15 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { ExecRefusedError } from '../../src/exec/_types.js';
-import type { AdjudicatedDecision } from '../../src/exec/envelope.js';
+import { ExecRefusedError } from './_types.js';
+import type { AdjudicatedDecision } from './envelope.js';
 import {
   buildSignedExecEnvelope,
   hmacHex,
   hostAllowed,
   isPathWithinRoots,
   verifySignature,
-} from '../../src/exec/envelope.js';
+} from './envelope.js';
 
 const KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 

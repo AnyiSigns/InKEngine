@@ -8,7 +8,7 @@
  * 结构化返回（round/material 消费方走降级路径），不抛。
  */
 
-import { ExecClient, locateNativeBinary } from '@ink-ts/host';
+import { ExecClient, locateNativeBinary } from '../../../../ports/exec_client/faces/logic/index.js';
 import type { DocParseResult, DocParser } from '@ink-ts/host';
 
 /** 单附件文本注入缺省上限（字符；rounds 逐附件截断；env/装配可覆盖）。 */

@@ -239,7 +239,7 @@ export async function assembleHostParts(input: HostBootInput): Promise<HostBootP
   } catch {
     toolEmbedder = null;
   }
-  const mcp = await assembleHostMcp(runtime, input.resolved.mcp, ports.mcpClient);
+  const mcp = await assembleHostMcp(runtime, input.resolved.mcp, ports.mcpClient, ports.execClient);
   const declarative = runtime.harness_registry?.declarative;
   if (declarative !== null && declarative !== undefined) {
     input.search.register(declarative as never);

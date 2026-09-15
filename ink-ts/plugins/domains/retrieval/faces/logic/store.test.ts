@@ -12,7 +12,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { locateNativeBinary } from '@ink-ts/host';
+import { locateNativeBinary } from '../../../../ports/exec_client/faces/logic/index.js';
 import { EmbeddingAdapter } from './embedder/adapter.js';
 import { GRANITE_97M_DIM } from './embedder/resolve_plan.js';
 import { buildHostRetrieval } from './store.js';

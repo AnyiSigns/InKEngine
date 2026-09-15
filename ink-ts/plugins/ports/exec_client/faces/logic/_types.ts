@@ -57,7 +57,7 @@ export interface ExecOutcome {
 /** 原生二进制定位种类（exec OS 执行器 / infer 本地嵌入推理 / mcp 内置
  * MCP server——文件名 ink_ts_mcp）。真源 = plugins/endpoints/<id>/spec.json
  * （kind='endpoint' 插件声明；hosts/lib/src/exec/native.generated.ts 派生，禁手改）。 */
-export type { NativeBinaryKind } from './native.generated.js';
+export type { NativeBinaryKind } from '@ink-ts/host';
 
 /** JSON-RPC 协议错误（业务失败 = server 已受理并返回 error，不视为崩溃）。 */
 export class RpcError extends Error {

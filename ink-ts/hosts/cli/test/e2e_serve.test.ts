@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { locateNativeBinary } from '@ink-ts/host';
+import { locateNativeBinary } from '../../../plugins/ports/exec_client/faces/logic/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';

@@ -4,8 +4,9 @@
  * /非交互会话失败 → unavailable，web 回退手动路径；用户取消 → null）。
  */
 
-import { BridgeError, ExecClient, locateNativeBinary } from '@ink-ts/host';
+import { BridgeError } from '@ink-ts/host';
 import type { BridgeHandler, HostBridgeDeps } from '@ink-ts/host';
+import { ExecClient, locateNativeBinary } from '../../../../ports/exec_client/faces/logic/index.js';
 
 function nativeExec(): ExecClient {
   const binary = locateNativeBinary('exec');

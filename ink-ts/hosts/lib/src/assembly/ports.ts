@@ -80,12 +80,22 @@ export interface BootPortSeam {
   BOOT_PROMPT_SEED_ID: string;
 }
 
+/** exec 原生机制件 client 窄面（exec_client 端口提供方插件默认工厂实例面；
+ *  二进制定位 = mcp/assembly 内置 server 接线消费位）。 */
+export interface ExecClientPortSeam {
+  locateNativeBinary(
+    kind: string,
+    opts?: { env?: NodeJS.ProcessEnv; cwd?: string },
+  ): string | null;
+}
+
 /** 端口面全集（缺省 null = 未装配）。 */
 export interface PortsSeam {
   storage: StoragePortSeam | null;
   llm: LlmPortSeam | null;
   mcpClient: McpClientPortSeam | null;
   boot: BootPortSeam | null;
+  execClient: ExecClientPortSeam | null;
 }
 
 function asRecord(value: unknown, id: string): Record<string, unknown> {
@@ -160,6 +170,9 @@ export async function loadPortsSeam(seedDir?: string | null): Promise<PortsSeam>
       BOOT_PROMPT_SEED_ID: typeof inst['BOOT_PROMPT_SEED_ID'] === 'string'
         ? (inst['BOOT_PROMPT_SEED_ID'] as string)
         : '',
+    })),
+    execClient: requiredPort('exec_client', faces, (inst) => ({
+      locateNativeBinary: fn(inst, 'locateNativeBinary', 'exec_client') as ExecClientPortSeam['locateNativeBinary'],
     })),
   };
 }

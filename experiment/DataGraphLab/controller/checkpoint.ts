@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { ACT_DIM, FEATURE_SETS, OBS_DIM, type FeatureSet } from './features.js';
 import { H, type HeadTag, type ParamTensor, type PolicyWeights } from './policy.js';
 
-export const ARCH_VERSION = 5;
+export const ARCH_VERSION = 6; // v5→v6：目标族标签软化（on-path 动作集分布），训练标签语义变化（F.2 fail-fast 生效）
 
 /** 规范 arch 串：结构版本、特征集、三块 dims、辅助头开关的合一指纹。 */
 export function currentArch(featureSet: FeatureSet, head: HeadTag): string {

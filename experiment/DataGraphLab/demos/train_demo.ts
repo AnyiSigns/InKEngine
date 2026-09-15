@@ -54,7 +54,7 @@ export function runTrainDemo(opts: TrainDemoOptions): TrainDemoResult {
   const tasks = sampleTasks(opts.n, opts.seed, skeletonPool(opts.split), 0.5);
   const valTasks = makeSplit('val', 200, opts.seed);
   buildSplitBin(tasks, join(outDir, 'store_train'), join(outDir, 'train.bin'));
-  buildSplitBin(valTasks, join(outDir, 'store_val'), join(outDir, 'val.bin'));
+  buildSplitBin(valTasks, join(outDir, 'store_val'), join(outDir, 'val.bin'), false);
   const weightsPath = join(outDir, 'weights.json');
   runTrainer({
     trainer: defaultTrainerPath(),

@@ -32,7 +32,7 @@ const budgetSteps = N * 8; // BC 总步数口径（§7 注册）
 const runDir = join(PKG_ROOT, 'runs', `phase2-g23-${stamp()}`);
 mkdirSync(runDir, { recursive: true });
 
-// 复用 a1-full 的 val.bin（同切分、同 arch v5）
+// 复用 a1-full 的 val.bin（同切分、同 arch v6）
 const valBin = join(PKG_ROOT, 'runs', 'scale-20260915T00-a1-full', 'val.bin');
 if (!existsSync(valBin)) throw new Error(`缺 val.bin: ${valBin}（先跑 a1_full）`);
 

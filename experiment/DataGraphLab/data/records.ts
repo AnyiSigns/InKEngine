@@ -14,6 +14,11 @@
  * 相同，故整张表按 ROUTING 序在 header 存一份，行内只留 22 位全局位掩码指回表序；
  * Python 训练器由位序查表重建 a_i，无需求复刻特征（F.3 不破）。
  *
+ * v3 的 `targetMask` 是标签软化（Phase 2 门禁，§6）的派生编码：目标族记录带
+ * `safeTargets`（oracle 判定「仍通向验收的动作集」，gold 强制在内），按候选本地下标
+ * 转 u32 位掩码；配方族无 safeTargets，退化单点（恰一位 = gold）。Python 由 mask
+ * 重建均匀软目标 y，配合 label smoothing 摊到有效位。
+ *
  * 二进制读写字节契约与 `writeRecordsBin`/`readRecordsBin` 实现同文件承载，本模块只
  * re-export 到公开面（保持 records.ts 是 featurize 的唯一入口），见 records_bin.ts 头注。
  */
@@ -107,6 +112,9 @@ function obsView(rec: StoreRecord): ObsView {
 /**
  * 单行稀疏化：不依赖同任务其它步，故不产出分组进度（progressLabel/Weight 留零，
  * 由 `featurizeRecords` 按 task_hash 分组回填）。target 不在 candidates 即 fail-fast。
+ * `targetMask` 位 i = 候选 i 在目标动作集内：记录带 `safeTargets`（目标族软化）时按
+ * 该集合置位（必须含 gold、且全为 candidates 成员，否则 fail-fast）；缺省（配方族
+ * 单解）退化为 gold 单点位。
  */
 export function featurizeRecord(
   rec: StoreRecord,
@@ -124,13 +132,52 @@ export function featurizeRecord(
   if (targetIdx < 0) {
     throw new Error(`featurize: target ${rec.target} 不在 candidates（步级标签错位，fail-fast）`);
   }
+  let targetMask = 1 << targetIdx;
+  let targetDepths = 0;
+  if (rec.safeTargets !== undefined) {
+    if (rec.safeTargets.length === 0) {
+      throw new Error('featurize: safeTargets 为空（软化标签不可为空，fail-fast）');
+    }
+    if (!rec.safeTargets.includes(rec.target)) {
+      throw new Error(`featurize: safeTargets 不含 gold ${rec.target}（软化标签丢失 gold，fail-fast）`);
+    }
+    if (rec.safeDepths === undefined || rec.safeDepths.length !== rec.safeTargets.length) {
+      throw new Error('featurize: safeDepths 必须与 safeTargets 等长（软化标签深度缺失，fail-fast）');
+    }
+    targetMask = 0;
+    const order: Array<{ i: number; depth: number }> = [];
+    for (let k = 0; k < rec.safeTargets.length; k++) {
+      const id = rec.safeTargets[k]!;
+      const i = rec.candidates.indexOf(id);
+      if (i < 0) {
+        throw new Error(`featurize: safeTargets 含非候选 ${id}（软化标签越界，fail-fast）`);
+      }
+      const depth = rec.safeDepths[k]!;
+      if (!Number.isInteger(depth) || depth < 0 || depth > 63) {
+        throw new Error(`featurize: safeDepths[${String(k)}]=${String(depth)} 越界（须 [0,63] 整数，fail-fast）`);
+      }
+      targetMask |= 1 << i;
+      order.push({ i, depth });
+    }
+    if (targetMask === 0) {
+      throw new Error('featurize: safeTargets 为空（软化标签不可为空，fail-fast）');
+    }
+    // targetDepths 6bit/置位打包：按候选位序（i 升序）对应；JS 位运算得带符号
+    // 32 位整数，统一 >>> 0 归到无符号（与 bin 读侧 readUInt32LE 口径一致）。
+    order.sort((a, b) => a.i - b.i);
+    for (let k = 0; k < order.length; k++) {
+      targetDepths |= order[k]!.depth << (k * 6);
+    }
+    targetDepths >>>= 0;
+  }
   return {
     style: (rec.style === 'goal' ? 1 : 0) as 0 | 1,
     family: FAMILY_CODE[rec.family],
     idx,
     val,
     candMask: candidateMask(rec.candidates),
-    targetIdx,
+    targetMask,
+    targetDepths,
     progressLabel: 0,
     progressWeight: 0,
   };

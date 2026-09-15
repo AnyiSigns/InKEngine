@@ -70,6 +70,18 @@ function popcount(u32: number): number {
   return c;
 }
 
+/** u32 最低置位下标（0 基）；掩码为空即 -1。 */
+function firstSetBit(u32: number): number {
+  let x = u32 >>> 0;
+  let i = 0;
+  while (x !== 0) {
+    if (x & 1) return i;
+    x >>>= 1;
+    i += 1;
+  }
+  return -1;
+}
+
 /** v2 口径：候选 id → ROUTING 位序的全局位掩码，独立于被测实现重算一遍。 */
 function globalMask(candidates: readonly string[]): number {
   let mask = 0;
@@ -106,7 +118,7 @@ describe('data/records/featurizeRecords：稀疏形状与逐字段语义', () =>
     }
   });
 
-  it('candMask=22 位全局 ROUTING 掩码；第 targetIdx 个置位 ↔ target；手算对照', () => {
+  it('candMask=22 位全局 ROUTING 掩码；targetMask 位 i ↔ 候选 i 且 gold 在内；手算对照', () => {
     for (let i = 0; i < back.length; i++) {
       const rec = back[i]!;
       const row = rows[i]!;
@@ -114,13 +126,22 @@ describe('data/records/featurizeRecords：稀疏形状与逐字段语义', () =>
       expect(popcount(row.candMask)).toBe(rec.candidates.length);
       const bits: number[] = [];
       for (let j = 0; j < ROUTING.length; j++) if (row.candMask & (1 << j)) bits.push(j);
-      expect(ROUTING[bits[row.targetIdx]!]).toBe(rec.target);
+      // targetMask 是候选本地位掩码：置位 ⇔ 该候选在目标动作集内；gold 必在内。
+      expect(row.targetMask).toBeGreaterThan(0);
+      for (let j = 0; j < rec.candidates.length; j++) {
+        if (row.targetMask & (1 << j)) expect(rec.candidates).toContain(ROUTING[bits[j]!]);
+      }
+      const goldLocal = rec.candidates.indexOf(rec.target);
+      expect(row.targetMask & (1 << goldLocal)).toBeGreaterThan(0);
+      // 软化前后一致性：配方族 single-bit = gold；目标族位集 ≥ gold 单点
+      if (rec.safeTargets === undefined) expect(row.targetMask).toBe(1 << goldLocal);
+      else expect(popcount(row.targetMask)).toBeGreaterThanOrEqual(1);
     }
     // 手算对照：ROUTING[0]=add3、ROUTING[9]=exit、ROUTING[13]=mul2 → 1|512|8192=8705。
     const rec = back[0]!;
-    const probe = featurizeRecord({ ...rec, candidates: ['add3', 'exit', 'mul2'], target: 'exit' });
+    const probe = featurizeRecord({ ...rec, safeTargets: undefined, candidates: ['add3', 'exit', 'mul2'], target: 'exit' });
     expect(probe.candMask).toBe(8705);
-    expect(probe.targetIdx).toBe(1);
+    expect(probe.targetMask).toBe(1 << 1); // gold=exit 是候选 1 → 单点掩码
   });
 
   it('style/family 编码与记录值域一致', () => {
@@ -180,12 +201,38 @@ describe('data/records/二进制往返与外部边界 fail-fast', () => {
       expect(b.taskHash).toBe(a.taskHash);
       expect(b.stepIndex).toBe(a.stepIndex);
       expect(b.candMask).toBe(a.candMask);
-      expect(b.targetIdx).toBe(a.targetIdx);
+      expect(b.targetMask).toBe(a.targetMask);
+      expect(b.targetDepths).toBe(a.targetDepths);
       expect(b.progressWeight).toBe(a.progressWeight);
       expect(Array.from(b.idx)).toEqual(Array.from(a.idx));
       expect(Array.from(b.val)).toEqual(Array.from(a.val));
       expect(b.progressLabel).toBe(Math.fround(a.progressLabel)); // f32 精度内一致
     }
+  });
+
+  it('safeTargets 软化：多目标位掩码正确；gold 缺失/含非候选/为空 → 抛', () => {
+    const rec = back.find((r) => r.style === 'goal') ?? back[0]!;
+    // 目标族记录带 safeTargets（gold + 替代动作）→ targetMask 多位置位。
+    const cand = rec.candidates;
+    const alt = cand.find((c) => c !== rec.target)!;
+    const soft = featurizeRecord({ ...rec, safeTargets: [rec.target, alt], safeDepths: [0, 3] });
+    expect(soft.targetMask).toBe((1 << cand.indexOf(rec.target)) | (1 << cand.indexOf(alt)));
+    // 深度打包（6bit/置位，候选位序）：depth[0]=0 → 000000，depth[1]=3 → 000011。
+    const lo = Math.min(cand.indexOf(rec.target), cand.indexOf(alt));
+    const hi = Math.max(cand.indexOf(rec.target), cand.indexOf(alt));
+    const d0 = (soft.targetDepths >>> (lo * 6)) & 0x3f;
+    const d1 = (soft.targetDepths >>> (hi * 6)) & 0x3f;
+    expect([d0, d1].sort((a, b) => a - b)).toEqual([0, 3]);
+    // gold 必须在内（软化标签不可丢 gold）。
+    expect(() => featurizeRecord({ ...rec, safeTargets: [alt], safeDepths: [1] })).toThrow(/gold/);
+    // 非候选成员越界。
+    expect(() => featurizeRecord({ ...rec, safeTargets: [rec.target, '__nope__'], safeDepths: [0, 1] })).toThrow(/非候选/);
+    // 空集。
+    expect(() => featurizeRecord({ ...rec, safeTargets: [], safeDepths: [] })).toThrow(/空/);
+    // 深度缺失 / 不等长 / 越界。
+    expect(() => featurizeRecord({ ...rec, safeTargets: [rec.target] })).toThrow(/safeDepths/);
+    expect(() => featurizeRecord({ ...rec, safeTargets: [rec.target, alt], safeDepths: [0] })).toThrow(/safeDepths/);
+    expect(() => featurizeRecord({ ...rec, safeTargets: [rec.target], safeDepths: [64] })).toThrow(/safeDepths/);
   });
 
   it('magic 破坏 / version=1 旧版手工文件 / 文件截断 → read 全抛', () => {
@@ -226,13 +273,13 @@ describe('data/records/fail-fast 边界', () => {
 
   it('target 不在 candidates → featurizeRecord 抛', () => {
     const rec = back[0]!;
-    expect(() => featurizeRecord({ ...rec, target: '__nope__' })).toThrow(/candidates|target/);
+    expect(() => featurizeRecord({ ...rec, safeTargets: undefined, target: '__nope__' })).toThrow(/candidates|target/);
   });
 
-  it('候选非 ROUTING 成员 / 候选重复 → 抛（v2 位掩码不变式）', () => {
+  it('候选非 ROUTING 成员 / 候选重复 → 抛（v2 位掩码不变式；软化记录先剥 safeTargets 只验候选面）', () => {
     const rec = back[0]!;
-    expect(() => featurizeRecord({ ...rec, candidates: ['add3', 'cand_x'], target: 'add3' })).toThrow(/cand_x|ROUTING/);
-    expect(() => featurizeRecord({ ...rec, candidates: ['add3', 'add3'], target: 'add3' })).toThrow(/重复/);
+    expect(() => featurizeRecord({ ...rec, safeTargets: undefined, candidates: ['add3', 'cand_x'], target: 'add3' })).toThrow(/cand_x|ROUTING/);
+    expect(() => featurizeRecord({ ...rec, safeTargets: undefined, candidates: ['add3', 'add3'], target: 'add3' })).toThrow(/重复/);
   });
 
   it('稀疏值注入 NaN → writeRecordsBin 抛（数值入口判 NaN/Inf）', () => {
@@ -240,7 +287,7 @@ describe('data/records/fail-fast 边界', () => {
     const bad: BinRow = {
       style: 0, family: 0, taskHash: 'h', stepIndex: 0,
       idx: Uint16Array.from([0, 1]), val: Float32Array.from([1, Number.NaN]),
-      candMask: 3, targetIdx: 0, progressLabel: 0, progressWeight: 0,
+      candMask: 3, targetMask: 1, targetDepths: 0, progressLabel: 0, progressWeight: 0,
     };
     expect(() => writeRecordsBin(bin, [bad], OBS_DIM.lang, actionFeatureTable())).toThrow(/NaN|非有限/);
     expect(existsSync(bin)).toBe(false);
@@ -283,7 +330,7 @@ describe('data/records/featurize CLI 冒烟（真实 tsx 子进程）', () => {
 });
 
 describe('data/records/白名单审计：只依赖公开字段', () => {
-  it('替换 meta（除 task_hash/step_index）不影响 idx/val/candMask/targetIdx', () => {
+  it('替换 meta（除 task_hash/step_index）不影响 idx/val/candMask/targetMask', () => {
     const rec = loadedRecords()[0]!;
     const a = featurizeRecord(rec);
     const perturbed: StoreRecord = {
@@ -304,7 +351,7 @@ describe('data/records/白名单审计：只依赖公开字段', () => {
     expect(Array.from(b.idx)).toEqual(Array.from(a.idx));
     expect(Array.from(b.val)).toEqual(Array.from(a.val));
     expect(b.candMask).toBe(a.candMask);
-    expect(b.targetIdx).toBe(a.targetIdx);
+    expect(b.targetMask).toBe(a.targetMask);
     expect(b.style).toBe(a.style);
     expect(b.family).toBe(a.family);
   });
@@ -331,6 +378,37 @@ describe('data/records/P1-D·P3：struct 拒收、行宽不变量与 bin 越界/
       const p = join(tmpRoot(), `bad-${String(at)}.bin`); appendFileSync(p, bad);
       expect(() => readRecordsBin(p), `字节 ${String(at)}=${String(val)}`).toThrow(re);
     }
+  });
+
+  it('records.bin 读侧：targetMask 置位越过候选数 / 空掩码 → 抛（软化标签边界）', () => {
+    const bin = join(tmpRoot(), 'mask.bin');
+    const rec = loadedRecords()[0]!;
+    const rows = featurizeRecords([rec]);
+    const mk = (targetMask: number): BinRow => ({
+      ...rows[0]!, taskHash: 'h', stepIndex: 0, targetMask,
+    });
+    // 正常行：候选数 m=popcount(candMask)，targetMask 只能在 [0, m) 置位。
+    const good = join(tmpRoot(), 'good.bin');
+    writeRecordsBin(good, rows, OBS_DIM.lang, actionFeatureTable());
+    const goodBytes = readFileSync(good);
+    const m = popcount(rows[0]!.candMask);
+    const actFeatsBytes = actionFeatureTable().reduce((acc, a) => {
+      let nz = 0;
+      for (let i = 0; i < a.length; i++) if (a[i] !== 0) nz += 1;
+      return acc + 4 + nz * 6;
+    }, 0);
+    // 行内偏移：style(1)+family(1)+hashLen(4)+hash+stepIndex(4)+nIdx(4)+idx/val(6n)+candMask(4)+targetMask(4)
+    const candMaskOffset = 24 + actFeatsBytes + 1 + 1 + 4 + Buffer.byteLength(rows[0]!.taskHash, 'utf8') + 4 + 4 + rows[0]!.idx.length * 6;
+    const maskOffset = candMaskOffset + 4; // candMask 后 4B = targetMask
+    const over = Buffer.from(goodBytes); over.writeUInt32LE(1 << m, maskOffset);
+    const pOver = join(tmpRoot(), 'over.bin'); appendFileSync(pOver, over);
+    expect(() => readRecordsBin(pOver)).toThrow(/越过候选数/);
+    const empty = Buffer.from(goodBytes); empty.writeUInt32LE(0, maskOffset);
+    const pEmpty = join(tmpRoot(), 'empty.bin'); appendFileSync(pEmpty, empty);
+    expect(() => readRecordsBin(pEmpty)).toThrow(/targetMask 空/);
+    // targetDepths 6bit/置位打包，值域 [0,63] 由打包自保证（越界无法编码）；
+    // 读侧校验存在但不可能触发——这里改验「读回逐位一致」已在往返测试覆盖。
+    expect(popcount(rows[0]!.targetMask)).toBeGreaterThanOrEqual(1);
   });
   it('reinforce.bin 读侧：idx 越 obsDim、actionIdx 越候选宽度即抛（写侧不设值域，读侧挡损坏/手工文件）', () => {
     const mk = (idx: number, actionIdx: number): ReinforceRow => ({

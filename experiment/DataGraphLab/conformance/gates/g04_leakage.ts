@@ -27,7 +27,9 @@ function compute(ctx: GateContext): GateResult {
   ];
   const records: StoreRecord[] = [];
   for (const task of tasks) {
-    for (const step of oracleTrace(task, GRAPH)) records.push(recordFromStep(task, step));
+    // soften=false：泄漏审计只看 obs 面白名单投影，safeTargets 软化标签与审计无关，
+    // 跳过 BFS 保持门禁廉价（BATCH 级任务量下 250 预算 × 每步仍不可忽略）。
+    for (const step of oracleTrace(task, GRAPH, false)) records.push(recordFromStep(task, step));
   }
   const rep = audit(records, { tasks });
   return buildResult({

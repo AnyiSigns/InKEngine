@@ -51,6 +51,14 @@ export interface Step {
   }>;
   readonly candidates: readonly string[];
   readonly action: string;
+  /**
+   * 标签软化扩展（Phase 2 门禁，§6）：该 on-path 状态下「仍通向验收」的动作集
+   * （含 gold 本身）。仅目标族（goal/goal_verify）由 oracle 经 `safeActionSet`
+   * 计算；配方族单解、缺省（undefined = 训练端回退 one-hot）。
+   */
+  readonly safeTargets?: readonly string[];
+  /** 与 safeTargets 逐位对应的「到最近验收态最短剩余步数」；软化标签按深度倒数加权。 */
+  readonly safeDepths?: readonly number[];
 }
 
 export type TeacherKind = 'oracle' | 'search' | 'llm';

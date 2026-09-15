@@ -5,12 +5,16 @@
 little-endian、手写 struct 解析、零第三方依赖）、按 val CE 的早停编排与
 weights.json 落盘；全部张量数学在 train_nn.py（反向只此一份实现）。
 
-records.bin v2 契约补齐了跨语言缺口：候选动作特征不逐行重复存（「由 node id 确定」，
+records.bin v4 契约补齐了跨语言缺口：候选动作特征不逐行重复存（「由 node id 确定」，
 F.2），而是按 ROUTING 序在 header 存一张 nAct×actDim 稀疏表；行内 candMask 是 22 位
 全局位掩码，置位下标升序就是该步候选在动作表中的行号，据此重建批量动作张量 a（批内
 变长候选 pad 到本批 max m、pad 位由掩码挡住，train_nn 的数值梯度检查本就覆盖该路径）。
+v4 的 targetMask + targetDepths 承载标签软化（Phase 2 门禁，§6）：目标族记录为
+「仍通向验收的动作集」上的**深度倒数加权**分布（越早通向验收权重越高、gold 因构造
+保证居首）、配方族为 gold 单点（depth=0 退化为 one-hot）。
    本侧只查表、不复刻任何特征函数——动作表内容与 TS 推理端特征函数产物天然同源。
-v1 的「占位动作表」随之下线：version≠2 一律 fail-fast 拒读。
+v1 的「占位动作表」、v2 的 targetIdx 单点、v3 的均匀软化 mask 随之下线：
+version≠4 一律 fail-fast 拒读。
 
 哈希纪律：只对外部文件字节与两份源码字节取 sha256，不做任何 canonical-JSON。
 """
@@ -30,11 +34,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import train_nn  # noqa: E402
 
 MAGIC = b"DGLB"
-BIN_VERSION = 2
+BIN_VERSION = 4
 HEADER = struct.Struct("<4sIIIII")
 EXPECTED_OBS_DIM = 867  # 主臂特征集 lang 的 obs 宽度（R6 词法顺序槽 +120、R7 进度对齐槽 +15），与 arch 串互相钉死
 EXPECTED_ACT_DIM = 83  # 动作特征宽度（契约派生+哈希桶），与 arch 串互相钉死
-ARCH_VERSION = 5  # v4→v5：动作哈希桶改同签名类内无碰撞（add3/mod7 原同桶致 mod7 结构性不可学，R7 复评 P0）
+ARCH_VERSION = 6  # v5→v6：目标族标签软化（on-path 动作集分布），标签语义变化（F.2 fail-fast 生效）
+DEPTH_BITS = 6
+DEPTH_MASK = (1 << DEPTH_BITS) - 1
 H = 128
 ACT_DIM = 83
 
@@ -62,7 +68,7 @@ def _read_act_table(raw, off, label, n_act, act_dim):
 
 
 def load_rows(path, label):
-    """解析 records.bin v2 → (行列表, header 动作表)；外部字节边界全量 fail-fast。"""
+    """解析 records.bin v4 → (行列表, header 动作表)；外部字节边界全量 fail-fast。"""
     raw = Path(path).read_bytes()
     if len(raw) < HEADER.size:
         raise ValueError(f"{label}: 文件短于 24 字节 header，无法解析")
@@ -94,7 +100,9 @@ def load_rows(path, label):
             off += 4 * n_idx
             (cand_mask,) = struct.unpack_from("<I", raw, off)
             off += 4
-            (target_idx,) = struct.unpack_from("<i", raw, off)
+            (target_mask,) = struct.unpack_from("<I", raw, off)
+            off += 4
+            (target_depths,) = struct.unpack_from("<I", raw, off)
             off += 4
             (prog_label,) = struct.unpack_from("<f", raw, off)
             off += 4
@@ -108,8 +116,15 @@ def load_rows(path, label):
         m = len(cands)
         if m == 0:
             raise ValueError(f"{label}: 第 {i} 行候选掩码为空，softmax 无定义")
-        if not 0 <= target_idx < m:
-            raise ValueError(f"{label}: 第 {i} 行 targetIdx={target_idx} 不在 [0, {m})")
+        if target_mask == 0:
+            raise ValueError(f"{label}: 第 {i} 行 targetMask 空（目标动作集不可为空）")
+        if target_mask >> m:
+            raise ValueError(f"{label}: 第 {i} 行 targetMask 置位越过候选数 {m}")
+        n_set = bin(target_mask).count("1")
+        for k in range(n_set):
+            depth = (target_depths >> (k * DEPTH_BITS)) & DEPTH_MASK
+            if depth > DEPTH_MASK:
+                raise ValueError(f"{label}: 第 {i} 行 targetDepths[{k}] 越界")
         if n_idx and (idx[0] >= EXPECTED_OBS_DIM or np.any(np.diff(idx) <= 0)):
             raise ValueError(f"{label}: 第 {i} 行稀疏下标越界或非严格升序")
         if (n_idx and not np.isfinite(val).all()) or not math.isfinite(float(prog_label)):
@@ -118,7 +133,8 @@ def load_rows(path, label):
             raise ValueError(f"{label}: 第 {i} 行 style/family/progressWeight 值域越界")
         rows.append({"idx": idx.astype(np.int64), "val": val.astype(np.float64),
                      "cands": np.array(cands, dtype=np.int64), "m": m,
-                     "target": int(target_idx), "prog_label": float(prog_label),
+                     "target_mask": int(target_mask), "target_depths": int(target_depths),
+                     "prog_label": float(prog_label),
                      "prog_weight": float(prog_weight), "task_hash": task_hash,
                      "step_index": int(step_index)})
     if off != len(raw):
@@ -130,7 +146,8 @@ def load_rows(path, label):
 
 def _assemble(rows, act_table):
     """行列表 → 稠密批：稀疏 obs 散列回填；动作张量按 candMask 位序查 header 表，
-    批内变长候选 pad 到本批 max m，pad 位由掩码挡住、梯度零贡献。"""
+    批内变长候选 pad 到本批 max m，pad 位由掩码挡住、梯度零贡献；targetMask +
+    targetDepths 原样携带（软目标分布由 train_nn 从 mask+深度重建）。"""
     b_n = len(rows)
     m_max = max(r["m"] for r in rows)
     o = np.zeros((b_n, EXPECTED_OBS_DIM))
@@ -141,20 +158,22 @@ def _assemble(rows, act_table):
         mask[b, : r["m"]] = True
         a[b, : r["m"]] = act_table[r["cands"]]  # 第 i 个置位 ↔ 候选 i（F.2 原口径）
     return {"o": o, "a": a, "mask": mask,
-            "target": np.array([r["target"] for r in rows]),
+            "target_mask": np.array([r["target_mask"] for r in rows], dtype=np.int64),
+            "target_depths": np.array([r["target_depths"] for r in rows], dtype=np.int64),
             "pl": np.array([r["prog_label"] for r in rows]),
             "pw": np.array([r["prog_weight"] for r in rows])}
 
 
 def val_ce(params, rows, act_table):
-    """早停指标：目标位负对数似然的均值（无平滑）——连续可比的分布拟合度量。"""
+    """早停指标：软目标交叉熵的均值（无平滑）——目标族按深度倒数加权分布、
+    配方族退化为 gold 单点（负对数似然），连续可比的分布拟合度量。"""
     tot, n = 0.0, 0
     for start in range(0, len(rows), 4096):
         bm = _assemble(rows[start:start + 4096], act_table)
         p = train_nn.policy_forward(params, bm["o"], bm["a"], bm["mask"])
-        pick = np.take_along_axis(p, bm["target"][:, None], axis=1)[:, 0]
-        tot += float(-np.log(np.clip(pick, 1e-300, None)).sum())
-        n += len(bm["target"])
+        y = train_nn._y_from_mask(bm["mask"], bm["target_mask"], bm["target_depths"], 0.0)
+        tot += float(-(y * np.log(np.clip(p, 1e-300, None))).sum())
+        n += len(bm["target_mask"])
     return tot / max(1, n)
 
 
@@ -179,7 +198,7 @@ def bc_train(D, val_D, act_table, epochs=30, patience=4, min_epochs=5, min_delta
         for start in range(0, len(order), batch):
             bm = _assemble(order[start:start + batch], act_table)
             opt.step(params, train_nn.backward(
-                params, bm["o"], bm["a"], bm["mask"], bm["target"],
+                params, bm["o"], bm["a"], bm["mask"], bm["target_mask"], bm["target_depths"],
                 progress_label=bm["pl"] if head == "progress" else None,
                 progress_weight=bm["pw"] if head == "progress" else None), lr)
         ce = val_ce(params, val_D, act_table)

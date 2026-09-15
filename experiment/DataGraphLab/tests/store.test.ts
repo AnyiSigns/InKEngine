@@ -93,6 +93,36 @@ describe('data/store/recordFromStep + append/load 往返（F.2 记录格式）',
     }
   });
 
+  it('标签软化扩展：目标族记录带 safeTargets（含 gold、⊆ candidates）+ safeDepths 等长，配方族缺省', () => {
+    const goal = recordsOf(pool('goal', [31, 7]));
+    const follow = recordsOf(pool('follow', [1]));
+    expect(goal.length).toBeGreaterThan(0);
+    for (const r of goal) {
+      expect(r.safeTargets).toBeDefined();
+      expect(r.safeTargets!.includes(r.target)).toBe(true);
+      for (const id of r.safeTargets!) expect(r.candidates).toContain(id);
+      expect(r.safeDepths).toBeDefined();
+      expect(r.safeDepths!.length).toBe(r.safeTargets!.length);
+      expect(r.safeDepths!.every((d) => Number.isInteger(d) && d >= 0)).toBe(true);
+    }
+    for (const r of follow) {
+      expect(r.safeTargets).toBeUndefined();
+      expect(r.safeDepths).toBeUndefined();
+    }
+    // 落盘往返后 safeTargets/safeDepths 原样保留（JSONL 持久层；按 (task_hash, step_index) 对齐比较，
+    // 因为 load 按 family 分片排序，与内存中的任务主序不同）。
+    const root = tmpRoot();
+    append(goal, { outRoot: root });
+    const back = load('train', { outRoot: root });
+    const key = (r: StoreRecord): string => `${String(r.meta.task_hash)}#${String(r.meta.step_index)}`;
+    const byKey = new Map(back.map((r) => [key(r), r]));
+    for (const r of goal) {
+      const loaded = byKey.get(key(r))!;
+      expect(loaded.safeTargets).toEqual(r.safeTargets);
+      expect(loaded.safeDepths).toEqual(r.safeDepths);
+    }
+  });
+
   it('append → load 逐条等值往返；分片路径与索引按 (world_version, split, family)', () => {
     const root = tmpRoot();
     const recs = recordsOf(pool('follow', [1, 2]));

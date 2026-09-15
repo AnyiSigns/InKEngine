@@ -1,6 +1,6 @@
 {
   "fixture": "DGL F1 cross-language forward conformance (inputs only, expected 由两侧各自现算比对)",
-  "arch": "v5:lang:867:83:128:none",
+  "arch": "v6:lang:867:83:128:none",
   "obsDim": 867,
   "actDim": 83,
   "weights": {
@@ -123246,7 +123246,7 @@
           0
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     },
     {
       "instruction": "score group single（单候选退化）",
@@ -124209,7 +124209,7 @@
           0
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     },
     {
       "instruction": "score group beta（变长候选）",
@@ -125602,7 +125602,7 @@
           0
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     }
   ]
 }

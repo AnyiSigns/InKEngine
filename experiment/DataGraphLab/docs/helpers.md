@@ -93,6 +93,7 @@
 | `templateFingerprint` | `templateFingerprint(instruction): string` | `data/audit.ts` | 已落地 | 数字串归一 # 的模板指纹（指令模板重叠统计唯一口径；goal 族豁免） |
 | `safeActionConflictRate` | `safeActionConflictRate(records, opts?): ConflictRateReport` | `data/provenance.ts` | 已落地 | 目标族多解诊断：先 join+on-path 过滤（缺省只统计 goal/goal_verify，includeFollow 放开），再在子池上固定 seed 抽样 ≤200 做 bounded BFS；C.8 诊断项不进门禁 |
 | `stateDigest / reachesAccept` | `stateDigest(st): string; reachesAccept(graph, task, start, budget): ReachResult` | `data/conflict_bfs.ts` | 已落地 | C.4 去重键（值字段+逐算子计数，不含完整 hist）；BFS 超预算保守判不可达；plan_bfs 落地时 import 本键 |
+| `safeActionSet` | `safeActionSet(graph, task, start, budget): { safe: string[]; truncated: boolean; expanded: number }` | `data/conflict_bfs.ts` | 已落地 | Phase 2 标签软化内核（§6/C.5）：一次有界 BFS 收集「首步动作 → 通向验收」全集；start 已验收则 EXIT 安全；截断只回传已证动作（保守下界）；gold 由 oracle 按构造保证强制并入 |
 | `main / buildTasks / loadDemoTasks` | `main(argv?): number; buildTasks(n, seed): Task[]; loadDemoTasks(path): Task[]` | `demos/generate_demo.ts` | 已落地 | style follow/goal 严格轮转 50/50，canonical Task JSONL（每行一键序稳定）；失败退出码非 0 |
 | `featurizeObs` | `featurizeObs(instruction, obs: ObsView, featureSet?): Float32Array` | `controller/features.ts` | 已落地 | lang 主臂 obs=867 维（R6 词法顺序槽 +120、R7 进度对齐槽 +15）；struct/hash_only 为诊断/消融 arch；白名单只读 instruction/state，`struct` 的 goal 段由调用方经 featurizeGoalStruct 拼接 |
 | `featurizeAction` | `featurizeAction(graph, nid): Float32Array` | `controller/features.ts` | 已落地 | 契约派生+哈希算子桶，ACT_DIM=83；新增算子不改宽；"any" 不置位、exit/decoy kind 独占 |

@@ -126,14 +126,16 @@ export function runScale(opts: ScaleOptions = {}): ScaleReport {
   mkdirSync(runDir, { recursive: true });
 
   // —— val 固定集（C.8：VAL_SKELETONS，seed=0，与 held-out 零重叠）——
+  // val 是选点/早停面：标签语义与既往 one-hot 口径保持一致（soften=false），
+  // 训练集软化不改变 val CE 的横向可比性。
   const valTasks = makeSplit('val', valPerFamily, 0);
   const valBin = join(runDir, 'val.bin');
-  if (!(resume && existsSync(valBin))) buildSplitBin(valTasks, join(runDir, 'store', 'val'), valBin);
+  if (!(resume && existsSync(valBin))) buildSplitBin(valTasks, join(runDir, 'store', 'val'), valBin, false);
 
   // —— held-out：覆盖集（sanity）+ 统计集（主指标）——
   const cov = makeCoverageSplitInfo('heldout', 0);
   const statTasks = makeSplit('heldout', heldoutPerFamily, 0);
-  const statRecords = oracleRecords(statTasks);
+  const statRecords = oracleRecords(statTasks, false);
 
   const trainPool = skeletonPool('train');
   const rows: ScalePoint[] = [];

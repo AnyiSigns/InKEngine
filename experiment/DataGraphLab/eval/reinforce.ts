@@ -104,6 +104,10 @@ export function collectReinforceRows(
         action: step.action,
       });
       const feat = featurizeRecord(rec);
+      const actionIdx = step.candidates.indexOf(step.action);
+      if (actionIdx < 0) {
+        throw new Error(`reinforce: 采样动作 ${step.action} 不在候选（REINFORCE 行标签错位，fail-fast）`);
+      }
       rows.push({
         style: feat.style,
         family: feat.family,
@@ -112,7 +116,7 @@ export function collectReinforceRows(
         idx: feat.idx,
         val: feat.val,
         candMask: feat.candMask,
-        actionIdx: feat.targetIdx,
+        actionIdx,
         advantage,
         reward,
       });

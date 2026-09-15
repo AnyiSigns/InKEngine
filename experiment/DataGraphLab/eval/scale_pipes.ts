@@ -12,8 +12,10 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MessageChannel, receiveMessageOnPort, Worker, type MessagePort } from 'node:worker_threads';
 
 import {
   HELDOUT_SKELETONS,
@@ -108,12 +110,86 @@ export function sampleTasks(n: number, seed: number, pool: readonly Skel[], styl
 }
 
 /** oracle 痕迹 → F.2 记录（逐任务逐步；`oracleTrace` 自带三重自检，坏标签当场抛）。 */
-export function oracleRecords(tasks: readonly Task[]): StoreRecord[] {
+export function oracleRecords(tasks: readonly Task[], soften = true): StoreRecord[] {
   const out: StoreRecord[] = [];
   for (const task of tasks) {
-    for (const step of oracleTrace(task, GRAPH)) out.push(recordFromStep(task, step));
+    for (const step of oracleTrace(task, GRAPH, soften)) out.push(recordFromStep(task, step));
   }
   return out;
+}
+
+/** 并行门槛：任务数 < 此值走串行（worker 启动开销在小题量下反超，测试路径保持零线程）。 */
+const PARALLEL_THRESHOLD = 2000;
+
+/**
+ * oracle 记录并行生成（§6 并行生成：任务相互独立，按分片 worker_threads，扩产
+ * 单位 = 行数）。软化的 safeTargets BFS 是生成期主耗时，串行在 30k 级任务上
+ * 不可行；切片并发 + 按片序拼接保确定性（G0.1：同 seed 逐字同结果，并行不改
+ * 输出序）。worker 线程数 = min(availableParallelism, ceil(n/256))；n 低于
+ * 门槛回退串行（worker 启动开销反超，测试路径保持零线程）。
+ *
+ * 同步语义：本函数必须同步返回（buildSplitBin 是同步管道），故用
+ * `Atomics.wait` + `receiveMessageOnPort` 的主线程轮询实现——每个 worker 配
+ * 独立 MessagePort 回传行数组，主线程阻塞轮询直到全部分片收齐（worker 在独立
+ * 线程跑，不受主线程阻塞影响）；任一 worker 异常即抛，不静默缺行。
+ */
+export function oracleRecordsParallel(tasks: readonly Task[], maxWorkers?: number): StoreRecord[] {
+  const n = tasks.length;
+  const cap = maxWorkers ?? Math.max(1, availableParallelism());
+  const workers = Math.min(cap, Math.max(1, Math.ceil(n / 256)));
+  if (n < PARALLEL_THRESHOLD || workers <= 1) return oracleRecords(tasks);
+  const chunk = Math.ceil(n / workers);
+  const chunks: Task[][] = [];
+  for (let i = 0; i < n; i += chunk) chunks.push(tasks.slice(i, i + chunk));
+  return runOracleChunks(chunks);
+}
+
+interface WorkerResult {
+  readonly i: number;
+  readonly rows: StoreRecord[];
+}
+
+/** 切片并发执行 + 按片序拼接（worker 异常即抛，不静默缺行）。同步阻塞实现。 */
+export function runOracleChunks(chunks: readonly (readonly Task[])[]): StoreRecord[] {
+  const done = new Int32Array(new SharedArrayBuffer(4));
+  const results = new Array<StoreRecord[]>(chunks.length);
+  const ports: MessagePort[] = [];
+  let firstError: unknown = null;
+  const workers = chunks.map((c, i) => {
+    const { port1, port2 } = new MessageChannel();
+    const w = new Worker(new URL('./oracle_worker.ts', import.meta.url), {
+      workerData: { tasks: c, port: port2, i },
+      transferList: [port2],
+      execArgv: ['--import', 'tsx'],
+    });
+    ports[i] = port1;
+    w.once('error', (e) => {
+      if (firstError === null) firstError = e;
+      results[i] = [];
+      Atomics.add(done, 0, 1);
+      Atomics.notify(done, 0);
+    });
+    return w;
+  });
+  for (;;) {
+    for (let i = 0; i < ports.length; i++) {
+      const msg = receiveMessageOnPort(ports[i]!) as { message?: WorkerResult } | undefined;
+      if (msg !== undefined && msg.message !== undefined) {
+        results[msg.message.i] = msg.message.rows;
+        Atomics.add(done, 0, 1);
+        Atomics.notify(done, 0);
+      }
+    }
+    if (Atomics.load(done, 0) >= chunks.length) break;
+    Atomics.wait(done, 0, Atomics.load(done, 0), 50);
+  }
+  for (const w of workers) w.terminate();
+  if (firstError !== null) throw firstError;
+  const total = results.reduce((a, r) => a + (r?.length ?? 0), 0);
+  if (total === 0) {
+    console.error(`runOracleChunks: 0 rows (chunks=${String(chunks.length)}, done=${String(Atomics.load(done, 0))})`);
+  }
+  return results.flat();
 }
 
 /**
@@ -121,12 +197,19 @@ export function oracleRecords(tasks: readonly Task[]): StoreRecord[] {
  * c_hash 审计的受控通道），再 load 回来 `featurizeRecords` 写 bin（与 CLI
  * `npx tsx data/records.ts` 同一实现路径，省去子进程；口径不变）。
  */
-export function buildSplitBin(tasks: readonly Task[], storeRoot: string, outBin: string): void {
+/**
+ * 任务集 → records.bin 派生缓存：先 append 进该 run 专属 store（走步级去重与
+ * c_hash 审计的受控通道），再 load 回来 `featurizeRecords` 写 bin（与 CLI
+ * `npx tsx data/records.ts` 同一实现路径，省去子进程；口径不变）。
+ * `soften=true`（训练集）时目标族记录带 safeTargets（Phase 2 标签软化）；
+ * val/stat 集传 false 保持 one-hot（选点/诊断只需要 gold，省生成成本）。
+ */
+export function buildSplitBin(tasks: readonly Task[], storeRoot: string, outBin: string, soften = true): void {
   if (tasks.length === 0) throw new Error('buildSplitBin: 任务集为空（train.py 对 nrows=0 拒训）');
   mkdirSync(storeRoot, { recursive: true });
   mkdirSync(dirname(outBin), { recursive: true });
   const split = tasks[0]!.split;
-  append(oracleRecords(tasks), { outRoot: storeRoot });
+  append(soften ? oracleRecordsParallel(tasks) : oracleRecords(tasks, false), { outRoot: storeRoot });
   const rows = featurizeRecords(load(split, { outRoot: storeRoot }), 'lang');
   writeRecordsBin(outBin, rows, OBS_DIM.lang, actionFeatureTable());
 }

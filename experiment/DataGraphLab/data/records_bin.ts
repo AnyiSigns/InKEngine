@@ -1,5 +1,5 @@
 /**
- * `records.bin` 二进制派生缓存的唯一字节契约（F.2 派生层，v2）。
+ * `records.bin` 二进制派生缓存的唯一字节契约（F.2 派生层，v4）。
  *
  * 这里是「TS 写、Python 训练器读」两份实现里的唯一一份：Python 侧照下面的字段布局
  * 解析，禁止再维护第二套格式。派生缓存不进版本、可随时从 `records.jsonl` 重建，
@@ -15,18 +15,30 @@
  * 由置位下标升序即得候选 i 对应的全局节点 j，再查 header 表重建 a_i——既合 F.2 原意，
  * 又不需要第二份特征实现（F.3 不破）。
  *
+ * v3 = 标签软化 mask（Phase 2 门禁，§6）：`targetIdx`（i32 单点）替换为 `targetMask`
+ * （u32 位掩码，位 i = 候选 i 在目标动作集内）。
+ *
+ * v4 = 软化标签深度加权：`targetMask` 后追加 `targetDepths`（u32，与 targetMask 置位
+ * 逐位对应，每 6 位打包一个「到最近验收态最短剩余步数」深度，值域 [0,63] 够 MAX_STEPS）。
+ * 标签分布 y_i ∝ 1/(1+depth_i)（gold 因构造保证必为最短路径之一而居首），既保留
+ * 「多解皆可」的宽容，又维持 greedy argmax 的判别力（冒烟实证均匀软化致 argmax
+ * 游走、S_goal 回退，故弃均匀取深度倒数）。配方族单解：targetMask 恰一位且 depth=0
+ * （退化为 one-hot）。
+ *
  * 字节布局（全 little-endian）：
- *   Header: 4B magic `DGLB` · u32 version(=2) · u32 nrows · u32 obsDim · u32 actDim ·
+ *   Header: 4B magic `DGLB` · u32 version(=4) · u32 nrows · u32 obsDim · u32 actDim ·
  *           u32 nAct，随后 nAct 个动作特征稀疏块（按 ROUTING 序，基础世界 nAct=22）：
  *           u32 nIdx · nIdx × u16 idx · nIdx × f32 val
  *   Row:    u8 style · u8 family · u32 taskHashLen + taskHashLen UTF-8 字节 ·
  *           u32 stepIndex · u32 nIdx · nIdx × u16 idx · nIdx × f32 val ·
- *           u32 candMask · i32 targetIdx · f32 progressLabel · u32 progressWeight
+ *           u32 candMask · u32 targetMask · u32 targetDepths（6bit/置位，升序对应）·
+ *           f32 progressLabel · u32 progressWeight
  *
- * targetIdx 仍是候选列表的本地下标：第 i 个置位（升序）↔ 该步第 i 个候选（F.2 原口径）。
+ * targetMask 是候选列表的本地位掩码：位 i = 该步第 i 个候选（升序）在目标集内。
+ * targetDepths 的 6 位一组：第 k 组 = targetMask 第 k 个置位对应动作的深度。
  *
  * 读侧外部边界 fail-fast：magic/version 不符即抛（bin 可随时重生成，跨版本加载只会
- * 产出静默错位权重，比拒读坏得多，故 version≠2 直接提示重跑 featurize）；任何一处越过
+ * 产出静默错位权重，比拒读坏得多，故 version≠4 直接提示重跑 featurize）；任何一处越过
  * 文件尾都判截断抛错，不按 nrows 之外的「半行」凑数；读回再扫一遍 NaN/Inf——写侧闸门
  * 挡正常管线，读侧扫描挡手工/损坏文件（G.7 数值入口判 NaN/Inf）；style/family 两个
  * u8 裸字节读侧校验枚举值域，越域即抛，不带着坏标签进训练。
@@ -36,7 +48,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
-/** 派生缓存单行：稀疏 obs + 候选全局位掩码 + 本地 target 下标 + 分组进度标签。 */
+/** 派生缓存单行：稀疏 obs + 候选全局位掩码 + 目标动作集本地掩码 + 深度权重 + 分组进度标签。 */
 export interface BinRow {
   readonly style: 0 | 1; // 0=follow 1=goal
   readonly family: 0 | 1 | 2 | 3; // value/verify/goal/goal_verify 序
@@ -45,7 +57,8 @@ export interface BinRow {
   readonly idx: Uint16Array; // 非零特征下标，升序
   readonly val: Float32Array; // 与 idx 等长
   readonly candMask: number; // u32 位掩码：位 j ↔ ROUTING[j] 在该步候选内（基础 22 位）
-  readonly targetIdx: number; // target 在 candidates 的本地下标（第 i 个置位 ↔ 候选 i）
+  readonly targetMask: number; // u32 位掩码：位 i ↔ 候选 i（第 i 个置位）在目标动作集内
+  readonly targetDepths: number; // u32：6bit/置位打包「到最近验收态最短剩余步数」（值域 [0,63]）
   readonly progressLabel: number; // (末步步数 − 本步) / MAX_STEPS，进度 critic 辅助头标签
   readonly progressWeight: 0 | 1; // 完整轨迹（组内含 EXIT 终行）为 1，否则 0
 }
@@ -59,9 +72,11 @@ export interface BinFile {
 }
 
 const MAGIC = 'DGLB';
-const VERSION = 2;
+const VERSION = 4;
 const HEADER_BYTES = 4 + 4 + 4 + 4 + 4 + 4;
 const MAX_BITSET = 32; // candMask 是 u32：动作表宽度越界即拒（变长 bitset 另立版本，I.2）
+const DEPTH_BITS = 6; // 每个安全动作深度占 6 bit（值域 [0,63] 够 MAX_STEPS=12）
+const MAX_DEPTH = (1 << DEPTH_BITS) - 1;
 
 /** 稠密动作向量 → 稀疏块字节数（u32 nIdx + u16 下标段 + f32 值段）。 */
 function sparseBlockBytes(dense: ArrayLike<number>): number {
@@ -70,10 +85,23 @@ function sparseBlockBytes(dense: ArrayLike<number>): number {
   return 4 + n * 2 + n * 4;
 }
 
+/** u32 置位数（读侧 targetMask 越界校验用）。 */
+function popcount(u32: number): number {
+  let x = u32 >>> 0;
+  let c = 0;
+  while (x !== 0) {
+    c += x & 1;
+    x >>>= 1;
+  }
+  return c;
+}
+
 function rowBytes(row: BinRow, hashBuf: Buffer): number {
   // 每条 taskHash 以 UTF-8 变长内联，长度前先算，供一次性 alloc（避免边推边扩缓冲）。
+  // 布局：style(1)+family(1)+hashLen(4)+hash+stepIndex(4)+nIdx(4)+idx(2n)+val(4n)
+  //   +candMask(4)+targetMask(4)+targetDepths(4)+progressLabel(4)+progressWeight(4)
   return (
-    1 + 1 + 4 + hashBuf.length + 4 + 4 + row.idx.length * 2 + row.val.length * 4 + 4 + 4 + 4 + 4
+    1 + 1 + 4 + hashBuf.length + 4 + 4 + row.idx.length * 2 + row.val.length * 4 + 4 + 4 + 4 + 4 + 4
   );
 }
 
@@ -117,6 +145,14 @@ export function writeRecordsBin(
     }
     if (!Number.isFinite(row.progressLabel)) {
       throw new Error(`records.bin: 行 ${String(i)} progressLabel 非有限数，拒写`);
+    }
+    // targetDepths 6bit/置位打包：每值必须落在 [0, 2^DEPTH_BITS)（MAX_STEPS 内）。
+    const nSet = popcount(row.targetMask);
+    for (let k = 0; k < nSet; k++) {
+      const depth = (row.targetDepths >>> (k * DEPTH_BITS)) & ((1 << DEPTH_BITS) - 1);
+      if (depth > MAX_DEPTH) {
+        throw new Error(`records.bin: 行 ${String(i)} targetDepths[${String(k)}]=${String(depth)} 越界（≤ ${String(MAX_DEPTH)}）`);
+      }
     }
     total += rowBytes(row, hashes[i]!);
   }
@@ -168,7 +204,9 @@ export function writeRecordsBin(
     for (let k = 0; k < row.val.length; k++, o += 4) buf.writeFloatLE(row.val[k]!, o);
     buf.writeUInt32LE(row.candMask >>> 0, o);
     o += 4;
-    buf.writeInt32LE(row.targetIdx, o);
+    buf.writeUInt32LE(row.targetMask >>> 0, o);
+    o += 4;
+    buf.writeUInt32LE(row.targetDepths >>> 0, o);
     o += 4;
     buf.writeFloatLE(row.progressLabel, o);
     o += 4;
@@ -282,7 +320,8 @@ export function readRecordsBin(path: string): BinFile {
     const idx = rd.u16Arr(nIdx);
     const val = rd.f32Arr(nIdx);
     const candMask = rd.u32();
-    const targetIdx = rd.i32();
+    const targetMask = rd.u32();
+    const targetDepths = rd.u32();
     const progressLabel = rd.f32();
     const progressWeight = rd.u32();
     for (let k = 0; k < nIdx; k++) {
@@ -291,6 +330,20 @@ export function readRecordsBin(path: string): BinFile {
     assertFinite(`读回行 ${String(i)} 稀疏值`, val);
     if (candMask >> nAct !== 0) {
       throw new Error(`records.bin: 行 ${String(i)} candMask 置位越过动作表宽 ${String(nAct)}`);
+    }
+    const m = popcount(candMask);
+    if (m === 0) throw new Error(`records.bin: 行 ${String(i)} candMask 空（候选集为空，softmax 无定义）`);
+    if (targetMask === 0) throw new Error(`records.bin: 行 ${String(i)} targetMask 空（目标动作集不可为空）`);
+    if ((targetMask & ~((1 << m) - 1)) !== 0) {
+      throw new Error(`records.bin: 行 ${String(i)} targetMask 置位越过候选数 ${String(m)}`);
+    }
+    // targetDepths 逐组校验（6bit/置位）：值域 [0, 2^DEPTH_BITS)，越界即坏字节。
+    const nSet = popcount(targetMask);
+    for (let k = 0; k < nSet; k++) {
+      const depth = (targetDepths >>> (k * DEPTH_BITS)) & ((1 << DEPTH_BITS) - 1);
+      if (depth > MAX_DEPTH) {
+        throw new Error(`records.bin: 行 ${String(i)} targetDepths[${String(k)}]=${String(depth)} 越界`);
+      }
     }
     // style/family 是 u8 裸字节：读侧同样按枚举值域 fail-fast（契约上只有
     // 0/1 与 0..3 合法），坏字节转成下游静默错组/错家族标签比拒读坏得多。
@@ -308,7 +361,8 @@ export function readRecordsBin(path: string): BinFile {
       idx,
       val,
       candMask,
-      targetIdx,
+      targetMask,
+      targetDepths,
       progressLabel,
       progressWeight: progressWeight as 0 | 1,
     });

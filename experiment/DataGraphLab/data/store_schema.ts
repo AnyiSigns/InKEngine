@@ -18,6 +18,8 @@ export const STYLE_VALUES: readonly Style[] = ['follow', 'goal'];
 export const FAMILY_VALUES: readonly Family[] = ['value', 'verify', 'goal', 'goal_verify'];
 
 const TOP_FIELDS = ['style', 'family', 'instruction', 'x', 'state', 'hist', 'candidates', 'target', 'meta'];
+/** 可选字段（Phase 2 标签软化）：目标族记录的 safeTargets/safeDepths；缺省 = one-hot。 */
+const OPTIONAL_FIELDS = ['safeTargets', 'safeDepths'];
 
 function metaWithoutHash(meta: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...meta };
@@ -47,18 +49,42 @@ function verifyContentHash(rec: StoreRecord, where: string): void {
   }
 }
 
-/** 外部边界校验：字段集恰为 F.2 + meta 坐标齐全 + style/family 值域 + c_hash 复核。 */
+/** 外部边界校验：字段集 = TOP_FIELDS（必须齐全）+ safeTargets（可选）+ meta 坐标齐全 + style/family 值域 + c_hash 复核。 */
 export function validateRecord(raw: unknown, where: string): StoreRecord {
   const r = raw as Partial<StoreRecord> & { meta?: Record<string, unknown> };
   if (r === null || typeof r !== 'object') throw new Error(`store schema: ${where} 不是对象`);
-  if (Object.keys(r).sort().join(',') !== [...TOP_FIELDS].sort().join(',')) {
-    throw new Error(`store schema: ${where} 字段集不符 F.2（实际：${Object.keys(r).sort().join(',')}）`);
+  const keys = Object.keys(r).sort();
+  const required = [...TOP_FIELDS].sort();
+  const allowed = [...TOP_FIELDS, ...OPTIONAL_FIELDS].sort();
+  if (keys.join(',') !== allowed.join(',')) {
+    if (keys.length !== required.length || keys.some((k, i) => k !== required[i])) {
+      throw new Error(`store schema: ${where} 字段集不符 F.2（实际：${keys.join(',')}，允许：${allowed.join(',')}）`);
+    }
   }
   if (typeof r.instruction !== 'string' || typeof r.target !== 'string') {
     throw new Error(`store schema: ${where} instruction/target 类型错误`);
   }
   if (!Array.isArray(r.hist) || !Array.isArray(r.candidates)) {
     throw new Error(`store schema: ${where} hist/candidates 必须为数组`);
+  }
+  if (r.safeTargets !== undefined) {
+    if (!Array.isArray(r.safeTargets) || r.safeTargets.length === 0) {
+      throw new Error(`store schema: ${where} safeTargets 必须为非空数组`);
+    }
+    if (!r.safeTargets.every((v) => typeof v === 'string')) {
+      throw new Error(`store schema: ${where} safeTargets 元素必须为字符串`);
+    }
+    if (!r.safeTargets.includes(r.target)) {
+      throw new Error(`store schema: ${where} safeTargets 必须包含 target（gold 强制并入）`);
+    }
+    if (r.safeDepths === undefined || !Array.isArray(r.safeDepths) || r.safeDepths.length !== r.safeTargets.length) {
+      throw new Error(`store schema: ${where} safeDepths 必须与 safeTargets 等长`);
+    }
+    if (!r.safeDepths.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= 0)) {
+      throw new Error(`store schema: ${where} safeDepths 元素必须为非负整数`);
+    }
+  } else if (r.safeDepths !== undefined) {
+    throw new Error(`store schema: ${where} safeDepths 不得脱离 safeTargets 单独出现`);
   }
   const st = r.state as Record<string, unknown> | undefined;
   if (st === undefined || st === null || typeof st !== 'object' || Array.isArray(st)) {

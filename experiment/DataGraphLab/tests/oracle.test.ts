@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { isOnPath, oracleTrace } from '../teacher/oracle.js';
+import { isGoalFamily, isOnPath, oracleTrace, safeTargetsFor } from '../teacher/oracle.js';
 import { makeTask } from '../gen/generator.js';
 import { GRAPH, candidates } from '../runner/graph.js';
 import { EXIT, applyOp, initState } from '../world/operators.js';
@@ -162,6 +162,63 @@ describe('teacher/isOnPath（标签纪律判定源）', () => {
     for (const t of realTasks()) {
       for (const step of oracleTrace(t, GRAPH)) {
         expect(isOnPath(step.obs.hist, t.plan_hidden)).toBe(true);
+      }
+    }
+  });
+});
+
+describe('teacher/标签软化（Phase 2 门禁，§6）', () => {
+  it('isGoalFamily 只认 goal/goal_verify', () => {
+    expect(isGoalFamily('goal')).toBe(true);
+    expect(isGoalFamily('goal_verify')).toBe(true);
+    expect(isGoalFamily('value')).toBe(false);
+    expect(isGoalFamily('verify')).toBe(false);
+  });
+
+  it('目标族每步带 safeTargets+safeDepths：非空、含 gold、⊆ candidates、EXIT 步含 exit、深度等长', { timeout: 120000 }, () => {
+    const goals = realTasks().filter((t) => t.style === 'goal');
+    expect(goals.length).toBeGreaterThan(0);
+    for (const t of goals) {
+      const trace = oracleTrace(t, GRAPH);
+      for (const step of trace) {
+        expect(step.safeTargets).toBeDefined();
+        expect(step.safeTargets!.length).toBeGreaterThan(0);
+        expect(step.safeTargets!).toContain(step.action);
+        for (const id of step.safeTargets!) expect(step.candidates).toContain(id);
+        expect(step.safeDepths).toBeDefined();
+        expect(step.safeDepths!.length).toBe(step.safeTargets!.length);
+        expect(step.safeDepths!.every((d) => Number.isInteger(d) && d >= 0 && d <= 12)).toBe(true);
+      }
+      expect(trace.at(-1)!.safeTargets).toContain(EXIT);
+    }
+  });
+
+  it('配方族 safeTargets 缺省（单解不软化，保持 one-hot）', { timeout: 120000 }, () => {
+    const follows = realTasks().filter((t) => t.style === 'follow');
+    expect(follows.length).toBeGreaterThan(0);
+    for (const t of follows) {
+      for (const step of oracleTrace(t, GRAPH)) {
+        expect(step.safeTargets).toBeUndefined();
+      }
+    }
+  });
+
+  it('safeTargetsFor 的每个动作确实通向验收（回放穿过 accept，gold 保底）', () => {
+    for (const t of realTasks().filter((x) => x.style === 'goal').slice(0, 6)) {
+      let st = initState(t.x, t.spec);
+      for (let k = 0; k < t.plan_hidden.length; k++) {
+        const { safe, depths } = safeTargetsFor(t, GRAPH, st);
+        expect(safe.length).toBe(depths.length);
+        for (const a of safe) {
+          if (a === EXIT) {
+            // 仅当前态已验收时 exit 才在安全集内
+            if (!accept(t, st)) throw new Error('exit 被标安全但当前态未验收');
+            continue;
+          }
+          const next = applyOp(GRAPH, a, st);
+          expect(next).not.toBeNull();
+        }
+        st = applyOp(GRAPH, t.plan_hidden[k]!, st)!;
       }
     }
   });

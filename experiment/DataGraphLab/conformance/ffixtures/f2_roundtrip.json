@@ -1,6 +1,6 @@
 {
   "fixture": "DGL F2 roundtrip conformance (Python greedy vs TS greedy；weights 走文件加载通道)",
-  "arch": "v5:lang:867:83:128:none",
+  "arch": "v6:lang:867:83:128:none",
   "obsDim": 867,
   "actDim": 83,
   "weights_path": "f1_forward.json",
@@ -598,7 +598,7 @@
           1
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     },
     {
       "instruction": "double the number（任务记录：候选=cond_even/cond_long/submit）",
@@ -918,7 +918,7 @@
           0
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     },
     {
       "instruction": "take the length, negate it, then wrap the text lower（任务记录：候选=mul2/cond_long/sub1/lower/cond_even）",
@@ -1437,7 +1437,7 @@
           0
         ]
       ],
-      "expected_arch": "v5:lang:867:83:128:none"
+      "expected_arch": "v6:lang:867:83:128:none"
     }
   ]
 }

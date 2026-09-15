@@ -43,6 +43,13 @@ export interface StoreRecord {
   readonly hist: readonly string[];
   readonly candidates: readonly string[];
   readonly target: string;
+  /**
+   * 标签软化扩展（Phase 2 门禁，§6）：该 on-path 状态仍通向验收的动作集（含 gold）。
+   * 仅目标族（goal/goal_verify）由 oracle 写入；缺省 = 训练端回退 one-hot。
+   * `safeDepths` 与 safeTargets 逐位对应（到最近验收态最短剩余步数，深度倒数加权）。
+   */
+  readonly safeTargets?: readonly string[];
+  readonly safeDepths?: readonly number[];
   readonly meta: Readonly<Record<string, unknown>>;
 }
 
@@ -120,6 +127,15 @@ export function recordFromStep(
       ...(extraMeta ?? {}),
     },
   };
+  // 标签软化扩展：目标族 step 带 safeTargets 才写字段（配方族缺省 = one-hot）。
+  if (step.safeTargets !== undefined) {
+    const safeTargets = [...step.safeTargets];
+    const safeDepths =
+      step.safeDepths !== undefined
+        ? [...step.safeDepths]
+        : safeTargets.map(() => 1);
+    return withContentHash({ ...rec, safeTargets, safeDepths });
+  }
   return withContentHash(rec);
 }
 

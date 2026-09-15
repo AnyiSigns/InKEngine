@@ -136,7 +136,9 @@ export function routingAcc(
   for (const task of tasks) {
     let trace;
     try {
-      trace = oracleTrace(task, graph);
+      // soften=false：路由诊断只比对 gold 动作，safeTargets 软化标签与比对无关，
+      // 跳过 BFS 保持诊断廉价（routing_acc 是每份报告的必报列）。
+      trace = oracleTrace(task, graph, false);
     } catch {
       continue;
     }

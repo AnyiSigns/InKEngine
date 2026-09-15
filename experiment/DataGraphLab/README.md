@@ -212,6 +212,44 @@ BC，follow（精确轨迹、零信号）尤甚；goal（多解、微弱信号�
   off-path 状态始终无监督（即便老师干预后亦然），故 DAgger 增益有限属结构预期，
   偏离分布与 BC−DAgger 差如实报告。
 
+### Phase 2 搜证（goal 族标签软化，§6 门禁内动作，2026-09-15）
+
+**背景**：goal 族 `safe_action_conflict_rate≈0.999`（多解下 one-hot oracle 标签近乎
+任选，goal routing_acc 停滞 ≈0.38）——§6 预注册 P75 规则阈值=1.0，Phase 2 标签软化
+开启条件满足；软化动作在 Phase 2 门禁内执行。
+
+**① 统计集重测确认**（`scripts/soften_confirm.ts`，证据
+`runs/soften-confirm-20260915T002858/`）：held-out 统计集（4×300，goal 600 任务 /
+4284 条 oracle 记录）多 seed（0-4）重测 conflict rate = 1.0 / 1.0 / 0.995 / 1.0 /
+1.0——seed 2 的 0.995 系 1 个 BFS 截断态保守计非冲突（conflict+truncated==sampled
+全 seed 成立），**按预注册口径确认通过，软化门禁开启**。
+
+**② 软化实现（depth 倒数加权，非均匀）**：新增 `data/conflict_bfs.safeActionSet`
+（值域去重 seen 键 + 首步动作集 + 到最近验收态的最短剩余步数深度）；oracle 目标族
+每步附 `safeTargets`+`safeDepths`（gold 构造保证强制并入）；`records.bin` v3→v4
+（`targetMask` + `targetDepths` 6bit/置位打包）；arch v5→v6（F.2 fail-fast）；
+Python `train_nn._y_from_mask` 按深度倒数加权重建软目标 y（gold 因最短路径之一居首，
+保留 argmax 判别力）；§6 并行生成（worker_threads 分片）。**口径修正实证**：均匀
+软化冒烟（`runs/scale-20260915T054624-soften-smoke`）goal 10k S=0.29 < 基线 0.55
+（标签摊平致 greedy argmax 游走）——**弃均匀、改深度倒数加权**（v4）。
+
+**③ 冒烟 {1k,10k}×3**（`runs/scale-20260915T070032-soften-smoke`，depth 加权）：
+
+| 指标 | 软化（1k / 10k，3 seed 均值） | 基线 a1-full（5 seed 均值） | 判定 |
+|---|---|---|---|
+| S_follow | 1.0000 / 1.0000 | 0.9990 / 1.0000 | 持平 ✅ |
+| S_goal | 0.4733 / **0.6233** | 0.4437 / 0.5500 | **提升 ✅（10k +0.073）** |
+
+goal 诊断列：routing_acc 0.31/0.30（↓，不再强制模仿任选 gold，符合预期）、
+steps_over_shortest 3.7/4.6（↑，接受合法替代路径的代价）、conflict_rate 0.9983
+（口径不变）。**冒烟判据达成，推进全量复评**。
+
+**④ 全量复评（{1k,10k,30k}×5，脚本 `scripts/soften_full.ts`）**：
+`runs/scale-20260915T081551-soften-full/` 已产出 1k×5 与 10k×4 的 bin+weights
+（10k s4 起未完成、30k 未跑，无 results.json，未形成证据）。**下一步 = 重跑
+30k 软化全量**（{1k,10k,30k}×5）并回填 S_follow/S_goal 对照与 G1.2 判定
+（门禁以最新 `scale-*` 目录为证据）。
+
 ### 失败模式与修正
 
 - **门禁前移拦截表示瓶颈**：目标可分性首轮编码器实测 top1 均值仅 0.7856（阈值
@@ -340,7 +378,11 @@ BC，follow（精确轨迹、零信号）尤甚；goal（多解、微弱信号�
 - **goal 族安全动作集冲突率（§6 预注册 P75 规则）**：第二跑统计集（4×300、5 seed）
   实测 `safe_action_conflict_rate≈0.999`（n=200/run）——按预注册规则「取首轮 conflict
   rate 分布的 P75」→ 阈值=1.0，**Phase 2 标签软化开启条件已满足**（软化本身是 Phase 2
-  门禁内动作，Phase 1 不改 one-hot 标签）。
+  门禁内动作，Phase 1 不改 one-hot 标签）。**核销（2026-09-15）**：统计集多 seed 重测
+  确认通过（`runs/soften-confirm-20260915T002858/`）、软化实现落地（records.bin v4
+  深度倒数加权 + arch v6）、冒烟 {1k,10k}×3 达标（S_goal 10k 0.6233 vs 基线 0.5500），
+  详见「Phase 2 搜证（goal 族标签软化）」节；**全量复评（{1k,10k,30k}×5）未完成**，
+  已登记为下一步。
 - **G2.3 初始化口径降级**：计划已从「同 seed 同架构随机权重」降为「同分布同架构随机
   初始化」——TS `Policy.random`（makeRng+float32）与 Python `params_from_json`
   （default_rng+float64）逐位不同属既定实现；BC/REINFORCE 同侧同 seed 一致即可。

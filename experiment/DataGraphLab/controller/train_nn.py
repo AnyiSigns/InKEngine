@@ -6,6 +6,9 @@
 乘法交互（factorized bilinear pointer）：每候选独立打分、对候选置换等变，
 padding 位挡在 softmax 之外、梯度零贡献。动作特征 `a` 永远是显式入参：本模块
 不构造 obs/act 特征（特征语义只有源头一份实现），只对给到的向量做数学。
+目标标签以 `target_mask`（候选本地位掩码）传入：目标族软化标签 = 掩码置位集上的
+均匀分布（Phase 2 门禁，§6），配方族单点掩码退化 one-hot——y 构造对二者同一公式，
+单点掩码严格复现旧版 one-hot + label smoothing。
 `check_numeric_gradient` / `memory_selftest` 为确定性自检面，显式 seed。
 """
 
@@ -16,7 +19,7 @@ import time
 import numpy as np
 
 PROG_LAMBDA = 0.1  # 进度 critic 辅助头 L2 权重：只在完整轨迹行（progressWeight=1）计入
-LABEL_SMOOTHING = 0.05  # 标签平滑：y=(1-eps)*onehot+eps/m，只摊到有效位
+LABEL_SMOOTHING = 0.05  # 标签平滑：y=(1-eps)*U(掩码置位集)+eps/m，只摊到有效位
 WEIGHT_DECAY = 1e-4  # 只加在 wo/wa/ws/wp 权重上，bias 与空张量豁免
 PARAM_SHAPES = ("wo", "bo", "wa", "ba", "ws", "wp", "bp")
 
@@ -73,20 +76,68 @@ def policy_forward(params, o, a, mask):
     return p[0] if single else p
 
 
-def _y_from_mask(valid, target_idx, eps):
-    """软标签：eps 均摊到有效位，pad 位零——平滑分母绝不把 padding 算进候选数。"""
+def _mask_bits(target_mask, m):
+    """u32 目标掩码 → (M,) bool 数组：位 i = 候选 i 在目标动作集内；越界位忽略（读侧已挡）。"""
+    mask = np.zeros(m, dtype=bool)
+    v = int(target_mask)
+    i = 0
+    while v and i < m:
+        if v & 1:
+            mask[i] = True
+        v >>= 1
+        i += 1
+    return mask
+
+
+def _mask_depths(target_mask, target_depths, m):
+    """目标掩码置位对应的深度数组（6bit/置位，值域 [0,63]；读侧已校验）。"""
+    v = int(target_mask)
+    bits = int(target_depths)
+    out = []
+    i = 0
+    while v and i < m:
+        if v & 1:
+            out.append((bits >> (len(out) * 6)) & 0x3F)
+        v >>= 1
+        i += 1
+    return out
+
+
+def _y_from_mask(valid, target_mask, target_depths=None, eps=LABEL_SMOOTHING):
+    """软标签：y = (1-eps)·U(目标掩码置位集) + eps/m·U(有效位)。
+
+    目标族软化标签 = 掩码置位集上的分布；`target_depths` 存在时按深度倒数加权
+    （w=1/(1+depth)：越早通向验收的动作权重越高，gold 因构造保证最短路径之一而
+    居首）——保留多解宽容、维持 greedy argmax 判别力；无 depths（或全 0）退化
+    均匀分布。配方族单点掩码严格退化为旧版 one-hot（gold 得 1-eps+eps/m、其余
+    eps/m）。pad 位零。
+    """
     mk = np.asarray(valid, dtype=bool)
     m_b = np.where(mk.sum(axis=-1) > 0, mk.sum(axis=-1), 1).astype(np.float64)
     y = (eps / m_b)[..., None] * mk
-    y[np.arange(mk.shape[0]), _as64(target_idx).astype(int)] += 1.0 - eps
+    tm = np.atleast_1d(np.asarray(target_mask, dtype=np.int64))
+    td = np.atleast_1d(np.asarray(target_depths if target_depths is not None else 0, dtype=np.int64))
+    m_cols = mk.shape[-1]
+    for b in range(mk.shape[0]):
+        bits = _mask_bits(int(tm[b]), m_cols) & mk[b]
+        if not bits.any():
+            continue
+        if td[b] != 0:
+            depths = _mask_depths(int(tm[b]), int(td[b]), m_cols)
+            w = np.array([1.0 / (1.0 + d) for d in depths], dtype=np.float64)
+            w /= w.sum()
+            y[b, bits] += (1.0 - eps) * w
+        else:
+            s = max(1, int(bits.sum()))
+            y[b, bits] += (1.0 - eps) / s
     return y
 
 
-def ce_loss_with_smoothing(probs, target_idx, eps=LABEL_SMOOTHING):
+def ce_loss_with_smoothing(probs, target_mask, target_depths=None, eps=LABEL_SMOOTHING):
     """平滑交叉熵 batch 均值；「有效位」以 p>0 判（被掩位概率恰为 0）。"""
     p = _as64(probs)
     p2 = p[None] if p.ndim == 1 else p
-    y = _y_from_mask(p2 > 0, np.atleast_1d(target_idx), eps)
+    y = _y_from_mask(p2 > 0, np.atleast_1d(target_mask), target_depths, eps)
     return float(-(y * np.where(p2 > 0, np.log(np.where(p2 > 0, p2, 1.0)), 0.0)).sum(axis=-1).mean())
 
 
@@ -110,11 +161,12 @@ def weight_decay_loss(params, weight_decay=WEIGHT_DECAY):
     return 0.5 * weight_decay * acc
 
 
-def backward(params, o, a, mask, target_idx, eps=LABEL_SMOOTHING,
+def backward(params, o, a, mask, target_mask, target_depths=None, eps=LABEL_SMOOTHING,
              weight_decay=WEIGHT_DECAY, progress_label=None,
              progress_weight=None, prog_lambda=PROG_LAMBDA):
     """整批梯度，与总损失「平滑CE + λ·进度L2 + ½wd‖W‖²」严格同链：
-    g = p−y 是 softmax+CE 的标准余量；dh 沿 w_s⊙z 回传、dz 沿 w_s⊙h 回传，tanh 以
+    g = p−y 是 softmax+CE 的标准余量（y 为软标签，目标掩码置位集按深度倒数加权
+    的分布，单点掩码即 one-hot）；dh 沿 w_s⊙z 回传、dz 沿 w_s⊙h 回传，tanh 以
     (1−out²) 收口；进度头从 h 分叉共享主干（λ=PROG_LAMBDA 即进度 L2 的权重）。
     """
     o_arr, a_arr = _as64(o), _as64(a)
@@ -122,7 +174,7 @@ def backward(params, o, a, mask, target_idx, eps=LABEL_SMOOTHING,
     a2 = a_arr[None] if a_arr.ndim == 2 else a_arr
     mk = np.asarray(mask, dtype=bool)
     mk = mk[None] if mk.ndim == 1 else mk
-    t = np.atleast_1d(_as64(target_idx).astype(int))
+    tm = np.atleast_1d(np.asarray(target_mask, dtype=np.int64))
     wo, bo, wa, ba, ws = (_as64(params[k]) for k in ("wo", "bo", "wa", "ba", "ws"))
     wp, bp = _as64(params["wp"]), _as64(params["bp"])
     pre_h = o2 @ wo.T + bo
@@ -130,7 +182,7 @@ def backward(params, o, a, mask, target_idx, eps=LABEL_SMOOTHING,
     zpre = a2.reshape(-1, wa.shape[1]) @ wa.T + ba
     z = np.tanh(zpre.reshape(o2.shape[0], a2.shape[1], -1))      # [B,M,H]
     p = softmax_masked((z * h[:, None, :]) @ ws, mk)              # [B,M]
-    y = _y_from_mask(mk, t, eps)
+    y = _y_from_mask(mk, tm, target_depths, eps)
     # CE 是 batch 均值，所以 g=(p−y) 要整链除以 B；进度损失按 Σw 归一、不除 B。
     g = (p - y) * mk / float(p.shape[0])                          # pad 位梯度恒零
 
@@ -218,11 +270,11 @@ def params_to_json(params, to_f32=True):
     return out
 
 
-def _total_loss(params, o, a, mask, target_idx, eps=LABEL_SMOOTHING, wd=WEIGHT_DECAY,
-                progress_label=None, progress_weight=None, lam=PROG_LAMBDA):
+def _total_loss(params, o, a, mask, target_mask, target_depths=None, eps=LABEL_SMOOTHING,
+                wd=WEIGHT_DECAY, progress_label=None, progress_weight=None, lam=PROG_LAMBDA):
     """数值梯度比对的参考标量损失（与 backward 的全链同式，但独立前向重算）。"""
     p = policy_forward(params, o, a, mask)
-    loss = ce_loss_with_smoothing(p, target_idx, eps)
+    loss = ce_loss_with_smoothing(p, target_mask, target_depths, eps)
     h = forward_o(params["wo"], params["bo"], o)
     pl = progress_loss(h, params["wp"], params["bp"], progress_label, progress_weight)
     return loss + (lam * pl if pl is not None else 0.0) + weight_decay_loss(params, wd)
@@ -231,12 +283,13 @@ def _total_loss(params, o, a, mask, target_idx, eps=LABEL_SMOOTHING, wd=WEIGHT_D
 def check_numeric_gradient(seed=7, delta=1e-5, verbose=True):
     """逐条目中心差分梯度 vs 解析梯度：总相对范数差 <1e-5 判过，逐张量打印条目最大相对差。
 
-    覆盖变长候选掩码（m=3 与 m=5 同批）、label smoothing、进度头分叉、权重衰减。
+    覆盖变长候选掩码（m=3 与 m=5 同批）、label smoothing、**多目标软标签
+    （target_mask 置多位 >1，Phase 2 软化口径）**、进度头分叉、权重衰减。
     2D 权重固定 (样本 b, 隐元 r) 把该行全部输入列打包成一批：线性层里 W[r,c] 的
     ±δ 扰动恰为 ±δ·input[c]，逐列走真实整链前向；其余样本贡献两侧同值相消。
     1D 张量条目标量差分；WD 精确二次式差分后恰为 wd·W，后置加上。
     """
-    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "progress"}  # 867=arch v4 lang 宽，与 train.py EXPECTED_OBS_DIM 对齐
+    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "progress"}  # 867=arch v6 lang 宽，与 train.py EXPECTED_OBS_DIM 对齐
     params = params_from_json(dims, seed)
     prng = np.random.default_rng(seed)
     B, M = 2, 5
@@ -246,19 +299,22 @@ def check_numeric_gradient(seed=7, delta=1e-5, verbose=True):
     for b, m in enumerate([3, 5]):
         a[b, :m] = prng.standard_normal((m, 83))
         mask[b, :m] = True
-    t = np.array([2, 4])
+    # 软标签掩码：样本 0 两位目标（软化多解，带深度 0/3 → 深度倒数加权）、
+    # 样本 1 单点（one-hot 退化，depth=0）。
+    t = np.array([0b101, 0b10000], dtype=np.int64)
+    td = np.array([0b000011_000000, 0], dtype=np.int64)  # 位序：第 0 组 depth=0（0b000000）、第 1 组 depth=3（0b000011）
     prog_label = prng.standard_normal(B) * 0.5
     prog_weight = np.array([1.0, 0.0])
     eps, wd, lam = LABEL_SMOOTHING, WEIGHT_DECAY, PROG_LAMBDA
-    y_rows = _y_from_mask(mask, t, eps)
+    y_rows = _y_from_mask(mask, t, td, eps)
     pkw = dict(progress_label=prog_label, progress_weight=prog_weight)
-    ana = backward(params, o, a, mask, t, weight_decay=wd, **pkw)
+    ana = backward(params, o, a, mask, t, td, weight_decay=wd, **pkw)
     num = {}
     for key in ("bo", "ba", "ws", "wp", "bp"):  # 1D 条目标量差分
         def one(sign, i):
             p2 = {k: params[k].copy() for k in PARAM_SHAPES}
             p2[key].reshape(-1)[i] += sign * delta
-            return _total_loss(p2, o, a, mask, t, eps, wd, **pkw)
+            return _total_loss(p2, o, a, mask, t, td, eps, wd, **pkw)
         n = np.zeros(params[key].size)
         for i in range(params[key].size):
             n[i] = (one(1.0, i) - one(-1.0, i)) / (2 * delta)
@@ -313,10 +369,12 @@ def check_numeric_gradient(seed=7, delta=1e-5, verbose=True):
 
 def memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True):
     """记忆自检：32 例合成样本（随机稀疏 obs + 批内共享 one-hot 槽位动作表）整批多轮
-    训练至 train acc ≥0.99——拟合链路（前向/反向/Adam）端到端证明。限制 60s 内。"""
+    训练至 train acc ≥0.99——拟合链路（前向/反向/Adam）端到端证明。限制 60s 内。
+    目标标签用单点掩码（1<<t），覆盖 one-hot 退化路径；多目标路径由数值梯度检查覆盖。
+    """
     rng = random.Random(seed)
     prng = np.random.default_rng(seed)
-    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "none"}  # arch v4 口径，与 train.py EXPECTED_OBS_DIM 一致
+    dims = {"obsDim": 867, "actDim": 83, "h": 128, "head": "none"}  # arch v6 口径，与 train.py EXPECTED_OBS_DIM 一致
     params = params_from_json(dims, seed)
     nslots = 8
     slots = np.zeros((nslots, 83))
@@ -334,10 +392,12 @@ def memory_selftest(seed=0, batch=32, epochs_cap=4000, lr=3e-3, verbose=True):
     for i, m in enumerate(Ms):
         a[i, :m] = slots[:m]
         mask[i, :m] = True
+    target_mask = np.left_shift(np.ones(batch, dtype=np.int64), t.astype(np.int64))
+    target_depths = np.zeros(batch, dtype=np.int64)
     opt = Adam(params)
     t0, acc, ep = time.perf_counter(), 0.0, 0
     for ep in range(1, epochs_cap + 1):
-        opt.step(params, backward(params, o, a, mask, t), lr)
+        opt.step(params, backward(params, o, a, mask, target_mask, target_depths), lr)
         p = policy_forward(params, o, a, mask)
         acc = float((np.argmax(p, axis=-1) == t).mean())
         if acc >= 0.99:

@@ -17,11 +17,8 @@ import type { MechanismContract } from './contract_types.js';
 import { approval_contract } from '../../gate/approval/contract.js';
 import { audit_log_contract } from '../../gate/audit_log/contract.js';
 import { budget_contract } from '../../gate/budget/contract.js';
-import { entity_evolution_contract } from '../../evolve/legacy/entity_evolution/contract.js';
-import { evolution_contract } from '../../evolve/legacy/evolution/contract.js';
 import { evolution_writer_contract } from '../../evolve/proposal/evolution_writer/contract.js';
 import { executor_contract } from '../../graph/executor/contract.js';
-import { growth_contract } from '../../evolve/legacy/growth/contract.js';
 import { interrupt_contract } from '../../loop/interrupt/contract.js';
 import { introspection_contract } from '../../evolve/observe/inspection/contract.js';
 import { knowledge_gate_contract } from '../../evolve/learn/knowledge_gate/contract.js';
@@ -33,8 +30,8 @@ import { recovery_contract } from '../../loop/recovery/contract.js';
 import { round_steps_contract } from '../../loop/round_steps/contract.js';
 import { runtime_contract } from '../../loop/runtime/contract.js';
 import { sandbox_contract } from '../../gate/sandbox/contract.js';
-import { self_application_contract } from '../../evolve/legacy/self_application/contract.js';
-import { self_proposal_contract } from '../../evolve/legacy/self_proposal/contract.js';
+import { self_application_contract } from '../../evolve/proposal/self_application/contract.js';
+import { self_proposal_contract } from '../../evolve/proposal/self_proposal/contract.js';
 import { self_tools_contract } from '../../evolve/proposal/self_edit_tools/contract.js';
 import { settle_contract } from '../../loop/turn_settle/contract.js';
 import { skill_crystal_contract } from '../../evolve/skill/crystallization/contract.js';
@@ -42,16 +39,13 @@ import { tool_pipeline_contract } from '../../loop/tools/tool_pipeline/contract.
 import { tool_vetting_contract } from '../../gate/tool_vetting/contract.js';
 import { tuning_contract } from '../../evolve/param_tuning/contract.js';
 
-/** 全量机制契约清单（27 项；id 与目录同集，由 validate 强制唯一）。 */
+/** 全量机制契约清单（24 项；id 与目录同集，由 validate 强制唯一）。 */
 export const ALL_MECHANISM_CONTRACTS: readonly MechanismContract[] = [
   approval_contract,
   audit_log_contract,
   budget_contract,
-  entity_evolution_contract,
-  evolution_contract,
   evolution_writer_contract,
   executor_contract,
-  growth_contract,
   interrupt_contract,
   introspection_contract,
   knowledge_gate_contract,

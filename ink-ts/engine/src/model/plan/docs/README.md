@@ -15,7 +15,7 @@
 - 上游（本目录实际 import）：`model/errors`（`GraphDefinitionError`）、
   `model/graph`（`Graph` + `EdgeConditionRegistryLike`）、`model/json`
   （`isRecord`/`typeName`）、`model/workflow`（`WorkflowSpec` 等）。
-- 下游（实际 import 本目录）：`evolve/legacy/self_proposal`、`core/harness`
+- 下游（实际 import 本目录）：`evolve/proposal/self_proposal`、`core/harness`
   （`registry.ts` 解析 `default_plan`）；`graph/executor` 消费
   （`_engine_plan`/`_engine_parallel` 计划推进、并行组）已随 P8+S1 展开段
   退役删除；公共面 `src/index.ts` 无本目录导出；hosts 无直接 import；测试

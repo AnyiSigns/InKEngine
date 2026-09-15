@@ -35,17 +35,15 @@ import {
   introspection_tool_specs,
   make_introspection_executor,
 } from '../../evolve/observe/inspection/index.js';
-import { GrowthPipeline } from '../../evolve/legacy/growth/index.js';
 import { KnowledgeSet, seed_knowledge_set } from '../../core/knowledge_set/index.js';
 import { seed_general } from '../../model/seeds/seeds.js';
 import {
   declarative_failure_reason,
   declarative_operation,
 } from '../tools/declarative_tools/index.js';
-import { EntityEvolutionPipeline } from '../../evolve/legacy/entity_evolution/index.js';
-import { GuardedStorage, SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
+import { GuardedStorage, SelfApplicationPipeline } from '../../evolve/proposal/self_application/index.js';
 import { GraphRegistries } from '../../graph/registry/registry.js';
-import { ProposalValidator } from '../../evolve/legacy/self_proposal/index.js';
+import { ProposalValidator } from '../../evolve/proposal/self_proposal/index.js';
 import { MetaTuner, TurnMetrics } from '../../evolve/param_tuning/index.js';
 import { KnowledgeSetRetriever, RetrieverRegistry } from '../../evolve/learn/retrieval/index.js';
 import { ToolPipeline } from '../tools/tool_pipeline/tool_pipeline.js';
@@ -136,11 +134,6 @@ export abstract class RuntimeBoot extends RuntimeNodeRegistrar {
     }
     // 回合步骤记录器（引擎自接线状态跨引擎重建持有）
     this.round_steps_recorder = new _RoundStepsRecorder();
-    this.growth_pipeline = new GrowthPipeline(this.knowledge_set, {
-      metric_store: guarded as never,
-      now: () => this._r_now(),
-      uuid_gen: () => this._r_growth_uuid(),
-    });
     this.harness_registry = new HarnessRegistry({ registries: this.graph_registries });
     this.harness_repository = new HarnessRepository(guarded, null, {
       set_id: recipe.set_id,
@@ -225,11 +218,6 @@ export abstract class RuntimeBoot extends RuntimeNodeRegistrar {
     } finally {
       entScope2.exit();
     }
-    this.entity_evolution_pipeline = new EntityEvolutionPipeline(
-      this.entity_registry,
-      writer,
-      { now: () => this._r_now() },
-    );
     this._ui_factory_components = new Set(recipe.ui_allowed_components);
     this._ui_components_disabled = await this._load_ui_components_disabled();
     const uiAllowedComponents = [...this.ui_allowed_components];
@@ -347,10 +335,6 @@ export abstract class RuntimeBoot extends RuntimeNodeRegistrar {
       approval_policy: pipelinePolicy,
     });
     await this._restore_set_state(recipe);
-    if (this.growth_pipeline !== null) {
-      (this.growth_pipeline as unknown as { knowledge_set: KnowledgeSet }).knowledge_set =
-        this.knowledge_set!;
-    }
     await this._restore_baseline();
     await this._restore_thread_tags();
     this.tool_index = new ToolVectorIndex();

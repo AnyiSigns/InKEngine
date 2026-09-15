@@ -37,7 +37,7 @@
 
 - `loop/runtime`（_runtime_boot/_runtime_base/_runtime_engine/_types）装配 `EventTypeRegistry` 并持 `EventTypeSpec` 形态；`plugins/ports/boot`（S2 端口提供方）以 `EventTypeSpec` 建 boot 种子。
 - 审计常量消费：`loop/turn_settle`（review/promotion）、`evolve/observe/usage_evidence`（policy_edge_review_audit）。`kernel/multipath`（junction 审计）消费已随 P8+S1 展开段退役删除（`EVENT_AUDIT_JUNCTION` 常量与审计事件声明保留为协议形状）；`kernel/path_assembler`、`core/fingerprint_cache`、`hosts/lib/src/bridge/path.ts` 消费已随组装链路退役删除（W7-B）。
-- `evolve/legacy/self_proposal/proposal_validator.ts` 以 `EventTypeSpec` 校验提案声明。
+- `evolve/proposal/self_proposal/proposal_validator.ts` 以 `EventTypeSpec` 校验提案声明。
 - 错误语义：重复注册/配额超限/未注册注销 → `GraphDefinitionError`；load 脏记录跳过（on_skip 留痕）不阻断启动；classify 不抛错（宽松语义）。
 
 ## 不变式与门禁

@@ -36,7 +36,7 @@
   typeName）、`model/schema`（SchemaSpec）。
 - 下游：各机制层广泛消费——`loop/runtime`（结点注册契约校验）、
   `loop/turn_settle`（QualityGate 推进判定）、
-  `evolve/legacy/self_application`（审批分级/守卫集合）、`evolve/legacy/self_proposal`
+  `evolve/proposal/self_application`（审批分级/守卫集合）、`evolve/proposal/self_proposal`
   （PATCH_KINDS）；图/注册与数据面消费：
   `graph/node_registry`/`gate/link_validator`/`model/graph`/`model/perception`/`graph/nodes`；生成物经
   `src/index.ts`（收口 `dock/index.ts`）数据面契约组全仓导出（上层不再有独立契约包）。`kernel/path_assembler`

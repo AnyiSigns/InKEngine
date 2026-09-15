@@ -64,7 +64,7 @@ workflow 节点集且在当前图；无：须在当前图）→ `condition` 非 
 `validateStrictOrder`，未知策略拒绝，`'loose'` 缺省）。
 
 消费方：`core/harness/registry.ts`（`Plan.parse` 解析 `definition.default_plan`）、
-`evolve/legacy/self_proposal/proposal_validator.ts`（提案计划校验）。
+`evolve/proposal/self_proposal/proposal_validator.ts`（提案计划校验）。
 `graph/executor` 的计划推进/并行组/`PLAN_KEY` 出栈/`_node_in_plan_steps`
 全部消费已随 P8+S1 展开段退役删除；`RunOptions` 的 `max_plan_steps`/
 `plan_policy`/`plan_workflow` 选项字段同步移除，`DEFAULT_MAX_PLAN_STEPS`

@@ -96,7 +96,7 @@ _fs_seam.ts`（node:fs 同步装，供 `ToolVetting.shadow_run`）。
    注释与代码不符。
 2. `pyRepr` 多份拷贝并存：`model/py_repr.ts` 注释自认单源（已就绪），本目录
    `_types.ts` 与 `graph/builder/_types`、`evolve/proposal/self_edit_tools/_json`、
-   `evolve/legacy/self_proposal` 各持一份（grep「export function pyRepr」核验）；
+   `evolve/proposal/self_proposal` 各持一份（grep「export function pyRepr」核验）；
    `_types.ts` 头注释自述以 model/py_repr.ts 为迁移点但本文件实现未迁移。
 3. `_is_hex` 容忍 `0x` 前缀（对齐 Python `int(digest, 16)`）与
    `_HASH_LENGTH`=64 硬长度校验并存：`0x`+62 位 hex 可通过两道校验、

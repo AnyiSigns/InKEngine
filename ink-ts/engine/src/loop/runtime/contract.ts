@@ -41,11 +41,8 @@ export const runtime_contract: MechanismContract = {
   depends: [
     'approval',
     'audit_log',
-    'entity_evolution',
-    'evolution',
     'evolution_writer',
     'executor',
-    'growth',
     'introspection',
     'llm',
     'memory_extract',

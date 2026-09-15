@@ -580,7 +580,7 @@ describe('growth.report（自学习状态面）', () => {
     };
     expect(report.enabled).toBe(true);
     expect(report.config_summary['enabled']).toBe(true);
-    expect(report.config_summary['reuse_first']).toBe(true);
+    expect(typeof report.config_summary['params']).toBe('object');
     if (report.weights_snapshot !== undefined && report.weights_snapshot !== null) {
       expect(typeof report.weights_snapshot).toBe('object');
     }

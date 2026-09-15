@@ -3,15 +3,16 @@
  *
  * ▍受控通道单一化
  * 演化资产写盘与拓扑变更唯一经受控通道：本面 re-export 的
- * `proposal/`（含 `controlled_applier`、`evolution_writer` 落账）是
- * 本体；`legacy/` 内遗留件仅在波内 re-export 兼容（S6 清除，见 §7/§13.7）。
+ * `proposal/`（含 `controlled_applier`、`evolution_writer` 落账）是本体。
  *
- * ▍活件白名单（S6 入正家，终态不留 legacy）
+ * ▍活件白名单（S6 已入正家，终态无 legacy）
  * self_tools → proposal/self_edit_tools/、GuardedStorage → proposal/、
  * KnowledgeSkillStore（skill_crystal）→ skill/crystallization/、
- * MetaTuner（tuning）→ param_tuning/、evolution_writer → proposal/
- * （原地）。legacy 内部互引不算消费者（防 self_tools↔self_proposal
- * 互相保活整簇删不掉）。
+ * MetaTuner（tuning）→ param_tuning/、evolution_writer → proposal/（原地）；
+ * self_application（自指管线：SelfApplicationPipeline/审批分级/守卫集合）与
+ * self_proposal（提案校验：ProposalValidator/SelfProposal/PATCH_KINDS）随 S6
+ * 自 legacy/ 正家化迁入 proposal/（活线 self_tools 消费，§7.2 条件分支）。
+ * 无宿主消费遗留件（entity_evolution/evolution/growth）已随 S6 删除。
  *
  * ▍管线数据流
  * settle(归因) → evolve/learn(蒸馏+知识闸) → KnowledgeSet →
@@ -44,9 +45,6 @@ export * from './observe/scoring/scoring.js';
 export * from './param_tuning/index.js';
 export * from './skill/crystallization/index.js';
 
-export * from './legacy/entity_evolution/index.js';
-export * from './legacy/evolution/index.js';
-export * from './legacy/growth/index.js';
-export * from './legacy/self_application/index.js';
-export * from './legacy/self_proposal/index.js';
+export * from './proposal/self_application/index.js';
+export * from './proposal/self_proposal/index.js';
 export * from './proposal/self_edit_tools/index.js';

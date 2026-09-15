@@ -33,7 +33,7 @@ import {
   self_tool_specs,
 } from '../../../../src/evolve/proposal/self_edit_tools/index.js';
 import type { ConvergenceHook } from '../../../../src/evolve/proposal/self_edit_tools/index.js';
-import { PatchKind } from '../../../../src/evolve/legacy/self_proposal/index.js';
+import { PatchKind } from '../../../../src/evolve/proposal/self_proposal/index.js';
 
 import { MemStorage, StubCtx, _make_tools, _specs } from './helpers.js';
 

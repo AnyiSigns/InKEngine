@@ -9,9 +9,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ApprovalLevel,
   SelfApplicationPipeline,
-} from '../../../../src/evolve/legacy/self_application/index.js';
-import type { L2VettingHook } from '../../../../src/evolve/legacy/self_application/index.js';
-import { PatchKind, ProposalValidator } from '../../../../src/evolve/legacy/self_proposal/index.js';
+} from '../../../../src/evolve/proposal/self_application/index.js';
+import type { L2VettingHook } from '../../../../src/evolve/proposal/self_application/index.js';
+import { PatchKind, ProposalValidator } from '../../../../src/evolve/proposal/self_proposal/index.js';
 
 import { FakeCtx, MemStorage, _artifact_proposal, _validator } from './helpers.js';
 

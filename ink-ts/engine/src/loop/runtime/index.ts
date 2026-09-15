@@ -26,11 +26,6 @@ export type {
 
 export { Runtime } from './runtime.js';
 
-export type {
-  EvolveOfflineOptions,
-  EvolveOfflineResult,
-} from './_runtime_self_learning.js';
-
 export { _KnowledgeUsageSettleHook } from './_settle.js';
 export { set_runtime_clock } from './_runtime_base.js';
 export type { RunTaskHandle } from './_runtime_runs.js';

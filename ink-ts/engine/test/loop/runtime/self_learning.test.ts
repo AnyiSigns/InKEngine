@@ -2,15 +2,17 @@
  * 自学习族运行时接线测试（EC2 全量接线上班，组装退役后裁剪）：
  * - 回合收尾自动调参（turn_metrics 聚合 → 失败信号参数回写知识集）；
  * - 回合记忆抽取（MemoryExtractSettleHook 经 runtime 装配面接线，确认类
- *   事件入账本语义由 test/kernel/memory_extract 族覆盖）；
- * - evolution 离线调度入口（失败率候选 → 变异 → 闸门防退化落库）。
+ *   事件入账本语义由 test/kernel/memory_extract 族覆盖）。
  *
  * 随组装链路退役裁剪：技能结晶 settle 链（原触发源 = 指纹缓存命中，已退役；
  * skill_crystal 容器/评估器覆盖见 test/kernel/skill_crystal）；
  * resume_run 决议入账本（组装审批卡重入点已退役，执行主线决议语义走
- * execution runtime，引擎侧 _record_review_decision 无调用方留痕）。
+ * execution runtime，引擎侧 _record_review_decision 无调用方留痕）；
+ * evolve_offline 离线进化调度入口（legacy evolution 工厂，S6 已随
+ * entity_evolution/evolution/growth 无宿主消费遗留件删除——受控进化活线
+ * evolution.evaluate/crystallize 命令面覆盖其职能，见 plugins/commands）。
  * 回合引擎形态（B3）：无常驻静态引擎——保留用例直接调 runtime 公开入口
- * （tune_after_round / evolve_offline / 记忆钩子接线断言），不经组合回合。
+ * （tune_after_round / 记忆钩子接线断言），不经组合回合。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -18,15 +20,10 @@ import { describe, expect, it } from 'vitest';
 import { DefaultInterruptPolicy } from '../../../src/gate/approval/approval.js';
 import type { Host } from '../../../src/loop/runtime/index.js';
 import { AssemblyRecipe, Runtime } from '../../../src/loop/runtime/index.js';
-import {
-  KIND_PATH,
-  KnowledgeEntry,
-} from '../../../src/core/knowledge_set/index.js';
 import { GENERAL_WEIGHTS_SEED_ID } from '../../../src/model/seeds/seeds.js';
 import { TunableParams } from '../../../src/evolve/param_tuning/index.js';
 import { DEFAULT_NAMESPACE } from '../../../src/evolve/learn/memory_extract/index.js';
 import { MemoryStorage } from '../../graph/executor/helpers.js';
-import type { EvolutionGate } from '../../../src/evolve/legacy/evolution/index.js';
 
 /** 假 LLM（引擎重建/stop 关停路径可复用）。 */
 class ClosableLLM {
@@ -112,38 +109,6 @@ describe('runtime 自学习族接线（组装退役后保留面）', () => {
     );
     expect(runtime.memory_store).toBeNull();
     expect(runtime.knowledge_skill_store).not.toBeNull();
-    await runtime.stop();
-  });
-
-  it('evolve_offline 调度入口：失败率候选 → 变异 → 闸门保留落库', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), minimalRecipe());
-    runtime.knowledge_set!.add(
-      new KnowledgeEntry({
-        id: 'rule-evo',
-        level: 'work',
-        kind: 'rule',
-        data: { rule: { message: '规则A' } },
-        source: 'model',
-        credibility: 0.6,
-        usage_count: 6,
-        fail_count: 4,
-        failure_logs: ['日志1', '日志2'],
-        title: '进化目标',
-        tags: ['evo'],
-      }),
-    );
-    const gate: EvolutionGate = {
-      check: async () =>
-        [
-          { passed: true, errors: [] },
-          { passed: true, note: '' },
-          { passed: true, reason: 'ok' },
-        ] as never,
-    };
-    const result = await runtime.evolve_offline({ gate, batch: 3 });
-    expect(result.candidates).toBeGreaterThanOrEqual(1);
-    expect(result.kept).toBeGreaterThanOrEqual(1);
-    expect(runtime.knowledge_set!.get('rule-evo:v1')).not.toBeNull();
     await runtime.stop();
   });
 });

@@ -9,11 +9,11 @@ import {
 
 const ALL_CONTRACTS = ALL_MECHANISM_CONTRACTS;
 
-describe('全量机制契约注册表（27 机制；path_assembler/pool_governance/thread_skeleton 契约随组装链路退役 W7-B，simulation/multipath/spawn 契约随 P8+S1 展开段退役，builder 契约随 S1-c 退役）', () => {
+describe('全量机制契约注册表（24 机制；path_assembler/pool_governance/thread_skeleton 契约随组装链路退役 W7-B，simulation/multipath/spawn 契约随 P8+S1 展开段退役，builder 契约随 S1-c 退役，entity_evolution/evolution/growth 契约随 S6 无宿主消费遗留件删除）', () => {
   it('契约 id 全局唯一且与目录同集', () => {
     const ids = ALL_CONTRACTS.map((c) => c.id);
     expect(new Set(ids).size).toBe(ALL_CONTRACTS.length);
-    expect(ALL_CONTRACTS.length).toBe(27);
+    expect(ALL_CONTRACTS.length).toBe(24);
   });
 
   it('effects 只引用已登记端口', () => {

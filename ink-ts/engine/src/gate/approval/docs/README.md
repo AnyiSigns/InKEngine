@@ -11,4 +11,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`model/json`（`isRecord`）、`model/product_ui`（`build_gate_card` + `CardPayload`）、`dock/registry/contract_types`。
-- 下游（实际 import 本目录）：`src/index.ts` 公共面（「审批卡辅助」组 `export *`）；`loop/tools/tool_pipeline`（review 委托挂卡 + pose 透传）、`evolve/legacy/self_application`（apply/revert/policy/patch_outcome）、`evolve/proposal/self_edit_tools`（ctx 类型）、`loop/runtime`（`_runtime_mechanisms`/`_types`/`_runtime_boot`）、`evolve/proposal`（`approve_before_execute`）；`dock/registry/contracts`；hosts/lib `host.ts`（自定义 policy 扩展 `DefaultInterruptPolicy`）与测试图（`approve_before_execute`）经公共面；测试 `test/gate/approval`（单动作 + 合并卡两文件）。
+- 下游（实际 import 本目录）：`src/index.ts` 公共面（「审批卡辅助」组 `export *`）；`loop/tools/tool_pipeline`（review 委托挂卡 + pose 透传）、`evolve/proposal/self_application`（apply/revert/policy/patch_outcome）、`evolve/proposal/self_edit_tools`（ctx 类型）、`loop/runtime`（`_runtime_mechanisms`/`_types`/`_runtime_boot`）、`evolve/proposal`（`approve_before_execute`）；`dock/registry/contracts`；hosts/lib `host.ts`（自定义 policy 扩展 `DefaultInterruptPolicy`）与测试图（`approve_before_execute`）经公共面；测试 `test/gate/approval`（单动作 + 合并卡两文件）。

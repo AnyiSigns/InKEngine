@@ -4,7 +4,7 @@
 
 ## 定位
 
-gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被数据面与残部多模块（`core/state`、`core/harness`、`core/knowledge_set`、`model/storage`）与演化/runtime 侧机制件（`evolve/legacy/self_application`、`evolve/proposal/evolution_writer`、`loop/runtime`）依赖（`kernel/simulation` 与 `loop/recovery` 依赖已随 P8+S1 展开段退役删除）；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
+gate 机制层最底层的纯内存原语：Event Sourcing 补丁链（状态 = base + append-only 补丁链，取用 = 组装、压缩 = rebase、编辑重放 = truncate + branch）。被数据面与残部多模块（`core/state`、`core/harness`、`core/knowledge_set`、`model/storage`）与演化/runtime 侧机制件（`evolve/proposal/self_application`、`evolve/proposal/evolution_writer`、`loop/runtime`）依赖（`kernel/simulation` 与 `loop/recovery` 依赖已随 P8+S1 展开段退役删除）；自身不依赖任何机制件、不消费任何副作用端口。`contract.ts` 头注：「链的受守卫落库由宿主经 GuardedStorage 接线在演化资产写盘通道上，本机制自身不直接消费存储 seam」。
 
 ## 文件与职责
 

@@ -21,7 +21,7 @@ import type { ToolSpec } from '../../model/llm/tools.js';
 import type { ToolGateConfig } from '../../gate/permissions/permissions.js';
 import type { NodeFactory } from '../../graph/registry/registry_types.js';
 import type { Storage } from '../../dock/ports/storage.js';
-import type { SelfApplicationPipeline } from '../../evolve/legacy/self_application/index.js';
+import type { SelfApplicationPipeline } from '../../evolve/proposal/self_application/index.js';
 import type { ConvergenceHook, SelfToolContext } from '../../evolve/proposal/self_edit_tools/index.js';
 import { DEFAULT_BIND_CHANNELS } from '../../model/product_ui/uiSchemaSupport.js';
 

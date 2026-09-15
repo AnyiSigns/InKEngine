@@ -11,9 +11,9 @@ import type { EngineEvent } from '../../../../src/dock/ports/events.js';
 import { InterruptSignal } from '../../../../src/loop/interrupt/interrupt_types.js';
 import { HarnessRegistry } from '../../../../src/core/harness/index.js';
 import { KnowledgeSet } from '../../../../src/core/knowledge_set/index.js';
-import { ApprovalLevel, SelfApplicationPipeline } from '../../../../src/evolve/legacy/self_application/index.js';
-import { PatchKind, ProposalValidator } from '../../../../src/evolve/legacy/self_proposal/index.js';
-import type { PatchKind as PatchKindType } from '../../../../src/evolve/legacy/self_proposal/index.js';
+import { ApprovalLevel, SelfApplicationPipeline } from '../../../../src/evolve/proposal/self_application/index.js';
+import { PatchKind, ProposalValidator } from '../../../../src/evolve/proposal/self_proposal/index.js';
+import type { PatchKind as PatchKindType } from '../../../../src/evolve/proposal/self_proposal/index.js';
 import type {
   ChainLink,
   CheckpointRecord,

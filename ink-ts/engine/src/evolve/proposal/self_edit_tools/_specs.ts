@@ -11,7 +11,7 @@
  */
 
 import { ToolSpec } from '../../../model/llm/tools.js';
-import { _PATCH_KIND_VALUES } from '../../legacy/self_proposal/self_proposal.js';
+import { _PATCH_KIND_VALUES } from '../../proposal/self_proposal/self_proposal.js';
 import { PERMISSION_APPLY, PERMISSION_PROPOSE } from './_constants.js';
 
 /** 工具参数 JSON Schema 的 kind 枚举（补丁类型声明序；与 PatchKind 同源）。 */

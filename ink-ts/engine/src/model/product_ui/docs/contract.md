@@ -49,7 +49,7 @@ allowed_theme_tokens）为校验注入面。
 - `loop/runtime`：_runtime_boot/_runtime_engine（boot UISpec 与补丁
   应用点的 UISchemaValidator 校验）、_types（DEFAULT_BIND_CHANNELS 装配
   面类型）。
-- `evolve/legacy/self_proposal/proposal_validator`：ui 提案 payload 的
+- `evolve/proposal/self_proposal/proposal_validator`：ui 提案 payload 的
   UISchemaValidator 校验 + DEFAULT_BIND_CHANNELS 基线。
 - 渲染端（@ink-ts/renderer）运行时经 cli serve 通道消费 ui_spec 数据树，
   不静态 import 本目录。

@@ -16,8 +16,8 @@ import { describe, expect, it } from 'vitest';
 
 import { PATCH_KINDS } from '../../../../src/model/contracts/generated/index.js';
 import { GraphDefinitionError } from '../../../../src/model/errors.js';
-import { PatchKind, SelfProposal } from '../../../../src/evolve/legacy/self_proposal/index.js';
-import { assert_patch_kinds_contract } from '../../../../src/evolve/legacy/self_proposal/self_proposal.js';
+import { PatchKind, SelfProposal } from '../../../../src/evolve/proposal/self_proposal/index.js';
+import { assert_patch_kinds_contract } from '../../../../src/evolve/proposal/self_proposal/self_proposal.js';
 
 function _proposal(
   kind: PatchKind,

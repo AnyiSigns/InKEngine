@@ -19,9 +19,9 @@ import {
   GuardedStorage,
   SelfApplicationPipeline,
   SetPatchChain,
-} from '../../../../src/evolve/legacy/self_application/index.js';
-import type { PatchKind } from '../../../../src/evolve/legacy/self_proposal/index.js';
-import { SelfProposal } from '../../../../src/evolve/legacy/self_proposal/index.js';
+} from '../../../../src/evolve/proposal/self_application/index.js';
+import type { PatchKind } from '../../../../src/evolve/proposal/self_proposal/index.js';
+import { SelfProposal } from '../../../../src/evolve/proposal/self_proposal/index.js';
 import { GraphDefinitionError } from '../../../../src/model/errors.js';
 
 import { FakeCtx, MemStorage, _pipeline, _theme_proposal, _tool_proposal, _validator } from './helpers.js';

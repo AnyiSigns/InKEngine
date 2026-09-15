@@ -31,7 +31,7 @@
 ## 装配与消费
 
 - 生产：`graph/executor` 节点上下文 `emit` 产出事件流。
-- 持流消费/记录：`loop/runtime`、`loop/display_stream`（展示聚合）、`loop/recovery`、`evolve/legacy/growth`、`evolve/legacy/entity_evolution`、`evolve/proposal/guarded_storage`、`core/run_result`（`kernel/multipath` 持流消费已随 P8+S1 展开段退役删除）。
+- 持流消费/记录：`loop/runtime`、`loop/display_stream`（展示聚合）、`loop/recovery`、``、``、`evolve/proposal/guarded_storage`、`core/run_result`（`kernel/multipath` 持流消费已随 P8+S1 展开段退役删除）。
 - 持久化/回放：`plugins/ports/storage`（S2 端口提供方，EngineEvent 落执行日志，sqlite 以 `parse_event_lenient` 逐条恢复）；`model/storage/storage_constants.ts` 引 `PROTOCOL_VERSION`。
 - 宿主：`hosts/cli`（run/events_hub/engine_attach）与 `hosts/lib`（transport/host/bridge 等）经公共面接 `EngineEvent`/`EngineTransport`。
 - 错误语义：协议版本不符在 `from_dict` 传输入口拒绝（不静默解析错位结构）；`parse_event_lenient` 逐条容错——旧版本/结构损坏单条跳过返回 null，不中断整段重放。

@@ -38,7 +38,7 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
   （公共 seam 例外标注「跨域契约模块」，S2 后仅 core 域间适用）。
 - 机制件契约落点：各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制
   目录、测试镜像 `engine/test/`，
-  跨 graph/gate/loop/evolve 四机制层，现 28 契约，kernel 层契约已随 P8+S1 清零），经 `dock/registry/`
+  跨 graph/gate/loop/evolve 四机制层，现 24 契约，kernel 层契约已随 P8+S1 清零），经 `dock/registry/`
   集中注册、boot 密封；新契约落对应机制层，禁按旧「kernel 单一收编地」理解。
 
 ## 本层禁止
@@ -54,6 +54,6 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
 - `vitest run --root engine`（引擎单测 + 架构门禁随跑）
 - `tsc -p engine/tsconfig.json`（typecheck）
 - `node engine/scripts/verify_generated.mjs`（contracts:verify）
-- `tsx engine/scripts/verify_mechanisms.ts`（verify:mechanisms：契约三键，现 28 项）
+- `tsx engine/scripts/verify_mechanisms.ts`（verify:mechanisms：契约三键，现 24 项）
 - `tsx plugins/scripts/verify_unload.ts`（verify:unload：插件卸载一致性）
 - gated docs 改动后：`tsx gate/src/check.ts`

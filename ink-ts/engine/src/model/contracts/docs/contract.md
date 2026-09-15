@@ -55,8 +55,8 @@ GUARDED_PREFIXES/PATCH_KINDS/PATCH_OPS 及配套类型。
 - 下游（机制面）：`loop/runtime`（结点注册契约校验与图执行数据；组装路的
   boot flag from_boot 解析已随组装链路退役，W7-B）、
   `loop/turn_settle`（QualityGate 推进判定）、
-  `evolve/legacy/self_application`（审批分级/
-  守卫集合/generated）、`evolve/legacy/self_proposal`（PATCH_KINDS）；`kernel/multipath`
+  `evolve/proposal/self_application`（审批分级/
+  守卫集合/generated）、`evolve/proposal/self_proposal`（PATCH_KINDS）；`kernel/multipath`
   的 QualityGate 判定注入与 PathAssemblyFlags.multipath_enabled 消费已随 P8+S1 展开段退役删除；图/注册与
   数据面消费：`graph/node_registry`/`gate/link_validator`/`model/graph`/`model/perception`/`graph/nodes`。
 

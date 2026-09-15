@@ -7,4 +7,4 @@
 
 ## 依赖
 - 上游（本目录实际 import）：`model/json.ts`（`isRecord`、`JsonRecord`）。
-- 下游（实际 import 本目录）：`src/index.ts`（公共面具名导出）、`graph/executor`（emit 生产）、`loop/runtime`、`loop/display_stream`、`evolve/legacy/growth`、`loop/recovery`、`evolve/legacy/entity_evolution`、`evolve/legacy/self_application`、`model/storage`（`storage_constants.ts` 引 `PROTOCOL_VERSION`）、`core/run_result`、`plugins/ports/storage`（S2 端口提供方，事件落执行日志与 `parse_event_lenient` 回放）；hosts（cli/lib）经公共面以 `EngineEvent`/`EngineTransport` 接入，`hosts/web` 与 renderer 不静态 import。
+- 下游（实际 import 本目录）：`src/index.ts`（公共面具名导出）、`graph/executor`（emit 生产）、`loop/runtime`、`loop/display_stream`、``、`loop/recovery`、``、`evolve/proposal/self_application`、`model/storage`（`storage_constants.ts` 引 `PROTOCOL_VERSION`）、`core/run_result`、`plugins/ports/storage`（S2 端口提供方，事件落执行日志与 `parse_event_lenient` 回放）；hosts（cli/lib）经公共面以 `EngineEvent`/`EngineTransport` 接入，`hosts/web` 与 renderer 不静态 import。

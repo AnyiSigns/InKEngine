@@ -13,7 +13,7 @@ import type { ApprovalInterruptContext } from '../../../gate/approval/approval.j
 import type { HarnessRegistry } from '../../../core/harness/index.js';
 import type { KnowledgeSet } from '../../../core/knowledge_set/index.js';
 import type { ToolSpec } from '../../../model/llm/tools.js';
-import type { SelfApplicationPipeline } from '../../legacy/self_application/index.js';
+import type { SelfApplicationPipeline } from '../../proposal/self_application/index.js';
 import type { ToolVectorIndex } from '../../../loop/tools/tool_index/tool_index.js';
 
 /** 收敛管制评估结果（Assessment：allowed/state/target/reason，鸭子协议）。 */

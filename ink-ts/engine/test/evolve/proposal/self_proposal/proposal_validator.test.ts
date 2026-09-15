@@ -20,7 +20,7 @@ import {
   PatchKind,
   ProposalValidator,
   SelfProposal,
-} from '../../../../src/evolve/legacy/self_proposal/index.js';
+} from '../../../../src/evolve/proposal/self_proposal/index.js';
 import {
   FIELD_OBJECT,
   FIELD_STRING,

@@ -50,8 +50,8 @@ export *，防面无序膨胀）。
 ## 依赖与消费方
 
 - 上游：无 import（生成产物）。
-- 下游：`evolve/legacy/self_application`（approval_level.ts：审批
-  分级 + 守卫集合）、`evolve/legacy/self_proposal`（PATCH_KINDS）、loop 声明式
+- 下游：`evolve/proposal/self_application`（approval_level.ts：审批
+  分级 + 守卫集合）、`evolve/proposal/self_proposal`（PATCH_KINDS）、loop 声明式
   工具端点注册表（`tools/declarative_tools`，BUILTIN_ENDPOINTS 对账）；一致性测试
   `test/core/contractsConsistency.test.ts` 与
   `test/loop/tools/declarative_tools/registry.test.ts`。

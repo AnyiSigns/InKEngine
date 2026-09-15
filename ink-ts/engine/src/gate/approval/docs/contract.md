@@ -55,7 +55,7 @@
 - `loop/tools/tool_pipeline`：gate `review` 判定委托 `approve_before_execute`
   挂 gate 卡（action 负载经 `strip_sensitive` 脱敏、pose 经 options 传入，
   reject/terminate 收口为拒绝结果）。
-- `evolve/legacy/self_application`（apply/revert 审批分级与链尾限定）、
+- `evolve/proposal/self_application`（apply/revert 审批分级与链尾限定）、
   `evolve/proposal/controlled_applier`（演化 apply 审批）、
   `evolve/proposal/self_edit_tools`（`ApprovalInterruptContext` ctx 类型）、`loop/runtime`
   （`_runtime_mechanisms` 挂卡接线、`_types`/`_runtime_boot` policy 形态）。

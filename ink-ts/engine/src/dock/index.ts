@@ -43,8 +43,6 @@ export { AssemblyRecipe, Runtime, RuntimeState, RunTicket, set_runtime_clock } f
 export type {
   AssemblyRecipeInit,
   AssemblySourceProvider,
-  EvolveOfflineOptions,
-  EvolveOfflineResult,
   Host,
   RunTaskHandle,
   RuntimeConfigInit,
@@ -129,9 +127,6 @@ export {
 } from './ports/events.js';
 export type { EngineEventInit, EngineTransport } from './ports/events.js';
 
-// 事件展示聚合器（从事件流派生展示态消息流；宿主经 transport 接入采集）
-export { DisplayStreamCollector, type DisplayMessage } from '../loop/display_stream/display_stream.js';
-
 // 状态（Reducer 注册 + StateSchema/Channel）
 export * from '../core/state/reducers.js';
 export * from '../core/state/schema.js';
@@ -140,7 +135,7 @@ export * from '../core/state/schema.js';
 export * from '../gate/approval/approval.js';
 
 // 自指应用管线（SelfApplicationPipeline/GuardedStorage/分级表等）
-export * from '../evolve/legacy/self_application/index.js';
+export * from '../evolve/proposal/self_application/index.js';
 
 // 存储 seam（Storage 接口 + checkpoint/链记录数据形态 + 协议常量）
 export * from './ports/storage.js';
@@ -288,15 +283,6 @@ export type {
   KnowledgeSkillStoreOptions,
   SkillStoreOptions,
 } from '../evolve/skill/crystallization/index.js';
-
-export {
-  DeterministicMutation,
-  EvolutionCandidate,
-  EvolutionFactory,
-  EvolutionOutcome,
-  entry_metrics,
-} from '../evolve/legacy/evolution/index.js';
-export type { EvolutionGate, MutationStrategy } from '../evolve/legacy/evolution/index.js';
 
 export {
   AUTO_ROUND_ID_PREFIX,

@@ -7,7 +7,7 @@
  */
 
 import { GraphDefinitionError } from '../../../model/errors.js';
-import type { SelfApplicationPipeline } from '../../legacy/self_application/index.js';
+import type { SelfApplicationPipeline } from '../../proposal/self_application/index.js';
 import { _apply, _propose, _propose_domain, _revert } from './_proposal_ops.js';
 import { _request_tool, _search_tools } from './_discover_ops.js';
 import type { SelfToolContext, SelfToolExecutor, SelfToolNodeContext } from './_types.js';

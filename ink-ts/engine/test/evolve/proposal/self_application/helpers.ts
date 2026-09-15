@@ -10,8 +10,8 @@
 
 import type { EngineEvent } from '../../../../src/dock/ports/events.js';
 import type { ApprovalInterruptContext } from '../../../../src/gate/approval/approval.js';
-import { ProposalValidator, SelfProposal } from '../../../../src/evolve/legacy/self_proposal/index.js';
-import type { PatchKind } from '../../../../src/evolve/legacy/self_proposal/index.js';
+import { ProposalValidator, SelfProposal } from '../../../../src/evolve/proposal/self_proposal/index.js';
+import type { PatchKind } from '../../../../src/evolve/proposal/self_proposal/index.js';
 import type {
   ChainLink,
   CheckpointRecord,
@@ -21,8 +21,8 @@ import type {
   ApprovalLevel,
   L2VettingHook,
   SelfApplicationPipelineInit,
-} from '../../../../src/evolve/legacy/self_application/index.js';
-import { SelfApplicationPipeline } from '../../../../src/evolve/legacy/self_application/index.js';
+} from '../../../../src/evolve/proposal/self_application/index.js';
+import { SelfApplicationPipeline } from '../../../../src/evolve/proposal/self_application/index.js';
 
 /** 内存假存储：records/事件日志三原语 + checkpoint 惰性通道全量实现。 */
 export class MemStorage implements Storage {

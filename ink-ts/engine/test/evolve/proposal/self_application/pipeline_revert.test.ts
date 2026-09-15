@@ -10,7 +10,7 @@ import {
   AUDIT_STATUS_APPLIED,
   AUDIT_STATUS_REJECTED,
   AUDIT_STATUS_REVERTED,
-} from '../../../../src/evolve/legacy/self_application/index.js';
+} from '../../../../src/evolve/proposal/self_application/index.js';
 
 import { FakeCtx, MemStorage, _pipeline, _theme_proposal, _tool_proposal } from './helpers.js';
 

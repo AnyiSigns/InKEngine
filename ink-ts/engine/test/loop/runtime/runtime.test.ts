@@ -35,8 +35,8 @@ import { ToolSpec } from '../../../src/model/llm/tools.js';
 import { EventTypeSpec } from '../../../src/model/event_types/eventTypeSpec.js';
 import { HarnessDefinition } from '../../../src/core/harness/index.js';
 import { KnowledgeEntry, KIND_RULE } from '../../../src/core/knowledge_set/index.js';
-import { PatchKind } from '../../../src/evolve/legacy/self_proposal/index.js';
-import { ApprovalLevel } from '../../../src/evolve/legacy/self_application/index.js';
+import { PatchKind } from '../../../src/evolve/proposal/self_proposal/index.js';
+import { ApprovalLevel } from '../../../src/evolve/proposal/self_application/index.js';
 import { self_tool_specs, make_self_executor, operation_of } from '../../../src/evolve/proposal/self_edit_tools/index.js';
 import type { SelfToolContext } from '../../../src/evolve/proposal/self_edit_tools/index.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/evolve/param_tuning/index.js';
@@ -614,30 +614,6 @@ describe('runtime 回合账本归约（ledger 钩子直驱）', () => {
     });
     await hook.settle(empty);
     expect(await _recordsOf(runtime, ROUND_LEDGER_COLLECTION)).toEqual([]);
-    await runtime.stop();
-  });
-});
-
-describe('runtime growth uuid 源（同知识集二次落位实例内唯一）', () => {
-  it('两次不同信号蒸馏两次落位成功：landed 递增且条目 id 不冲突', async () => {
-    const runtime = await new Runtime().boot(toHost(new FakeHost()), _minimal_recipe());
-    const grow = runtime.growth_pipeline!;
-    expect(grow).toBeTruthy();
-    const rounds: ReadonlyArray<readonly [string, string]> = [
-      ['第一次失败教训', 'r1'],
-      ['第二次失败教训', 'r2'],
-    ];
-    for (const [message, round] of rounds) {
-      await grow.send(_ev('review_pass', { message }, { thread_id: 't-g', round_id: round }));
-      await grow.flush_round({ complexity: 5 });
-    }
-    const snap = grow.snapshot();
-    expect(snap['landed']).toBe(2);
-    const insights = runtime
-      .knowledge_set!.entries()
-      .filter((entry) => entry.id.startsWith('insight:g:'));
-    expect(insights.length).toBe(2);
-    expect(insights[0]!.id).not.toBe(insights[1]!.id);
     await runtime.stop();
   });
 });

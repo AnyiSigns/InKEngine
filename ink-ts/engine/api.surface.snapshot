@@ -154,9 +154,6 @@ DeclarativeToolSpecInit:type
 DedupeGroup:type
 DefaultGrantsOptions:type
 DefaultInterruptPolicy:value
-DeterministicMutation:type
-DisplayMessage:type
-DisplayStreamCollector:type
 DownrankModeRef:type
 DownrankProposal:type
 ENGINE_DEFAULT_TOOL_ROUNDS:type
@@ -213,17 +210,11 @@ EventTypeSpec:value
 EventTypeSpecWriter:type
 EventVerdict:value
 EvolutionApplyReport:type
-EvolutionCandidate:type
-EvolutionFactory:type
-EvolutionGate:type
-EvolutionOutcome:type
 EvolutionPlanStep:type
 EvolutionProposal:type
 EvolutionProposalInit:type
 EvolutionProposalKind:type
 EvolutionProvenance:type
-EvolveOfflineOptions:type
-EvolveOfflineResult:type
 ExecCheckpointSnapshot:type
 ExecuteOptions:type
 ExecutionRequest:type
@@ -330,7 +321,6 @@ MetaTuner:type
 MetaTunerOptions:type
 Mkdirs:type
 ModelChain:type
-MutationStrategy:type
 NEXT_KINDS:value
 NODE_KIND_COMPONENT:type
 NODE_KIND_CONTAINER:type
@@ -721,7 +711,6 @@ endpoint_operation:type
 endpoint_operation_failure_reason:type
 endpoint_registry:type
 enforce_transition_conditions:value
-entry_metrics:type
 estuary_synthesize:value
 evaluate_and_adapt:type
 evaluate_org_archive:type

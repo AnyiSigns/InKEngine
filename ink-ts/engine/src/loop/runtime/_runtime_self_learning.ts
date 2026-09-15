@@ -1,6 +1,5 @@
 /**
- * 自学习族装配层（D04/D05 接线）：回合记忆抽取、技能容器、离线进化调度
- * 与回合收尾调参。
+ * 自学习族装配层（D04/D05 接线）：回合记忆抽取、技能容器、回合收尾调参。
  *
  * - 记忆：回合收尾把当轮账本事实（意图/结论 + 用户决议确认事件）规则抽取
  *   入用户级 memory 域（StorageBackedMemoryStore = EvolutionWriter
@@ -9,18 +8,14 @@
  * - 技能容器：KnowledgeSkillStore = 知识集 kind=path 条目访问器（知识集
  *   补丁链 = 唯一演化史）；结晶自动触发源（指纹缓存命中）已随组装链路
  *   退役，容器与互转保持，观察侧 skill_crystallizer 恒空；
- * - 进化调度：evolution 工厂（离线变异-择优）的产品内入口
- *   runtime.evolve_offline——宿主显式调用（默认保守：无回合内自动调度，
- *   不引入每回合开销）；闸门/样例由调用方注入（领域 fixtures 属宿主）；
  * - 收尾调参：普通回合收尾经 settle 钩子接入 MetaTuner，回合指标由引擎
  *   注入 RunOptions.metrics 聚合一次。
  *
- * 沉淀链顺序（super 基础链 …归因/账本之后）：记忆抽取 → growth → 实体演化
- * → 收尾调参 → 决议事件边界清理。
+ * 沉淀链顺序（super 基础链 …归因/账本之后）：记忆抽取 → 收尾调参 →
+ * 决议事件边界清理。（growth/entity_evolution/evolve_offline 等 legacy
+ * 演化管线装配已随 S6 删除——受控进化活线覆盖其职能，§7.2。）
  */
 
-import { EvolutionFactory } from '../../evolve/legacy/evolution/index.js';
-import type { EvolutionGate } from '../../evolve/legacy/evolution/index.js';
 import type { KnowledgeEntry } from '../../core/knowledge_set/index.js';
 import type { KnowledgeSet } from '../../core/knowledge_set/index.js';
 import { StorageBackedMemoryStore } from '../../evolve/learn/memory/index.js';
@@ -99,39 +94,7 @@ class _ReviewEventBoundaryHook {
   }
 }
 
-/** evolve_offline 调度选项（离线进化：失败率入队 → 变异 → 闸门防退化）。 */
-export interface EvolveOfflineOptions {
-  /** 单批候选上限（小批量防膨胀；缺省 3）。 */
-  batch?: number;
-  /** 额外失败日志覆盖（缺省取条目自身 failure_logs 留痕）。 */
-  failure_logs?: Readonly<Record<string, readonly string[]>> | null;
-  /** 知识闸门（EvolutionGate，真实 KnowledgeGate 结构满足）；null = 不评估。 */
-  gate?: EvolutionGate | null;
-  /** L1 schema 声明 / L2 完整样例库 / L3 回归用例（透传工厂）。 */
-  schema?: unknown;
-  fixtures?: unknown;
-  regression?: unknown;
-}
-
-/** evolve_offline 结果（候选/尝试/保留/拒绝/重复留痕）。 */
-export interface EvolveOfflineResult {
-  candidates: number;
-  evolved: number;
-  kept: number;
-  rejected: number;
-  duplicated: number;
-}
-
-/** 缺省失败日志源（条目自身留痕——失败日志 = 反思式变异输入）。 */
-function _entry_failure_logs(entries: readonly KnowledgeEntry[]): Record<string, readonly string[]> {
-  const logs: Record<string, readonly string[]> = {};
-  for (const entry of entries) {
-    if (entry.failure_logs.length > 0) logs[entry.id] = entry.failure_logs;
-  }
-  return logs;
-}
-
-/** 自学习族装配层（回合记忆/技能结晶/进化调度/收尾调参）。 */
+/** 自学习族装配层（回合记忆/技能结晶/收尾调参）。 */
 export abstract class RuntimeSelfLearning extends RuntimeRebuild {
   /** 自学习族装配（记忆存储/技能存储；engine 重建前调用，开关关闭 = 不装配）。 */
   _assemble_self_learning(guarded: Storage, recipe: AssemblyRecipe): void {
@@ -176,71 +139,8 @@ export abstract class RuntimeSelfLearning extends RuntimeRebuild {
         }),
       );
     }
-    if (this.growth_pipeline !== null) hooks.register(this.growth_pipeline);
-    if (this.entity_evolution_pipeline !== null) {
-      hooks.register(this.entity_evolution_pipeline);
-    }
     hooks.register(new _RoundTuneSettleHook(this as never));
     hooks.register(new _ReviewEventBoundaryHook(this as never));
     return hooks;
-  }
-
-  /**
-   * 离线进化调度入口（产品内按需方法；宿主在收敛/批量流程中显式调用）。
-   *
-   * 语义对齐 evolution 工厂：失败率优先入队（次之长期未调用）→ 反思式变异
-   * → 三层闸门防退化。闸门/样例缺省不注入 = 保守不评估（只返回候选统计，
-   * 不产生任何回合内开销）；注入真实 KnowledgeGate + 领域 fixtures 后小批
-   * 量择优，过闸变异体落知识集（补丁链 = 唯一演化史）。
-   */
-  async evolve_offline(options: EvolveOfflineOptions = {}): Promise<EvolveOfflineResult> {
-    const knowledgeSet = this.knowledge_set;
-    if (knowledgeSet === null) {
-      return { candidates: 0, evolved: 0, kept: 0, rejected: 0, duplicated: 0 };
-    }
-    const entries = knowledgeSet.entries();
-    const failureLogs =
-      options.failure_logs ?? _entry_failure_logs(entries);
-    const candidates = EvolutionFactory.collect_candidates(entries, { failure_logs: failureLogs });
-    const ranked = EvolutionFactory.rank(candidates);
-    const batch = Math.max(0, Math.trunc(options.batch ?? 3));
-    const gate = options.gate ?? null;
-    const result: EvolveOfflineResult = {
-      candidates: ranked.length,
-      evolved: 0,
-      kept: 0,
-      rejected: 0,
-      duplicated: 0,
-    };
-    if (gate === null || batch === 0) return result;
-    const factory = new EvolutionFactory(gate);
-    for (const candidate of ranked.slice(0, batch)) {
-      result.evolved += 1;
-      let outcome;
-      try {
-        outcome = await factory.evolve(candidate, {
-          schema: options.schema,
-          fixtures: options.fixtures,
-          regression: options.regression,
-        });
-      } catch {
-        result.rejected += 1;
-        continue;
-      }
-      result.rejected += outcome.rejected.length;
-      for (const variant of outcome.variants) {
-        if (knowledgeSet.get(variant.id) !== null) {
-          result.duplicated += 1;
-          continue;
-        }
-        try {
-          knowledgeSet.add(variant);
-          result.kept += 1;
-        } catch {
-          result.duplicated += 1;
-        }
-      }
-    }
-    return result;
   }
 }

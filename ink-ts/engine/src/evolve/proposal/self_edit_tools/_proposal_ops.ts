@@ -14,9 +14,9 @@ import { DeclarativeToolSpec } from '../../../loop/tools/declarative_tools/index
 import { GraphDefinitionError } from '../../../model/errors.js';
 import { build_minimal_harness } from '../../../core/harness/index.js';
 import { isRecord } from '../../../model/json.js';
-import { PatchKind, SelfProposal } from '../../legacy/self_proposal/index.js';
-import { _PATCH_KIND_VALUES } from '../../legacy/self_proposal/self_proposal.js';
-import type { PatchKind as PatchKindType } from '../../legacy/self_proposal/index.js';
+import { PatchKind, SelfProposal } from '../../proposal/self_proposal/index.js';
+import { _PATCH_KIND_VALUES } from '../../proposal/self_proposal/self_proposal.js';
+import type { PatchKind as PatchKindType } from '../../proposal/self_proposal/index.js';
 
 import { _AUDIT_SCAN_LIMIT } from './_constants.js';
 import { _json, pyRepr } from './_json.js';

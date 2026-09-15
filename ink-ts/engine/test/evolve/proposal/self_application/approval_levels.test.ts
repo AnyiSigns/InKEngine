@@ -18,8 +18,8 @@ import {
   ApprovalLevel,
   DEFAULT_APPROVAL_LEVELS,
   assert_approval_levels_contract,
-} from '../../../../src/evolve/legacy/self_application/approval_level.js';
-import type { PatchKind } from '../../../../src/evolve/legacy/self_proposal/index.js';
+} from '../../../../src/evolve/proposal/self_application/approval_level.js';
+import type { PatchKind } from '../../../../src/evolve/proposal/self_proposal/index.js';
 import { MemStorage, _pipeline } from './helpers.js';
 
 function levelOf(

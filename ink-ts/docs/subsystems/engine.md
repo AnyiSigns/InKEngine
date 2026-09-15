@@ -43,12 +43,12 @@ engine/
 │   │                   #   permissions（权限）、sandbox（文件/进程沙箱判定，
 │   │                   #   exec seam 的机制侧实现）、security、tool_vetting、
 │   │                   #   link_validator
-│   ├─ evolve/          # 单一演化栈：pipeline、learn（知识/结晶学习面）、
+│   ├─ evolve/          # 单一演化栈：learn（知识/结晶学习面）、
 │   │                   #   observe（inspection + org_archive 组织档案/择优修剪
 │   │                   #   阈值）、param_tuning、proposal（evolution_writer 受控
 │   │                   #   通道/controlled_applier 采纳闸/evaluate_options 阈值
 │   │                   #   配置面/self_edit_tools）、skill（crystallization
-│   │                   #   结晶）、legacy（旧演化件留守）；
+│   │                   #   结晶）；
 │   │                   #   演化资产只经受控通道落库
 │   ├─ dock/            # 对外契约面：ports.ts（机制端口词表单一真源，现 4 值）、
 │   │                   #   ports/（events/exec/llm/storage seam 接口）、

@@ -16,7 +16,7 @@ JSON 进 JSON 出；各层零框架依赖、零 IO、零自持进程。详细定
   collab/context/recovery/interrupt/trial/turn_settle 等回合与执行机制。
 - `src/gate/`：运行期「可不可以」——approval/audit_log/budget/patch/permissions/
   sandbox/security/tool_vetting/link_validator。
-- `src/evolve/`：单一演化栈——learn/observe/param_tuning/proposal/skill/pipeline，
+- `src/evolve/`：单一演化栈——learn/observe/param_tuning/proposal/skill，
   演化资产只经受控通道落库。
 - `src/dock/`：对外契约面——端口词表单一真源 `ports.ts`、seam 接口 `ports/*`
   （events/exec/llm/storage）、机制注册面 `registry/`（原 kernel/registry）与

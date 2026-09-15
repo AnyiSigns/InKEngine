@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
- * no_orphan —— 引擎模块消费者扫描器（计划 §13.10/§6 P0 行；S6 判删工具）。
+ * no_orphan —— 引擎模块消费者扫描器（计划 §13.10/§6 P0 行；S6 判删工具；S7 口径升级）。
  *
- * 扫描 engine/src 全部 `.ts` 的相对 import 边，对每个模块列「目录外消费者数」
- * （同目录互引不计——目录内引用不构成跨模块消费证据）。零外部消费者 = 孤儿
- * 候选（入口 src/index.ts 为宿主直取面，不计候选）。
+ * 扫描 engine/src 全部 `.ts` 的相对 import 边，对每个模块列「直接消费者数」
+ * （同目录互引计入——目录内引用即真实消费证据）。零消费者 = 孤儿候选
+ * （入口 src/index.ts 为宿主直取面，不计候选）。
+ *
+ * 口径注记：S7（§14.13 卡）由「目录外消费者为零」升级为「全 src 直接引用为零」——
+ * 旧口径把同目录 index.ts barrel re-export 的内部件全部误报为候选（S6 执法时 171
+ * 候选 = 168 目录内互引 + 3 硬孤儿）；S6 scoped 执法历史仍有效，全局执法按新口径。
  *
  * 用法：
  *   node engine/scripts/no_orphan.mjs                 # report 模式：列候选，exit 0
- *   node engine/scripts/no_orphan.mjs --strict        # 有孤儿候选 → exit 1（S6 执法用）
+ *   node engine/scripts/no_orphan.mjs --strict        # 有孤儿候选 → exit 1（全局执法）
  *   node engine/scripts/no_orphan.mjs --src <dir>     # 覆盖扫描根（自测夹具用）
  */
 
@@ -72,7 +76,6 @@ function main() {
       let target = resolve(importerDir, spec);
       if (target.endsWith('.js')) target = `${target.slice(0, -3)}.ts`;
       if (!modules.has(target)) continue;
-      if (dirname(target) === importerDir) continue; // 同目录互引不计
       const key = rel(target);
       external.set(key, (external.get(key) ?? 0) + 1);
     }
@@ -84,10 +87,10 @@ function main() {
     .map(([modPath]) => modPath)
     .sort();
 
-  console.log(`no_orphan: 扫描 ${modules.size} 个模块（${rel(src) || '.'}），目录外消费者为零的孤儿候选 ${orphans.length} 个`);
+  console.log(`no_orphan: 扫描 ${modules.size} 个模块（${rel(src) || '.'}），直接消费者为零的孤儿候选 ${orphans.length} 个`);
   for (const o of orphans) console.log(`  orphan-candidate: ${o}`);
   if (orphans.length > 0) {
-    console.log(strict ? 'no_orphan: STRICT —— 存在孤儿候选 = FAIL' : 'no_orphan: report 模式（exit 0）；S6 执法用 --strict');
+    console.log(strict ? 'no_orphan: STRICT —— 存在孤儿候选 = FAIL' : 'no_orphan: report 模式（exit 0）；全局执法用 --strict');
   }
   if (strict && orphans.length > 0) process.exit(1);
 }

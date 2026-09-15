@@ -16,19 +16,30 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import {
-  ScoreDimension,
-  ScoringConfig,
-  WeightedScorer,
-} from '../../../src/evolve/observe/scoring/scoring.js';
 import { MetaTuner, TunableParams, TurnMetrics } from '../../../src/evolve/param_tuning/index.js';
 
-function scorer(weights: Record<string, number>): WeightedScorer {
-  return new WeightedScorer(
-    new ScoringConfig(
-      Object.entries(weights).map(([name, weight]) => new ScoreDimension(name, weight)),
-    ),
-  );
+/**
+ * 加权均值打分夹具（原 WeightedScorer 语义内联：S7 删除 scoring 机制件后
+ * 活件测试不再依赖死代码模块；total = Σ(score×weight)/Σ(weight)，纯确定性，
+ * 与本测试的调参基准断言等价）。
+ */
+interface InlineScoreResult {
+  total: number;
+}
+function scorer(weights: Record<string, number>): {
+  score: (dimension_scores: Record<string, number>) => InlineScoreResult;
+} {
+  return {
+    score: (dimension_scores) => {
+      let weighted_sum = 0;
+      let weight_sum = 0;
+      for (const [name, weight] of Object.entries(weights)) {
+        weighted_sum += (dimension_scores[name] ?? 0) * weight;
+        weight_sum += weight;
+      }
+      return { total: weight_sum > 0 ? weighted_sum / weight_sum : 0 };
+    },
+  };
 }
 
 describe('低分反馈降权（基准：打分随权重调整变化）', () => {

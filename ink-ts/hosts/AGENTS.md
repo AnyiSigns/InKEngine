@@ -31,6 +31,11 @@ hosts/
 - **lib**：只做「选适配、读配置、注入 seam」与薄接线；不写 main、不监听端口、
   不是进程；命令方法名不手写数组（verify:bridge-mount：BRIDGE_METHODS 只允许
   各域 `*_COMMANDS` spread）。
+- **lib 域/端口实现位（S4）**：域逻辑唯一实现位 = `plugins/domains/<id>/`
+  （域服务插件 faces.logic 默认工厂）+ 原生机制件/端口实装位 = `plugins/ports/*`
+  （exec_client/mcp_client 等）；hosts/lib 只装配——boot DI 注入面、loadPortsSeam、
+  buildDomainsSeam、bridge 命令面装载；装配契约类型经跨树 type import 取插件包；
+  宿主新增域逻辑 = 违约（S5 门禁红）。
 - **cli**：唯一进程载体（stdio/run/serve 三形态）；serve 出 http+ws 供 web。
 - **web**：产品壳（App/activate/state/shell/productView/views/AppBackend +
   index.html/main/vite）；显示设备 = renderer（单向 import）；真 ui 面注册

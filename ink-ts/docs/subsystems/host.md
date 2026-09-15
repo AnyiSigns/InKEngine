@@ -13,10 +13,12 @@ hosts/ = **宿主仓**：kind=host 装配期 spec（tauri/cli/web/ide 四份
 hosts/
 ├─ AGENTS.md                 # 宿主面契约（就近权威）
 ├─ lib/                      # @ink-ts/host 装配库（L4 composition root）：
-│   │                        #   createHost/loadHostSpec/binary/face loader/recipe/bridge；
-│   │                        #   execution/ = 执行主线宿主装配（HostExecutionService：
-│   │                        #     run/resume/branch/inject + 档案快照持久化 + convene
-│   │                        #     圆桌编排三件 convene/convene_board/convene_params）
+│   │                        #   createHost/loadHostSpec/face loader/recipe/bridge；
+│   │                        #   S4 域逻辑唯一实现位 = plugins/domains/<id>（域服务
+│   │                        #   插件）+ plugins/ports/*（端口提供方）；hosts/lib 只留
+│   │                        #   装配：boot 注入面（HostExecutionService 经 collab 域
+│   │                        #   插件构造）、loadPortsSeam（storage/llm/mcp_client/
+│   │                        #   boot/exec_client）、bridge 命令面装载
 │   └─ scripts/verify_bridge_mount.ts   # 命令声明即挂载 verify
 ├─ cli/                      # @ink-ts/cli 唯一进程载体（stdio/run/serve）
 ├─ web/                      # @ink-ts/web web 产品壳（浏览器呈现面 + 产品 chrome）
@@ -57,8 +59,11 @@ hosts/
   **26 域 / 64 方法**（对码 `commands.generated.ts`，含执行
   模型域的 `execution.{run,resume,inject,branch}` 与演化域
   `evolution.{crystallize,evaluate}`）。
-- 原生执行件定位 = plugins/endpoints → `native.generated.ts`（binary.ts 按
-  声明定位，手写 env/文件名表已删）。
+- 原生执行件定位 = plugins/endpoints → `native.generated.ts`（生成物留宿
+  `hosts/lib/src/exec/`；`exec/infer/mcp` 原生机制件 client 实装位 = 端口提供方
+  插件 `plugins/ports/exec_client`（faces/logic，`data.port.implemented=
+  exec_envelope`）——域/命令插件经跨树 import 取 ExecClient/locateNativeBinary/
+  hostAllowed 等，host 装配经 loadPortsSeam.execClient 取定位面）。
 - 界面白名单 = ui_canonical.generated.ts（host recipe 装配面）。
 
 ## 执行主线与挂起注入协议（W7-A/B 主线切换后语义）
@@ -68,7 +73,9 @@ hosts/
   清零）；run_id = `r:<thread_id>` 由线程确定性派生，同线程历史 run 共一条
   `exec:r:<thread>` checkpoint 链（fresh run 不读旧链，恢复按锚点+相位）；
   `execution.run` 直连入口（`run:<seq>` 命名空间）与会话主线共用同一
-  HostExecutionService 装配面（pose/挂起/注入/簿记成对）。
+  HostExecutionService 装配面（pose/挂起/注入/簿记成对）——S4 域组3 后执行
+  装配实现位 = collab 域插件 `plugins/domains/collab/faces/logic/service.ts`，
+  宿主 boot 只留 DI 注入面（loadScope/makeTurn/storage/审批策略/白板护栏）。
 - **挂起卡**：review 档审批挂起 = 结果带 `pending{key,payload,checkpoint_id,
   run_id}`，卡随 `exec:<run_id>` 链 checkpoint 持久化（无 storage/未开
   hang = fail-closed 阻断，不留孤儿卡）；旧 `approval.list/resolve` 线程链

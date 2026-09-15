@@ -297,6 +297,31 @@ backup/mcp/os/collab/plugin/execution…）随 S4 从 `hosts/lib/src` 移入对�
 - 域服务 = 宿主域逻辑**唯一实现位**：改域功能只改对应 `plugins/domains/<id>/`
   （spec + faces/logic + 同住测试）；宿主出现域逻辑 = S5 门禁红。
 
+**S4 域组3 落地续（2026-09-14）**：
+
+- **域服务值消费口径**：命令逻辑面/_shared 与演化资产跨树 import 域插件包取
+  域值（`_shared` 用 `../../domains/<id>/faces/logic/index.js`、命令面用
+  `../../../../domains/<id>/faces/logic/index.js`），不再经 `@ink-ts/host`
+  中转；`@ink-ts/host` 只留装配契约类型（HostBridgeDeps/HostHandle 等，经
+  跨树 type import 派生）+ 桥面值 + 装配面值 + cli 冷启项（model_config_runtime）。
+- **collab 域**（plugins/domains/collab）：`execution/convene{,_board,_params}.ts`
+  + `collab_command.ts` + `service.ts`（HostExecutionService）并域——执行装配
+  拆薄壳：DI 注入面（loadScope/makeTurn/storage/审批策略/白板护栏）留宿主
+  boot composition，run/resume/branch 实现体随域；`TEMP_SIGHTINGS_COLLECTION`
+  结晶证据流值随插件。
+- **plugin 域**（plugins/domains/plugin）：plugin_command 工具族（B6 agent
+  插件管理面）执行接线随插件。
+- **exec 原生机制件**：`exec/*`（二进制定位/信封裁决面门/受监督会话 client，
+  805 行）随 S2 mcp_client 先例下沉 **`plugins/ports/exec_client`** 端口提供方
+  插件（`data.port.implemented=exec_envelope`，faces.logic 默认工厂）；host
+  装配经 `loadPortsSeam.execClient` 窄面（locateNativeBinary），域/命令插件
+  跨树 import 取 ExecClient/SupervisedNativeSession/hostAllowed 等；
+  `native.generated.ts` 生成物留宿 `hosts/lib/src/exec/`（NATIVE_BINARY_DECLS/
+  NativeBinaryKind 经 @ink-ts/host 公共面取型）。
+- **装配量级判据（§13.4 硬化，用户 2026-09-14 拍板）**：hosts/lib src
+  **非生成代码行**（排除注释/空行）`< 3000`（域组3 后实测 2416 ✓）；物理行
+  含注释头 ~3281，判据以代码行为准、可机检。
+
 
 ### 2.1 工具类插件（分发单位 vs 控制单位，正交）
 

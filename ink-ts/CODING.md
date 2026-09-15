@@ -258,7 +258,7 @@ CI 的 ink-ts job 同链执行。规则增删须同步本表。
    与语义不同，勿混淆）：`edge/trust-tier`、`safety_tier`、approval 档、
    reasoning 档。
 
-## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制；**S3 起命令实现位 = plugins/commands/<id>/faces/logic**（默认导出统一工厂 `(deps: HostBridgeDeps) => BridgeHandler`，域内共享辅助落 plugins/commands/_shared/），`hosts/lib/src/bridge/` 只留装配面（index.ts buildBridge 按 BRIDGE_METHODS 动态装载命令插件逻辑面 + _types 契约 + op_gate 维护闸 + 生成物）；**现量 64 方法 / 26 域**（2026-09-14 对码 commands.generated.ts，本表方法集 = BRIDGE_METHODS 集））
+## 9. host bridge 命令面清单（方法增删须同步本表 + plugins/commands/<method>/spec.json；方法名真源 = plugins 源，`hosts/lib/src/bridge/commands.generated.ts` 为生成物（禁手改，`verify:plugin-manifest` 强制逐字一致）；`BRIDGE_METHODS` 由域声明 spread 派生，`verify:bridge-mount` 强制；**S3 起命令实现位 = plugins/commands/<id>/faces/logic**（默认导出统一工厂 `(deps: HostBridgeDeps) => BridgeHandler`，域内共享辅助落 plugins/commands/_shared/），`hosts/lib/src/bridge/` 只留装配面（index.ts buildBridge 按 BRIDGE_METHODS 动态装载命令插件逻辑面 + _types 契约 + op_gate 维护闸 + 生成物）；**现量 64 方法 / 26 域**（2026-09-14 对码 commands.generated.ts，本表方法集 = BRIDGE_METHODS 集）；**S4 域组3 起域服务值消费改口**：命令逻辑面/_shared 的域服务符号（HostExecutionService/TEMP_SIGHTINGS_COLLECTION/ExecClient 等）跨树 import 对应插件包（`plugins/domains/<id>/faces/logic` 或 `plugins/ports/exec_client/faces/logic`），`@ink-ts/host` 只留装配契约类型/桥面值/装配面值——新增命令或改域消费先核对取值位）
 
 | 方法 | 域 | 语义（机制在 engine，host 只接线） |
 |---|---|---|

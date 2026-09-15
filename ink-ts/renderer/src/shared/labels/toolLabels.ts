@@ -24,11 +24,6 @@ export const FAMILY_LABELS: Record<ToolFamily, string> = {
 const TOOL_DICTIONARY: Record<string, string> = {
   // 研究域（材料流水线）
   collect_material: '收集材料',
-  parse_material: '解析材料',
-  validate_material: '校验材料',
-  review_material: '复核材料',
-  distill_knowledge: '蒸馏知识',
-  mutate_knowledge: '变异知识',
   research_pipeline: '研究管线',
   // 观察/自进化提案（研究自指；inspect_graph 随组装链路退役移除，W7-B）
   inspect_rules: '观察规则集',
@@ -37,27 +32,19 @@ const TOOL_DICTIONARY: Record<string, string> = {
   inspect_tools: '观察工具表',
   propose_patch: '提议补丁',
   propose_domain_manifest: '提议领域清单',
-  propose_mcp_mount: '提议挂载 MCP',
   task_manager: '维护待办清单',
   // OS 域（设备控制）
-  system_query: '查询系统信息',
   ui_query: '查询界面',
   file_query: '查询文件',
   launch_app: '启动应用',
   open_file: '打开文件',
-  set_volume: '设置音量',
-  set_brightness: '设置亮度',
   shell_exec: '执行 Shell 命令',
-  notify: '发送通知',
-  sleep: '前台等待',
   ui_click: '模拟点击',
   ui_type: '模拟输入',
   window_focus: '聚焦窗口',
-  window_minimize: '最小化窗口',
   doc_parse: '解析文档',
   doc_generate: '生成文档',
   screenshot_capture: '屏幕截图',
-  material_import: '导入材料',
   // 网络域
   fetch: '抓取网页',
   web_search: '网页搜索',
@@ -155,7 +142,7 @@ export function classifyToolFamily(toolName: string): ToolFamily {
     name.startsWith('launch_') ||
     name.startsWith('set_') ||
     name.startsWith('os_') ||
-    /^(notify|sleep|ui_click|ui_type|ui_query|window_focus|window_minimize|open_file|file_query)$/.test(name)
+    /^(ui_click|ui_type|ui_query|window_focus|open_file|file_query)$/.test(name)
   ) {
     return 'os';
   }

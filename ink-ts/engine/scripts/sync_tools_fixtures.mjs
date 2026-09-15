@@ -36,16 +36,13 @@ const PLUGIN_MANIFEST = join(SEED_ROOT, '..', 'plugins', 'manifest.json');
 const FIXTURE = join(SEED_ROOT, 'fixtures', 'tools_os.json');
 
 // plugins 非 OS 域但执行器实现的工具（固定清单，新增须显式登记）
-const FIXTURE_EXTRA_TOOLS = ['doc_parse', 'doc_generate', 'material_import', 'propose_patch'];
+const FIXTURE_EXTRA_TOOLS = ['doc_parse', 'doc_generate', 'propose_patch'];
 
 // 豁免：plugins 有声明、执行器无实现的工具（当前为空）
 const FIXTURE_EXEMPTIONS = {};
 
 // plugins 参数面与执行器签名面有意的形态分叉（agent 面向 vs 执行运行面）
 const DIVERGED_SEED_PARAMS = {
-  system_query: ['scope'],
-  set_volume: ['level'],
-  set_brightness: ['level'],
   file_query: ['pattern'],
 };
 
@@ -53,20 +50,13 @@ const DIVERGED_SEED_PARAMS = {
 const PARAMS_MAPPING = {
   launch_app: [['app', 'string', true]],
   open_file: [['path', 'string', true]],
-  system_query: [['query', 'string', true]],
-  set_volume: [['percent', 'integer', true]],
-  set_brightness: [['percent', 'integer', true]],
-  notify: [['title', 'string', true], ['body', 'string', true]],
-  sleep: [['seconds', 'integer', true]],
   file_query: [['path', 'string', true]],
   ui_query: [['target', 'string', false], ['scope', 'string', false]],
   ui_click: [['x', 'integer', true], ['y', 'integer', true], ['button', 'string', true]],
   ui_type: [['text', 'string', true]],
   window_focus: [['handle', 'string', true]],
-  window_minimize: [['handle', 'string', true]],
   doc_parse: [['path', 'string', true]],
   doc_generate: [['format', 'string', true], ['title', 'string', true], ['body', 'string', false], ['table', 'string', false]],
-  material_import: [['path', 'string', true], ['recursive', 'boolean', false]],
   screenshot_capture: [['model_class', 'string', true], ['destination', 'string', false]],
   propose_patch: [['kind', 'string', true], ['payload', 'string', true], ['base_version', 'integer', false], ['rationale', 'string', false]],
   shell_exec: [['command', 'string', true], ['argv', 'stringarray', true], ['timeout', 'integer', false]],
@@ -76,20 +66,13 @@ const PARAMS_MAPPING = {
 const SANDBOX_MAPPING = {
   launch_app: { mode: 'command_allowlist', allowlist: ['notepad', 'calc', 'mspaint'] },
   open_file: { mode: 'path_roots', roots: ['~/.inkling/workspace'] },
-  system_query: { mode: 'query_allowlist', allowlist: ['os', 'arch', 'hostname', 'home', 'cwd', 'uptime'] },
-  set_volume: { mode: 'bounds', min: 0, max: 100 },
-  set_brightness: { mode: 'bounds', min: 0, max: 100 },
-  notify: { mode: 'length_caps', title_max: 80, body_max: 300 },
-  sleep: { mode: 'bounds', min: 1, max: 86400 },
   file_query: { mode: 'path_roots', roots: ['~/.inkling/workspace'] },
   ui_query: { mode: 'command_allowlist', allowlist: ['tree', 'resolution', 'work_area'] },
   ui_click: { mode: 'coordinate_click', x_min: 0, x_max: 32767, y_min: 0, y_max: 32767, buttons: ['left', 'right', 'middle'] },
   ui_type: { mode: 'text_input', max_chars: 256 },
   window_focus: { mode: 'window_target', scopes: [] },
-  window_minimize: { mode: 'window_target', scopes: [] },
   doc_parse: { mode: 'path_roots', roots: ['~/.inkling/workspace', '~/.inkling/attachments'] },
   doc_generate: { mode: 'path_roots', roots: ['~/.inkling/workspace'] },
-  material_import: { mode: 'path_roots', roots: ['~/.inkling/workspace', '~/.inkling/attachments', '~'] },
   screenshot_capture: { mode: 'query_allowlist', allowlist: ['local', 'cloud'] },
   propose_patch: { mode: 'command_allowlist', allowlist: ['propose_patch'] },
   shell_exec: { mode: 'command_allowlist', allowlist: ['pip', 'python', 'uv', 'git', 'cargo', 'npm', 'npx'] },

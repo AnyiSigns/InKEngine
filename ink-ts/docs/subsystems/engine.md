@@ -66,8 +66,8 @@ engine/
 
 机制契约落点 = 各机制层 `<mechanism>/contract.ts`（契约与实现文件同住机制目录、
 测试镜像 `engine/test/`），
-现 28 项分布 loop(7)/gate(7)/evolve(12)/graph(2)（kernel 残部三项 simulation/multipath/spawn
-契约已随 P8+S1 展开段退役清零），统一经
+现 27 项分布 loop(7)/gate(7)/evolve(12)/graph(1)（builder 契约已随 S1-c 退役、
+kernel 残部三项 simulation/multipath/spawn 契约已随 P8+S1 展开段退役清零），统一经
 `src/dock/registry/` 集中注册与 boot 密封（`seal_mechanism_registry`）。
 
 核心不变式（architecture gate + verify 链强制，口径同 CODING §7）：
@@ -86,7 +86,7 @@ engine/
 - 数据面契约（枚举、注册表条目、补丁类型、机制端口词表）只落
   `schemas/` + `fixtures/`，生成 TS 常量/类型入 `src/model/contracts/generated/`，
   全仓经 `@ink-ts/engine` 公共面取用——禁止第二套语义枚举。
-- 机制契约三键（`verify:mechanisms`，现 28 项）：依赖单向 DAG、runtime
+- 机制契约三键（`verify:mechanisms`，现 27 项）：依赖单向 DAG、runtime
   depends 闭包 ∪ 自足叶子覆盖全量、机制层零自持 IO；boot 装配首步
   `seal_mechanism_registry` fail-closed。
 

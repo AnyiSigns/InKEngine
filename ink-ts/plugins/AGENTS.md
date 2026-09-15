@@ -113,6 +113,11 @@ ui_feature 34 + endpoint 3，真 ui 面仍 24（12 叶子 + 12 设置面板）�
 execution.run（collab_request 参数面扩召集协议 scope/n/mode/contract/rounds/
 budget），现 159 插件 = tool 45 + mcp 5 + command 72 + ui_feature 34 +
 endpoint 3，真 ui 面仍 24；其余 kind 目录随对应阶段落位。
+S3/S4（2026-09-14）命令与域逻辑下沉后现量 = **170 插件**（verify:unload 实测）：
+tool 42 + mcp 5 + command 64 + ui_feature 32 + endpoint 3 + graph_node 8 +
+ports 5 + domain 11——命令 64 全量 faces.logic 真面化、域服务 11 域插件随
+hosts/lib 域逻辑下沉（S4）、端口提供方 5（storage/llm/mcp_client/boot/exec_client）；
+「现 N 插件」口径一律以 `verify:unload` 输出为准，禁沿用上段历史序数。
 
 ## spec.json 契约（真源声明）
 

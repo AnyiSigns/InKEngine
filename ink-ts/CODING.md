@@ -154,6 +154,18 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 
 ## 5. 数据面 / 钩子面
 
+### 5.0bis 修改点唯一性（审查 4，S5 定稿；§2.4 代码化）
+
+- **插件 = 功能唯一实现位**：产品功能只落在插件——命令
+  `plugins/commands/<id>/faces/logic`、域服务 `plugins/domains/<id>/faces/logic`、
+  端口实现 `plugins/ports/<id>`（或第三方 `x-*`）、节点实现 `plugins/graph_nodes/<id>`；
+  后端逻辑唯一实现位 = `faces.logic`；改一个功能 = 只改对应插件目录（spec + faces + data）。
+- **引擎/宿主/exec/renderer 禁再堆领域功能**：hosts/lib 是装配层（`host-surface` 门禁冻结装配面
+  白名单，只减不增；新增 src .ts = 领域逻辑回潮 = 红）；engine 是机制层（0-IO 语义核）；exec/renderer
+  是基建层。三层出现领域功能实现 = 违约。
+- **新增基建能力**（新原生端口 / 新显示原语）属独立新基建评审波（独立提交 + 评审），不得以
+  「修功能」名义顺带改基建层；抽查「改功能 diff 只落 plugins/」按 §7 门禁表 host-surface 行执行。
+
 1. 可 JSON 表达的契约（枚举、注册表条目、配方数据）只落 `engine/schemas` +
    `engine/fixtures`（JSON 真源），生成 TS 常量/类型入
    `engine/src/model/contracts/generated`，机制层模块相对 import 消费，
@@ -177,6 +189,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | 检查 | 对象 | 强度 |
 |---|---|---|
 | 文件行数 ≤350（例外须标注） | engine、hosts(lib·cli·web)、renderer 源码与测试、plugins 真面插件 faces/impl 代码与同住测试（阶段 7a 起随真面插件目录入扫描；hosts/web 阶段 2 起入扫描；data-only 目录无代码不在扫描集） | 拒绝 |
+| host-surface：hosts/lib 禁领域逻辑回潮（S5 定稿） | `hosts/lib/src` 非生成 `.ts`（装配面白名单 21 文件闭集，只减不增；白名单外新增 = 领域逻辑回潮 = 违约，豁免须带独立评审注记 `// gate: host-surface - 新基建评审 <id>`）+ hosts/lib src 代码行判据（非注释非空行 `< 3000`，§13.4 口径；软上限：命中 WARN 不阻 CI，超上限 20% 才红） | 拒绝（强制：`gate/src/rules.ts` `checkHostSurface` + `hosts/lib` 装配面清单常量；写死清单防模糊匹配；改造功能只落 `plugins/` 由 `verify_modification_point` 抽查流程守（CODING §5.0bis）） |
 | src 内夹测试文件（`.test` 在 src 目录） | 各包 `src/**`（plugins 例外：真面插件 `faces/`、`impl/` 内 `.test.ts(x)` 与源码同住并列 = 阶段 7a 目标形态，放行；生成器/脚本目录不进 src） | 拒绝 |
 | 源文件非法 UTF-8 字节（含损坏转码） | 各包 `src/**` | 拒绝（utf8-valid） |
 | core/kernel 禁 node:* 与第三方 import | `engine/src/core/**`、`engine/src/kernel/**` + gate config `layerDirs` 扩面（现体 = `engine/src/{dock,model,graph,gate,loop,evolve}` 六层，P0-dock 起随 P2-P5 搬迁逐层加入、P7 扩面完成，禁逆向移除；两条款口径：0-IO 条款 `node:*`/裸包 + core-token 检查作用集合 = coreDirs ∪ layerDirs，禁反向依赖条款与私有 seam 检查仍只 core/kernel（见后两行）——dock 公共面承载 adapters re-export 属 S2 消亡物，其层向纪律由 layer-dag 矩阵执法） | 拒绝（`node:async_hooks` 白名单例外：镜像 Python core contextvars，清单见 gate config；core/kernel 无裸包放行——数据面契约经相对 import 引用同包内置生成物，不放行其它 @ink-ts/*、adapters 与第三方） |
@@ -186,7 +199,7 @@ host/cli 取用；web/renderer 不静态 import engine（运行时经 cli serve 
 | core/kernel 禁宿主/框架词 | `engine/src/core/**`、`engine/src/kernel/**` | 拒绝 |
 | JSON 纪律：可 parse、无重复键、2 空格缩进格线 | `plugins/**`、`engine/schemas`、`engine/fixtures` JSON | 拒绝（json-valid） |
 | 生成文件禁手改 | `engine/src/model/contracts/generated/**` | 由 `contracts:verify`（engine/scripts/verify_generated.mjs：复制 engine/schemas + fixtures 后重生成，与仓库生成物归一化逐文件 diff）在 root `npm test` 与 CI 强制；不做文本扫描 |
-| 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 graph/gate/loop/evolve 四机制层——kernel 层三契约 simulation/multipath/spawn 已随 P8+S1 退役清零，现 28 契约）+ runtime 装配闭包 + 同机制层与 core 残部源码（扫描集仍含 kernel 历史目录名，目录已清零） | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
+| 机制契约三键（依赖单向/装配完整/0-IO） | 各机制层 `<mechanism>/contract.ts` 全量（经 `engine/src/dock/registry/contracts.ts` 汇入 `ALL_MECHANISM_CONTRACTS`，跨 graph/gate/loop/evolve 四机制层——builder 契约已随 S1-c、kernel 层三契约 simulation/multipath/spawn 已随 P8+S1 退役清零，现 27 契约）+ runtime 装配闭包 + 同机制层与 core 残部源码（扫描集仍含 kernel 历史目录名，目录已清零） | 由 `verify:mechanisms`（engine/scripts/verify_mechanisms.ts：契约密封 DAG 无环 + runtime depends 闭包 ∪ 自足叶子覆盖全量 + 机制层禁 node 内置/第三方/IO 全局原语）在 root `npm test` 与 CI 强制；boot 装配首步同源 `seal_mechanism_registry` fail-closed |
 | 命令声明即挂载（方法名不手写数组） | `hosts/lib/src/bridge/index.ts` 的 `BRIDGE_METHODS` + `hosts/lib/src/bridge/commands.generated.ts` | 由 `verify:bridge-mount`（hosts/lib/scripts/verify_bridge_mount.ts：BRIDGE_METHODS 数组体只允许各域 `*_COMMANDS` spread 或注释，禁点分方法名字面量；spread 常量须已 import；**挂载双向一致**——每个 BRIDGE_METHODS 方法名须有 plugins/commands/<id> 插件声明 faces.logic（target=host），每个声明 faces.logic 的命令插件须在 BRIDGE_METHODS 内，方法名真源 = plugins/commands → commands.generated.ts）在 root `npm test` 与 CI 强制；命令实现位 = plugins/commands/<id>/faces/logic（默认导出统一工厂，S0 装载契约），键与实现表一致由 buildBridge 装配期 fail-closed + 工厂返回类型编译期保证 |
 | 插件源派生视图（manifest 禁手改） | `plugins/manifest.json`（tools 聚合 / mcp 候选视图（web dev 夹具）/ ui_features 组件白名单 / 插件索引） | 由 `verify:plugin-manifest`（plugins/scripts/sync_plugin_manifest.mjs：从 plugins/\<kind\>/\<id\>/spec.json 聚合生成，--check 逐字比对防手改）在 root `npm test` 与 CI 强制；hosts/web dev 夹具、hosts/web mcp 候选夹具、tools_os 夹具生成与 self_check data 门禁一律经 manifest 取用 |
 | 命令面生成物（commands.generated.ts 禁手改） | `hosts/lib/src/bridge/commands.generated.ts`（各域命令元组 + 域命令类型，真源 = plugins/commands/*/spec.json） | 由 `verify:plugin-manifest`（同 scripts/sync_plugin_manifest.mjs：同时派生 manifest.json 与 commands.generated.ts，--check 对两者逐字比对防手改）在 root `npm test` 与 CI 强制；host 域实现文件经 `import type`/re-export 取用 |

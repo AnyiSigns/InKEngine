@@ -175,7 +175,15 @@ audit_recovery/model/knowledge/memory/insights 声明 store:["backend"]）——
 - **卸载顺序（固化先停后卸）**：先停子进程/容器，再注销各 face
   （ui/logic/data 三脸或 host 的 HostFaces——无"按钮还在、后端已删"的孤儿）。
 
-### 2.2 faces.logic 装载与守卫契约（S0 冻结，轨道 B S3/S4 前置门）
+### 2.2 faces.logic 装载与守卫契约（S0 冻结，轨道 B S3/S4/S5 前置门）
+
+**faces.logic = 后端唯一实现位（审查 4，S5 定稿）**：引擎/宿主/exec/renderer 不承载任何产品功能；
+一个产品功能 = `spec.json` + `faces/logic`（+ 可选 `faces/ui`、`data`）单点。命令 =
+`plugins/commands/<id>/faces/logic`、域服务 = `plugins/domains/<id>/faces/logic`、
+端口实现 = `plugins/ports/<id>`（或第三方 `x-*`）、节点实现 = `plugins/graph_nodes/<id>`
+（S1-b）——四族同构（本节省装载协议）+ 同装卸/同审计（§4.6），加内容一律只落插件。
+**插件 = 功能唯一修改点**：改功能 = 改对应插件目录；宿主出现域逻辑 = S5 门禁红
+（`host-surface`，CODING §7）。
 
 **装载协议**：
 
@@ -295,7 +303,9 @@ backup/mcp/os/collab/plugin/execution…）随 S4 从 `hosts/lib/src` 移入对�
   （`auditDomainService` 守声明/工厂/target=host/无孤儿/无环），治理资产随
   行同消；
 - 域服务 = 宿主域逻辑**唯一实现位**：改域功能只改对应 `plugins/domains/<id>/`
-  （spec + faces/logic + 同住测试）；宿主出现域逻辑 = S5 门禁红。
+  （spec + faces/logic + 同住测试）；宿主出现域逻辑 = **S5 门禁红（审查 4 §2.4 代码化：
+  插件 = 功能唯一修改点，引擎/宿主/exec/renderer 禁再堆领域功能——本条款即该口径在域面的落点）**
+  ——hosts/lib 装配面白名单（21 装配件）由 `host-surface` 门禁冻结，只减不增。
 
 **S4 域组3 落地续（2026-09-14）**：
 

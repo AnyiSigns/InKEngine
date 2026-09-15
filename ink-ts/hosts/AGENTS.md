@@ -35,7 +35,12 @@ hosts/
   （域服务插件 faces.logic 默认工厂）+ 原生机制件/端口实装位 = `plugins/ports/*`
   （exec_client/mcp_client 等）；hosts/lib 只装配——boot DI 注入面、loadPortsSeam、
   buildDomainsSeam、bridge 命令面装载；装配契约类型经跨树 type import 取插件包；
-  宿主新增域逻辑 = 违约（S5 门禁红）。
+- **lib 装配面白名单（S5 host-surface 门禁冻结）**：hosts/lib/src 非生成 `.ts` 闭集 21 件
+  （boot/config/host/host_spec/index/mask/model_config_runtime/model_providers/plugins_fs/recipe/
+  transport + assembly/{domains,ports} + bridge/{index,op_gate,round_attachments,_types} +
+  doc/_types + face/loader + graph/node_builders + mcp/assembly），只减不增；新增文件须先经
+  独立新基建评审再入白名单（文件头 `// gate: host-surface - 新基建评审 <id>`）；
+  宿主新增域逻辑 = 违约（S5 门禁红，CODING §5.0bis）。
 - **cli**：唯一进程载体（stdio/run/serve 三形态）；serve 出 http+ws 供 web。
 - **web**：产品壳（App/activate/state/shell/productView/views/AppBackend +
   index.html/main/vite）；显示设备 = renderer（单向 import）；真 ui 面注册

@@ -46,6 +46,16 @@ export interface GateConfig {
   noPendingEnforce: boolean;
   /** no-pending 扫描目录（root 相对，`.ts`/`.tsx` 文件）。 */
   noPendingDirs: readonly string[];
+  /** host-surface 强制位（S5 定稿：true = 违规入 violations 阻断；hosts/lib 禁领域逻辑回潮）。 */
+  hostSurfaceEnforce: boolean;
+  /** host-surface 扫描目录（相对 ink-ts 根，默认 hosts/lib/src）。 */
+  hostSurfaceDirs: readonly string[];
+  /** hosts/lib 装配面白名单（相对 ink-ts 根、非生成 `.ts` 闭集；只减不增，新增即领域逻辑回潮）。 */
+  hostAllowedFiles: readonly string[];
+  /** hosts/lib src 代码行软上限（非注释非空行；超此 WARN 不阻 CI）。 */
+  hostCodeLineSoftLimit: number;
+  /** hosts/lib src 代码行硬上限（超此即红）。 */
+  hostCodeLineHardLimit: number;
 }
 
 export const defaultConfig: GateConfig = {
@@ -67,4 +77,31 @@ export const defaultConfig: GateConfig = {
   noPendingTokens: ['待接线', '未来接线', '待引擎补全', '机制先行'],
   noPendingEnforce: true,
   noPendingDirs: ['engine/src', 'hosts/lib/src', 'hosts/cli/src', 'hosts/web/src', 'renderer/src', 'plugins'],
+  hostSurfaceEnforce: true,
+  hostSurfaceDirs: ['hosts/lib/src'],
+  hostAllowedFiles: [
+    'hosts/lib/src/boot.ts',
+    'hosts/lib/src/config.ts',
+    'hosts/lib/src/host.ts',
+    'hosts/lib/src/host_spec.ts',
+    'hosts/lib/src/index.ts',
+    'hosts/lib/src/mask.ts',
+    'hosts/lib/src/model_config_runtime.ts',
+    'hosts/lib/src/model_providers.ts',
+    'hosts/lib/src/plugins_fs.ts',
+    'hosts/lib/src/recipe.ts',
+    'hosts/lib/src/transport.ts',
+    'hosts/lib/src/assembly/domains.ts',
+    'hosts/lib/src/assembly/ports.ts',
+    'hosts/lib/src/bridge/index.ts',
+    'hosts/lib/src/bridge/op_gate.ts',
+    'hosts/lib/src/bridge/round_attachments.ts',
+    'hosts/lib/src/bridge/_types.ts',
+    'hosts/lib/src/doc/_types.ts',
+    'hosts/lib/src/face/loader.ts',
+    'hosts/lib/src/graph/node_builders.ts',
+    'hosts/lib/src/mcp/assembly.ts',
+  ],
+  hostCodeLineSoftLimit: 3000,
+  hostCodeLineHardLimit: 3600,
 };

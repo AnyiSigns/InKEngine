@@ -8,7 +8,7 @@ import type { GateConfig } from './config.js';
 
 export interface Violation {
   path: string;
-  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid' | 'layer-dag' | 'test-protection' | 'public-api' | 'semantic-e2e' | 'no-pending' | 'no-orphan';
+  rule: 'line-limit' | 'core-import' | 'core-token' | 'src-test' | 'utf8-valid' | 'private-seam' | 'json-valid' | 'layer-dag' | 'test-protection' | 'public-api' | 'semantic-e2e' | 'no-pending' | 'no-orphan' | 'host-surface';
   message: string;
 }
 
@@ -246,4 +246,57 @@ export function compareApiSurface(snapshot: string, current: string, path = 'eng
 export function hasTestExemptMark(content: string): boolean {
   const head = content.split('\n', 12).join('\n');
   return /\/\/\s*gate:\s*test-exempt\s*-/.test(head);
+}
+
+/** §13.4 代码行口径：排除注释与空行（行注释 `//`、块注释、空白行不计，行内代码仍计）。 */
+export function countCodeLines(content: string): number {
+  const lines = content.split('\n');
+  let count = 0;
+  let inBlock = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, '');
+    const trimmed = line.trim();
+    if (!inBlock && trimmed === '') continue;
+    if (inBlock) {
+      if (trimmed.includes('*/')) inBlock = false;
+      continue;
+    }
+    if (trimmed.startsWith('//')) continue;
+    if (trimmed.startsWith('/*')) {
+      if (!trimmed.slice(2).includes('*/')) {
+        inBlock = true;
+      }
+      continue;
+    }
+    let rest = line;
+    while (rest.includes('/*')) {
+      const open = rest.indexOf('/*');
+      const end = rest.indexOf('*/', open + 2);
+      if (end < 0) {
+        inBlock = true;
+        rest = rest.slice(0, open);
+        break;
+      }
+      rest = rest.slice(0, open) + rest.slice(end + 2);
+    }
+    if (rest.replace(/\/\/.*$/, '').trim() === '') continue;
+    count += 1;
+  }
+  return count;
+}
+
+/** host-surface 文件集合违规（S5 定稿）：装配面白名单之外的新增 `hosts/lib/src` 非生成 `.ts` =
+ *  领域逻辑回潮（豁免须带独立评审注记，禁自加白名单）。 */
+export function checkHostSurfaceFileSet(actualFiles: readonly string[], allowed: readonly string[]): Violation[] {
+  const allowedSet = new Set(allowed);
+  const out: Violation[] = [];
+  for (const file of [...actualFiles].sort()) {
+    if (allowedSet.has(file)) continue;
+    out.push({
+      path: file,
+      rule: 'host-surface',
+      message: `hosts/lib src 新文件不在装配面白名单（21 件闭集，只减不增）——领域逻辑回潮 = 违约（审查 4/§2.4）；新增装配件须独立新基建评审（// gate: host-surface - 新基建评审 <id>）后才可进白名单`,
+    });
+  }
+  return out;
 }

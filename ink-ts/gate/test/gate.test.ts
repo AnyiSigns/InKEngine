@@ -610,3 +610,65 @@ describe('semantic-e2e 端到端语义断言', () => {
     expect(warnings.filter((v) => v.rule === 'semantic-e2e')).toEqual([]);
   });
 });
+
+describe('host-surface 装配面白名单（S5 定稿）', () => {
+  const hsCfg = (extra: Record<string, unknown> = {}) => ({
+    ...layerCfg(),
+    layerDagEnforce: false,
+    semanticE2eEnforce: false,
+    noPendingEnforce: false,
+    ...extra,
+  });
+
+  it('正例：白名单内装配件全过，零 hit 零 WARN', async () => {
+    const root = await makeRoot();
+    await write(root, 'hosts/lib/src/boot.ts', `export const boot = 'x';\n`);
+    await write(root, 'hosts/lib/src/assembly/ports.ts', `export const ports = 1;\n`);
+    const { violations, warnings } = await scanAll({ root, config: hsCfg() });
+    expect(violations.filter((v) => v.rule === 'host-surface')).toEqual([]);
+    expect(warnings.filter((v) => v.rule === 'host-surface')).toEqual([]);
+  });
+
+  it('反例：白名单外新增 hosts/lib/src 文件 = 领域逻辑回潮 → red', async () => {
+    const root = await makeRoot();
+    await write(root, 'hosts/lib/src/boot.ts', `export const b = 1;\n`);
+    await write(root, 'hosts/lib/src/domain_backdoor.ts', `export const d = 125;\n`);
+    const { violations, warnings } = await scanAll({ root, config: hsCfg() });
+    const paths = violations.filter((v) => v.rule === 'host-surface').map((v) => v.path);
+    expect(paths).toContain('hosts/lib/src/domain_backdoor.ts');
+    expect(warnings.filter((v) => v.rule === 'host-surface')).toEqual([]);
+  });
+
+  it('软上限：代码行达软上限 → WARN 不阻（violations 无 host-surface）', async () => {
+    const root = await makeRoot();
+    const body = Array.from({ length: 12 }, (_, i) => `export const v${i} = ${i};`).join('\n');
+    await write(root, 'hosts/lib/src/boot.ts', body);
+    const { violations, warnings } = await scanAll({
+      root,
+      config: hsCfg({ hostCodeLineSoftLimit: 10, hostCodeLineHardLimit: 20 }),
+    });
+    expect(violations.filter((v) => v.rule === 'host-surface')).toEqual([]);
+    expect(warnings.filter((v) => v.rule === 'host-surface')).toHaveLength(1);
+  });
+
+  it('硬上限：代码行超硬上限（软 +20% 红线）→ red', async () => {
+    const root = await makeRoot();
+    const body = Array.from({ length: 25 }, (_, i) => `export const v${i} = ${i};`).join('\n');
+    await write(root, 'hosts/lib/src/boot.ts', body);
+    const { violations } = await scanAll({
+      root,
+      config: hsCfg({ hostCodeLineSoftLimit: 10, hostCodeLineHardLimit: 20 }),
+    });
+    const hit = violations.filter((v) => v.rule === 'host-surface');
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.path).toBe('hosts/lib/src');
+  });
+
+  it('enforce=false：文件集违规入 warnings 而非 violations', async () => {
+    const root = await makeRoot();
+    await write(root, 'hosts/lib/src/rogue.ts', `export const r = 1;\n`);
+    const { violations, warnings } = await scanAll({ root, config: hsCfg({ hostSurfaceEnforce: false }) });
+    expect(violations.filter((v) => v.rule === 'host-surface')).toEqual([]);
+    expect(warnings.filter((v) => v.rule === 'host-surface').map((v) => v.path)).toContain('hosts/lib/src/rogue.ts');
+  });
+});

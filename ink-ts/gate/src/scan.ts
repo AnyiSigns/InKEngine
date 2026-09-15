@@ -17,10 +17,12 @@ import { checkTestProtection } from './test_protection.js';
 import {
   checkCoreImports,
   checkCoreTokens,
+  checkHostSurfaceFileSet,
   checkJsonValid,
   checkLineLimit,
   checkPendingTokens,
   checkUtf8Valid,
+  countCodeLines,
   hasCrossDomainSeamMarker,
   type Violation,
 } from './rules.js';
@@ -221,6 +223,61 @@ export async function scanNoPending(root: string, cfg: GateConfig): Promise<Viol
   return violations;
 }
 
+/** §13.4 代码行判据辅助：累计 `hosts/lib` 各非生成 `.ts` 的代码行（非注释非空行）。 */
+async function sumCodeLines(rootNorm: string, files: string[]): Promise<number> {
+  let total = 0;
+  for (const file of files) {
+    const content = await readFile(file, 'utf-8');
+    total += countCodeLines(content);
+  }
+  return total;
+}
+
+/**
+ * host-surface（S5 定稿，§2.4 修改点唯一性代码化）：hosts/lib src 仅允许装配面白名单
+ * 闭集（只减不增；白名单外新文件 = 领域逻辑回潮 = 红），代码行（非注释非空行）< 软上限
+ * （超限 WARN 不阻 CI）、超硬上限（+20%）红。返回 { violations（集内/硬上限）, warnings（软上限） }。
+ */
+export async function scanHostSurface(root: string, cfg: GateConfig): Promise<{ violations: Violation[]; warnings: Violation[] }> {
+  const rootNorm = normalize(root);
+  const violations: Violation[] = [];
+  const warnings: Violation[] = [];
+  for (const dir of cfg.hostSurfaceDirs) {
+    const abs = join(rootNorm, dir);
+    let files: string[];
+    try {
+      files = [];
+      await collectFiles(abs, files, /\.(ts)$/);
+    } catch {
+      continue; // 目录尚未存在视为通过
+    }
+    const actual: string[] = [];
+    const codeFiles: string[] = [];
+    for (const file of files) {
+      const rel = relative(rootNorm, file).split(sep).join('/');
+      if (/\.generated\./.test(rel)) continue; // 生成物不计实现面（生成器逐字比对另守）
+      actual.push(rel);
+      codeFiles.push(file);
+    }
+    violations.push(...checkHostSurfaceFileSet(actual, cfg.hostAllowedFiles));
+    const total = await sumCodeLines(rootNorm, codeFiles);
+    if (total >= cfg.hostCodeLineHardLimit) {
+      violations.push({
+        path: dir,
+        rule: 'host-surface',
+        message: `hosts/lib src 代码行 ${total} 超硬上限 ${cfg.hostCodeLineHardLimit}（§13.4 判据：非注释非空行 < ${cfg.hostCodeLineSoftLimit}；超 +20% 即红）——领域逻辑回潮`,
+      });
+    } else if (total >= cfg.hostCodeLineSoftLimit) {
+      warnings.push({
+        path: dir,
+        rule: 'host-surface',
+        message: `hosts/lib src 代码行 ${total} 达软上限 ${cfg.hostCodeLineSoftLimit}（WARN：距硬上限 ${cfg.hostCodeLineHardLimit} 余 ${cfg.hostCodeLineHardLimit - total} 行）`,
+      });
+    }
+  }
+  return { violations, warnings };
+}
+
 export interface ScanAllOptions {
   root: string;
   config?: Partial<GateConfig>;
@@ -247,6 +304,9 @@ export async function scanAll({ root, config, changedFiles }: ScanAllOptions): P
   (cfg.layerDagEnforce ? violations : warnings).push(...dag);
   const pending = await scanNoPending(root, cfg);
   (cfg.noPendingEnforce ? violations : warnings).push(...pending);
+  const hostSurface = await scanHostSurface(root, cfg);
+  (cfg.hostSurfaceEnforce ? violations : warnings).push(...hostSurface.violations);
+  warnings.push(...hostSurface.warnings);
   const semantic = await scanSemanticE2e(root);
   (cfg.semanticE2eEnforce ? violations : warnings).push(...semantic);
   if (changedFiles === undefined) {
